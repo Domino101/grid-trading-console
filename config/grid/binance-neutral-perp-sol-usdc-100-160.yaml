@@ -1,0 +1,46 @@
+grid_system:
+  exchange: "binance"
+  symbol: "SOL/USDC:USDC"
+  grid_type: "neutral"
+
+  price_range:
+    lower_price: 50.0
+    upper_price: 200.0
+
+  # 500格 → 間隔 = (160-100)/500 = 0.12
+  grid_interval: 0.12
+
+  # 每格約 7.5-30U → 0.15 SOL 確保在最低價 50 USDC 時名義值仍 ≥ 7.5U
+  # (Binance 合約最低名義價值限制：5 USDC；0.07×50=3.5U 不足，故改為 0.15)
+  order_amount: 0.15
+  quantity_precision: 4
+  price_decimals: 2
+
+  leverage: 100
+  margin_mode: "isolated"
+
+  limit_only: true
+
+  # —————————————————————————————————————————
+  # ⚔️  速率限制防護配置 (Binance 限制: 2400 req/min)
+  # —————————————————————————————————————————
+  # 活躍窗口刷新：每60秒一次。每次可能呼叫 get_open_orders()
+  # 持仓REST備用：每120秒一次（ws_only_mode為 true，WS是主要來源）
+  # 式子健康檢查：每3000秒（僅香播源副本，不發起REST）
+  # —————————————————————————————————————————
+
+  active_window_each_side: 10
+  active_window_refresh_interval: 60  # 上次為5s，導致频繁 get_open_orders() 呼叫。提高到60s
+
+  order_health_check_enabled: true
+  order_health_check_interval: 3000
+  health_check_adjust_position_enabled: false
+  rest_position_query_interval: 120  # 上次為2s(強制min=10s)。ws_only_mode=true時REST僅備用，提高到120s
+
+  fee_rate: 0.000
+  reverse_order_grid_distance: 1
+  position_tolerance:
+    amount_diff: 0.006
+    price_diff: 0.1
+  ws_only_mode: true
+  rest_backup_enabled: false

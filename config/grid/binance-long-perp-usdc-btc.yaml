@@ -1,0 +1,31 @@
+grid_system:
+  exchange: "binance"
+  symbol: "ZEC/USDC:USDC"
+  grid_type: "long"
+
+  price_range:
+    lower_price: 400.0
+    upper_price: 600.0
+
+  grid_interval: 0.5
+  order_amount: 0.013
+  quantity_precision: 3
+  price_decimals: 2
+
+  leverage: 10
+  margin_mode: "crossed"
+
+  follow_grid_count: 400
+  take_profit_enabled: false
+  scalping_enabled: false
+  capital_protection_enabled: false
+  stop_loss_protection_enabled: false
+
+  order_health_check_enabled: true
+  order_health_check_interval: 600
+  rest_position_query_interval: 2
+
+  fee_rate: 0.0004
+  position_tolerance:
+    amount_diff: 0.001
+    price_diff: 0.1

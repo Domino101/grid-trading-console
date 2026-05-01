@@ -1,0 +1,33 @@
+binance:
+  name: "Binance"
+  exchange_id: "binance"
+  enabled: true
+  type: "futures"
+  api:
+    base_url: "https://fapi.binance.com"
+    spot_base_url: "https://api.binance.com"
+    ws_url: "wss://fstream.binance.com/ws"
+    spot_ws_url: "wss://stream.binance.com:9443/ws"
+    timeout: 30
+  authentication:
+    api_key: ""
+    api_secret: ""
+  websocket:
+    enabled: true
+    auto_reconnect: true
+    max_reconnect_attempts: 5
+    reconnect_delay: 5
+  precision:
+    price:
+      default: 8
+    quantity:
+      default: 8
+  symbol_mapping:
+    "BTC/USDT:USDT": "BTCUSDT"
+    "ETH/USDT:USDT": "ETHUSDT"
+    "SOL/USDT:USDT": "SOLUSDT"
+    "BNB/USDT:USDT": "BNBUSDT"
+    "BTC/USDC:USDC": "BTCUSDC"
+    "ETH/USDC:USDC": "ETHUSDC"
+    "SOL/USDC:USDC": "SOLUSDC"
+    "BNB/USDC:USDC": "BNBUSDC"
