@@ -1,0 +1,37 @@
+grid_system:
+  exchange: "binance"
+  symbol: "PAXG/USDT:USDT"
+  grid_type: "neutral"
+
+  price_range:
+    lower_price: 4190.0
+    upper_price: 4800.0
+
+  # 每格0.15%：以中位價約4495計算，0.15% ≈ 6.7425 USDT 的價差
+  grid_interval: 6.7425
+
+  # 每格10U：以中位價4495計算，基礎幣數量 ≈ 10 / 4495 ≈ 0.00222525
+  order_amount: 0.00223
+  quantity_precision: 6
+  price_decimals: 2
+
+  leverage: 10
+  margin_mode: "isolated"
+
+  limit_only: true
+
+  active_window_each_side: 10
+  active_window_refresh_interval: 5
+
+  order_health_check_enabled: true
+  order_health_check_interval: 300
+  health_check_adjust_position_enabled: false
+  rest_position_query_interval: 2
+
+  fee_rate: 0.0004
+  reverse_order_grid_distance: 1
+  position_tolerance:
+    amount_diff: 0.006
+    price_diff: 0.1
+  ws_only_mode: true
+  rest_backup_enabled: false

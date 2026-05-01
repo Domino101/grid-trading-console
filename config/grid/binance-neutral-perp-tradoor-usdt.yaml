@@ -1,0 +1,38 @@
+grid_system:
+  exchange: "binance"
+  symbol: "TRADOOR/USDT:USDT"
+  grid_type: "neutral"
+
+  price_range:
+    lower_price: 2.0
+    upper_price: 6.0
+
+  # 每1%一格：以区间中位价近似计算 1% 的美元价差作为 grid_interval
+  # 中位价 ~ (2+6)/2 = 4 ，1% ≈ 0.04
+  grid_interval: 0.04
+
+  # 每格6U：订单金额（按基础币数量）= 6 / 价格；在系统内部按不同价位会格式化
+  order_amount: 6
+  quantity_precision: 4
+  price_decimals: 4
+
+  leverage: 10
+  margin_mode: "isolated"
+
+  limit_only: true
+
+  active_window_each_side: 10
+  active_window_refresh_interval: 5
+
+  order_health_check_enabled: true
+  order_health_check_interval: 300
+  health_check_adjust_position_enabled: false
+  rest_position_query_interval: 2
+
+  fee_rate: 0.0004
+  reverse_order_grid_distance: 1
+  position_tolerance:
+    amount_diff: 0.006
+    price_diff: 0.1
+  ws_only_mode: true
+  rest_backup_enabled: false

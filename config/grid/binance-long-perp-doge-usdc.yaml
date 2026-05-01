@@ -1,0 +1,38 @@
+grid_system:
+  exchange: "binance"
+  symbol: "DOGE/USDC:USDC"
+  grid_type: "long"
+
+  price_range:
+    lower_price: 0.12
+    upper_price: 0.20
+
+  grid_interval: 0.0002
+  order_amount: 38
+  quantity_precision: 0
+  price_decimals: 4
+
+  leverage: 10
+  margin_mode: "isolated"
+
+  follow_grid_count: 400
+  take_profit_enabled: false
+  scalping_enabled: false
+  capital_protection_enabled: false
+  stop_loss_protection_enabled: false
+  startup_flatten_positions_enabled: false
+  limit_only: true
+
+  # 只維持現價上下各10格，並定期刷新
+  active_window_each_side: 10
+  active_window_refresh_interval: 5
+
+  order_health_check_enabled: true
+  order_health_check_interval: 300
+  health_check_adjust_position_enabled: false
+  rest_position_query_interval: 2
+
+  fee_rate: 0.0004
+  position_tolerance:
+    amount_diff: 0.006
+    price_diff: 0.1

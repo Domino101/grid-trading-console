@@ -1,0 +1,32 @@
+grid_system:
+  exchange: "binance"
+  symbol: "SOL/USDC:USDC"
+  grid_type: "long"
+
+  price_range:
+    lower_price: 120.0
+    upper_price: 160.0
+
+  grid_interval: 0.08
+  order_amount: 0.0429
+  quantity_precision: 4
+  price_decimals: 2
+
+  leverage: 10
+  margin_mode: "isolated"
+
+  limit_only: true
+
+  active_window_each_side: 10
+  active_window_refresh_interval: 5
+
+  order_health_check_enabled: true
+  order_health_check_interval: 300
+  health_check_adjust_position_enabled: false
+  rest_position_query_interval: 2
+
+  fee_rate: 0.0004
+  reverse_order_grid_distance: 1
+  position_tolerance:
+    amount_diff: 0.006
+    price_diff: 0.1
