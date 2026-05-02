@@ -99,6 +99,8 @@ class BinanceRest(BinanceBase):
                     or 'too many requests' in err_str
                     or 'banned until' in err_str
                     or 'ip banned' in err_str
+                    or '-1021' in err_str  # TIMESTAMP_OUT_OF_WINDOW
+                    or 'signature for this request is not valid' in err_str
                 )
                 if is_rate_limit:
                     if self.logger:

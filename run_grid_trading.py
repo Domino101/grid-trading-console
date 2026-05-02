@@ -61,8 +61,10 @@ setup_optimized_logging(use_colored=True)
 
 def acquire_lock(config_path: str) -> str:
     """
-    获取进程锁，防止同一配置文件被重复运行
+    获取进程锁，防止同一配置文件被重复运行。如果发现旧进程，则自动将其结束。
     """
+    import time
+    import signal
     # 基于配置文件路径生成唯一的锁文件名称
     abs_path = os.path.abspath(config_path)
     config_hash = hashlib.md5(abs_path.encode('utf-8')).hexdigest()
@@ -73,13 +75,41 @@ def acquire_lock(config_path: str) -> str:
         with open(lock_file, 'r') as f:
             old_pid = f.read().strip()
         if old_pid.isdigit():
+            old_pid_int = int(old_pid)
             # 检查该PID是否仍在运行
             try:
-                os.kill(int(old_pid), 0)
+                os.kill(old_pid_int, 0)
                 # 如果没有抛出异常，说明进程存在
-                print(f"❌ 启动失败：检测到配置文件 {config_path} 正在被另一个进程 (PID: {old_pid}) 运行！")
-                print(f"提示：为避免API被封禁及仓位混乱，已阻止重复运行。如果确信该进程已结束，请手动删除锁文件 {lock_file}")
-                sys.exit(1)
+                print(f"⚠️ 发现旧进程 (PID: {old_pid}) 正在运行配置文件 {config_path}")
+                print(f"🔄 正在尝试自动结束旧进程...")
+                
+                try:
+                    # 发送 SIGTERM 信号要求优雅退出
+                    os.kill(old_pid_int, signal.SIGTERM)
+                    
+                    # 等待最多 5 秒
+                    for _ in range(50):
+                        try:
+                            os.kill(old_pid_int, 0)
+                            time.sleep(0.1)
+                        except OSError:
+                            # 进程已退出
+                            break
+                    else:
+                        # 如果 5 秒后进程仍然存在，强制结束
+                        print(f"⏳ 旧进程未响应，正在强制结束 (SIGKILL)...")
+                        try:
+                            os.kill(old_pid_int, signal.SIGKILL)
+                            time.sleep(0.5)
+                        except OSError:
+                            pass
+                except PermissionError:
+                    print(f"❌ 启动失败：没有权限结束旧进程 (PID: {old_pid})，请使用 root 权限或手动结束！")
+                    sys.exit(1)
+                except OSError as e:
+                    print(f"⚠️ 结束旧进程时发生异常: {e}")
+                    
+                print(f"✅ 旧进程已成功结束")
             except OSError:
                 # 进程不存在，说明是残留的锁文件
                 pass

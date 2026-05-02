@@ -459,6 +459,11 @@ class BinanceAdapter(ExchangeAdapter):
         return self._websocket.is_user_connected
 
     @property
+    def _ws_connected(self) -> bool:
+        """供 grid_engine_impl 智能監控檢測用戶數據流連線狀態"""
+        return self._websocket.is_user_connected
+
+    @property
     def supported_symbols(self) -> List[str]:
         """获取支持的交易对列表"""
         if self._market_info:

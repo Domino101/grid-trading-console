@@ -75,6 +75,10 @@ class BinanceWebSocket(BinanceBase):
         # 事件循环任务
         self._heartbeat_task = None
         self._listen_key_task = None
+        self._user_stream_watchdog_task = None
+
+        # 🔥 用戶數據流最後收到訊息時間（用於死寂偵測/watchdog）
+        self._last_user_message_time: float = 0
         
     async def initialize(self) -> bool:
         """初始化WebSocket连接"""
@@ -84,6 +88,19 @@ class BinanceWebSocket(BinanceBase):
             
             # 创建心跳任务
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+            
+            # 🔥 Fix: 啟動時主動建立用戶數據流（訂單成交/取消事件）
+            # 若 API Key 未配置或連接失敗，降級為 REST 輪詢模式
+            try:
+                user_stream_ok = await self._connect_user_stream()
+                if self.logger:
+                    if user_stream_ok:
+                        self.logger.info("✅ Binance用户数据流已在初始化时成功建立")
+                    else:
+                        self.logger.warning("⚠️ 用户数据流初始化失败，将依赖REST轮询感知成交（可能延迟）")
+            except Exception as user_err:
+                if self.logger:
+                    self.logger.warning(f"⚠️ 用户数据流初始化异常，将依赖REST轮询: {user_err}")
             
             if self.logger:
                 self.logger.info("✅ Binance WebSocket初始化成功")
@@ -213,7 +230,9 @@ class BinanceWebSocket(BinanceBase):
                 return False
             
             # 构建用户数据流URL
-            ws_url = f"{self.ws_url}/ws/{self.listen_key}"
+            # 🔥 Fix: self.ws_url 已含 /ws (如 wss://fstream.binance.com/ws)
+            # 不需要再加 /ws/，否則產生雙重 /ws/ws/ 導致收不到任何推送
+            ws_url = f"{self.ws_url}/{self.listen_key}"
             
             if self.logger:
                 self.logger.info(f"📡 连接Binance用户数据流: {ws_url}")
@@ -462,8 +481,11 @@ class BinanceWebSocket(BinanceBase):
     async def _process_user_message(self, data: Dict[str, Any]):
         """处理用户数据消息"""
         try:
+            # 🔥 更新用戶數據流最後訊息時間（用於 watchdog 死寂偵測）
+            self._last_user_message_time = time.time()
+
             event_type = data.get('e')
-            
+
             if event_type == 'ACCOUNT_UPDATE':
                 await self._handle_balance_update(data)
             elif event_type == 'ORDER_TRADE_UPDATE':
@@ -958,19 +980,60 @@ class BinanceWebSocket(BinanceBase):
             # 确保连接
             if not self._user_connected:
                 await self._connect_user_stream()
-            
+
             # 注册回调
             self._user_subscriptions['balance'] = callback
             self._user_subscriptions['order'] = callback
             self._user_subscriptions['config'] = callback
-            
+
+            # 🔥 修復D：啟動一次性 watchdog，30 秒後檢查是否收到任何 user stream 訊息
+            self._last_user_message_time = 0  # 重置
+            if self._user_stream_watchdog_task and not self._user_stream_watchdog_task.done():
+                self._user_stream_watchdog_task.cancel()
+            self._user_stream_watchdog_task = asyncio.create_task(
+                self._user_stream_watchdog()
+            )
+
             if self.logger:
-                self.logger.info("👤 订阅用户数据流")
-                
+                self.logger.info("👤 订阅用户数据流（含30秒自檢watchdog）")
+
         except Exception as e:
             if self.logger:
                 self.logger.error(f"❌ 订阅用户数据失败: {str(e)}")
             raise
+
+    async def _user_stream_watchdog(self):
+        """一次性 watchdog：訂閱後 30 秒內未收到任何 user stream 訊息則重連"""
+        try:
+            await asyncio.sleep(30)
+            if self._last_user_message_time == 0:
+                if self.logger:
+                    self.logger.warning(
+                        "⚠️ User Stream Watchdog：訂閱30秒後仍未收到任何訊息，"
+                        "嘗試重新獲取 listenKey 並重連..."
+                    )
+                # 關閉舊連線
+                if self._user_websocket:
+                    try:
+                        await self._user_websocket.close()
+                    except Exception:
+                        pass
+                self._user_connected = False
+                # 重新獲取 listenKey 並連線
+                success = await self._connect_user_stream()
+                if self.logger:
+                    if success:
+                        self.logger.info("✅ Watchdog 重連成功")
+                    else:
+                        self.logger.error("❌ Watchdog 重連失敗")
+            else:
+                if self.logger:
+                    self.logger.info("✅ User Stream Watchdog：已在30秒內收到訊息，數據流正常")
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"❌ User Stream Watchdog 異常: {e}")
     
     async def unsubscribe(self, symbol: Optional[str] = None):
         """取消订阅"""
