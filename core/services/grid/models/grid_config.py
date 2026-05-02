@@ -221,6 +221,7 @@ class GridConfig:
     
     ws_only_mode: bool = False
     rest_backup_enabled: bool = False
+    ws_silence_max_seconds: int = 180  # WS應用層死寂閾值（秒），超過此時間有掛單但無消息則觸發單次REST兜底
 
     def __post_init__(self):
         """初始化后计算网格数量"""

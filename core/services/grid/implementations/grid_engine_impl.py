@@ -554,7 +554,8 @@ class GridEngineImpl(IGridEngine):
                     # 仅在窗口内挂单不足时补单（避免固定周期重下）
                     # 在批量下單前增加節流檢查
                     now = time.time()
-                    if hasattr(self, '_last_batch_place_time') and now - getattr(self, '_last_batch_place_time', 0) < 5:
+                    # 🔥 Fix 4: 節流從 5s 放寬至 15s，避免 active_window_refresh 與 coordinator 幾乎同時觸發相互阻擋
+                    if hasattr(self, '_last_batch_place_time') and now - getattr(self, '_last_batch_place_time', 0) < 15:
                         self.logger.warning("⚠️ 批量下單過於頻繁，跳過本次請求避免限頻")
                         return []
                     self._last_batch_place_time = now
@@ -1198,14 +1199,11 @@ class GridEngineImpl(IGridEngine):
                     px = Decimal(str(ex_order.price)) if ex_order.price is not None else None
                     if not px:
                         continue
-                    # 正常映射
-                    gid = self.config.get_grid_index_by_price(px)
-                    grid_ids.add(int(gid))
-                    # 容差：±一個最小跳動，避免邊界四捨五入造成錯配
-                    gid_minus = self.config.get_grid_index_by_price(px - min_tick)
-                    gid_plus = self.config.get_grid_index_by_price(px + min_tick)
-                    grid_ids.add(int(gid_minus))
-                    grid_ids.add(int(gid_plus))
+                    # 🔥 Fix 3: 容差從 ±1 擴展至 ±2 個最小跳動
+                    # 因 maker 修正後實際掛單 price 可能偏離原始 grid price 最多 2 個 tick
+                    for delta in range(-2, 3):  # -2, -1, 0, 1, 2
+                        gid_d = self.config.get_grid_index_by_price(px + delta * min_tick)
+                        grid_ids.add(int(gid_d))
                 except Exception:
                     continue
             # 更新快取
@@ -1456,9 +1454,21 @@ class GridEngineImpl(IGridEngine):
                         f"消息 {time_since_last_message:.0f}秒前"
                     )
 
-                # WS-only 模式：不啟用任何 REST 備援輪詢
+                # WS-only 模式：不啟用常規 REST 備援輪詢，但仍偵測應用層死寂
                 if getattr(self.config, 'ws_only_mode', False):
-                    pass
+                    # 🔥 修復B：應用層死寂偵測 —— 有掛單但長時間無 ORDER_TRADE_UPDATE
+                    ws_silence_max = int(getattr(self.config, 'ws_silence_max_seconds', 180))
+                    if (self._pending_orders
+                            and time_since_last_message > ws_silence_max):
+                        self.logger.warning(
+                            f"⚠️ WS應用層死寂：{time_since_last_message:.0f}秒無消息"
+                            f"（閾值{ws_silence_max}秒），有{len(self._pending_orders)}筆掛單，"
+                            f"觸發單次REST兜底檢查"
+                        )
+                        try:
+                            await self._check_pending_orders()
+                        except Exception as e:
+                            self.logger.warning(f"死寂兜底REST檢查失敗: {e}")
                 else:
                     # 非 WS-only 時，僅在必要時執行一次輪詢
                     try:
@@ -1884,19 +1894,25 @@ class GridEngineImpl(IGridEngine):
                 self.logger.debug(f"data字段不是字典格式，跳过: {type(data)}")
                 return
 
-            # 从data字段中提取订单信息（Backpack格式）
-            order_id = data.get('i')  # Backpack使用'i'表示订单ID
-            status = data.get('X')     # Backpack使用'X'表示状态
+            # 从data字段中提取订单信息（Backpack/Binance格式）
+            order_id = str(data.get('i', ''))  # Backpack/Binance使用'i'表示订单ID
+            status = str(data.get('X', '')).upper()  # Backpack/Binance使用'X'表示状态，统一转为大写
             event_type = data.get('e')  # 事件类型
 
-            if not order_id:
+            if not order_id or order_id == "":
                 self.logger.debug(f"订单更新缺少订单ID: {update_data}")
                 return
 
             # 检查是否是我们的订单
             if order_id not in self._pending_orders:
-                self.logger.debug(f"收到非监控订单的更新: {order_id}")
-                return
+                # 尝试从 client_id 缓存查找
+                client_id = str(data.get('c', ''))
+                if client_id and client_id in self._pending_orders_by_client_id:
+                    grid_order = self._pending_orders_by_client_id[client_id]
+                    order_id = grid_order.order_id  # 修正 order_id 为我们在 state 中追踪的 ID
+                else:
+                    self.logger.debug(f"收到非监控订单的更新: {order_id} / {client_id}")
+                    return
 
             grid_order = self._pending_orders[order_id]
 
@@ -1906,17 +1922,27 @@ class GridEngineImpl(IGridEngine):
                 f"Grid={grid_order.grid_id}"
             )
 
-            # ✅ 修复：Backpack使用"Filled"表示已成交
-            if status == 'Filled' or event_type == 'orderFilled':
+            # ✅ 修复：兼容 Backpack ("FILLED") 和 Binance ("FILLED")
+            if status == 'FILLED' or event_type == 'orderFilled':
                 # 获取成交价格和数量 - 从data字段中提取
                 filled_price = Decimal(str(data.get('p', grid_order.price)))
-                filled_amount = Decimal(
-                    str(data.get('z', grid_order.amount)))  # 'z'是已成交数量
+                filled_amount = Decimal(str(data.get('z', data.get('q', grid_order.amount))))  # 'z'是已成交数量 (Binance 也是 z, 或是 l)
+                
+                # Binance futures 'z' is accumulated filled quantity, 'l' is last filled quantity
+                # To be safe, we use 'z' if it exists, otherwise 'q'
+                if data.get('z') and Decimal(str(data.get('z'))) > 0:
+                    filled_amount = Decimal(str(data.get('z')))
+                elif data.get('l') and Decimal(str(data.get('l'))) > 0:
+                    # In some Binance events, 'l' is the filled qty
+                    filled_amount = Decimal(str(data.get('l')))
 
                 grid_order.mark_filled(filled_price, filled_amount)
 
                 # 从挂单列表移除
-                del self._pending_orders[order_id]
+                if order_id in self._pending_orders:
+                    del self._pending_orders[order_id]
+                if grid_order.client_id and grid_order.client_id in self._pending_orders_by_client_id:
+                    del self._pending_orders_by_client_id[grid_order.client_id]
 
                 self.logger.info(
                     f"✅ 订单成交: {grid_order.side.value} {filled_amount}@{filled_price} "
@@ -1934,10 +1960,12 @@ class GridEngineImpl(IGridEngine):
                         self.logger.error(f"订单回调执行失败: {e}")
 
             # 🔥 处理订单取消事件
-            elif status == 'Cancelled' or event_type == 'orderCancelled':
+            elif status in ['CANCELLED', 'CANCELED'] or event_type == 'orderCancelled':
                 # 从挂单列表移除
                 if order_id in self._pending_orders:
                     del self._pending_orders[order_id]
+                if grid_order.client_id and grid_order.client_id in self._pending_orders_by_client_id:
+                    del self._pending_orders_by_client_id[grid_order.client_id]
 
                 # 🔥 关键修复：区分主动取消和被动取消
                 is_expected_cancellation = order_id in self._expected_cancellations
@@ -2118,17 +2146,17 @@ class GridEngineImpl(IGridEngine):
         except Exception:
             return
 
-        # 當前掛單來源：WS-only 使用本地 pending；非 WS-only 可選 REST
-        use_ws_only = getattr(self.config, 'ws_only_mode', False)
-        if use_ws_only:
-            pending = self.get_pending_orders()
-            open_prices = {o.price: o for o in pending}
-        else:
-            try:
-                open_orders = await self.exchange.get_open_orders(self.config.symbol)
-                open_prices = {o.price: o for o in open_orders}
-            except Exception:
-                open_prices = {o.price: o for o in self.get_pending_orders()}
+        # 🔥 Fix 2: ws_only_mode 下也使用交易所真實掛單判斷窗口是否充足
+        # 原本使用本地 _pending_orders，但因 WS 成交事件未觸發，已成交訂單殘留於本地緩存
+        # 導致窗口永遠「充足」而跳過補單。改為使用交易所 REST 快照（帶 TTL 緩存避免過頻）
+        try:
+            open_orders = await self.exchange.get_open_orders(self.config.symbol)
+            open_prices = {o.price: o for o in open_orders}
+            self.logger.debug(f"🔍 活躍窗口: 交易所掛單 {len(open_orders)} 筆")
+        except Exception as e:
+            # 降級：使用本地掛單（可能含舊資料，但優於完全跳過）
+            self.logger.warning(f"⚠️ 活躍窗口無法取得交易所掛單，降級使用本地 pending: {e}")
+            open_prices = {o.price: o for o in self.get_pending_orders()}
 
         # 取消窗口外掛單（只針對我們追蹤的掛單）
         to_cancel = [o for p, o in open_prices.items() if p not in targets]
