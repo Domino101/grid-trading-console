@@ -97,6 +97,13 @@ class BalanceMonitor:
         while self._running:
             try:
                 await asyncio.sleep(self._update_interval)
+                # 🔥 熔斷守衛：若引擎 API 熔斷中（-2015 或 -1003），跳過本輪查詢
+                if hasattr(self.engine, '_is_circuit_open') and self.engine._is_circuit_open():
+                    self.logger.debug(
+                        f"⛔ API 熔斷中 (code={getattr(self.engine, '_last_api_error_code', '?')})，"
+                        f"跳過本輪余額查詢"
+                    )
+                    continue
                 await self.update_balance()
             except asyncio.CancelledError:
                 self.logger.info("💰 余额监控循环被取消")
