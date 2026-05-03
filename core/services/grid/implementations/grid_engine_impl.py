@@ -25,6 +25,7 @@ Lighter 交易所特殊处理：
 """
 
 import asyncio
+import re
 import time
 from typing import List, Optional, Callable, Dict, Set, Tuple
 from decimal import Decimal
@@ -114,10 +115,74 @@ class GridEngineImpl(IGridEngine):
         self._symbol_open_orders_cache_lock = asyncio.Lock()
         self._price_fetch_lock = asyncio.Lock()
 
+        # 🔥 API 熔斷器（BAN / Invalid API Key 短路保護）
+        # _api_circuit_until = float('inf')  → -2015 永久熔斷，等人工介入
+        # _api_circuit_until = <timestamp>   → -1003 定時熔斷至 banned_until
+        self._last_api_error_code: Optional[str] = None
+        self._api_circuit_until: float = 0.0
+
         # 获取交易所ID，避免直接打印整个对象（可能导致循环引用）
         exchange_id = getattr(exchange_adapter.config,
                               'exchange_id', 'unknown')
         self.logger.info(f"网格执行引擎初始化: {exchange_id}")
+
+    # ------------------------------------------------------------------
+    # 🔥 API 熔斷器輔助方法
+    # ------------------------------------------------------------------
+
+    def _parse_and_set_circuit(self, error_str: str) -> Optional[str]:
+        """
+        解析 API 錯誤字串，提取錯誤碼並設定熔斷狀態。
+
+        規則：
+        - code -2015 → 永久熔斷（float('inf')），等人工更新 IP 白名單
+        - code -1003 → 解析 'banned until <ms>' 時間戳，定時熔斷
+        - 其他碼     → 不設熔斷，僅回傳碼供呼叫端參考
+
+        Returns:
+            解析到的錯誤碼字串（如 '-2015'），或 None
+        """
+        m = re.search(r'"?code"?\s*:\s*(-?\d+)', error_str)
+        if not m:
+            # 嘗試另一種格式：「code:-1003」或「-1003」單獨出現
+            m = re.search(r'(?<!\d)(-\d{4})(?!\d)', error_str)
+        code = str(m.group(1)) if m else None
+
+        if code == '-2015':
+            self._last_api_error_code = code
+            self._api_circuit_until = float('inf')
+            self.logger.critical(
+                "🚨 API Key/IP 白名單無效 (-2015)，已永久熔斷所有 REST 呼叫！"
+                " 請至 Binance 後台更新 IP 白名單後手動重啟交易引擎。"
+            )
+        elif code == '-1003':
+            self._last_api_error_code = code
+            bm = re.search(r'banned until (\d+)', error_str)
+            if bm:
+                until_ms = int(bm.group(1))
+                self._api_circuit_until = until_ms / 1000.0
+                wait_sec = max(0, self._api_circuit_until - time.time())
+                self.logger.error(
+                    f"🚫 IP 被 BAN (-1003)，熔斷 {wait_sec:.0f} 秒"
+                    f"（直到 {datetime.fromtimestamp(self._api_circuit_until).strftime('%H:%M:%S')}）"
+                )
+            else:
+                self._api_circuit_until = time.time() + 120.0
+                self.logger.error(
+                    "🚫 IP 被 BAN (-1003)，未解析到 banned until 時間戳，預設退避 120 秒"
+                )
+
+        return code
+
+    def _is_circuit_open(self) -> bool:
+        """
+        判斷 API 熔斷器是否開啟。
+
+        Returns:
+            True  → 熔斷中，所有 REST 呼叫應立即跳過
+            False → 正常，可進行 API 呼叫
+        """
+        return time.time() < self._api_circuit_until
 
     async def initialize(self, config: GridConfig):
         """
@@ -616,12 +681,29 @@ class GridEngineImpl(IGridEngine):
 
         # ✅ 重试失败的订单
         if failed_orders and max_retries > 0:
-            self.logger.warning(
-                f"⚠️ 检测到{len(failed_orders)}个失败订单，开始重试..."
-            )
+            # 🔥 短路：若熔斷器開啟（-2015 或 -1003），跳過所有重試
+            if self._is_circuit_open():
+                self.logger.error(
+                    f"⛔ API 熔斷器開啟 (code={self._last_api_error_code})，"
+                    f"跳過 {len(failed_orders)} 筆訂單重試，避免加劇 BAN"
+                )
+                failed_orders = []
+            else:
+                self.logger.warning(
+                    f"⚠️ 检测到{len(failed_orders)}个失败订单，开始重试..."
+                )
 
+        if failed_orders and max_retries > 0:
             for retry_attempt in range(1, max_retries + 1):
                 if not failed_orders:
+                    break
+
+                # 🔥 每輪重試前再次檢查熔斷狀態（可能在上輪重試中被設定）
+                if self._is_circuit_open():
+                    self.logger.error(
+                        f"⛔ API 熔斷器開啟 (code={self._last_api_error_code})，"
+                        f"停止第 {retry_attempt} 輪重試"
+                    )
                     break
 
                 self.logger.info(
@@ -658,8 +740,17 @@ class GridEngineImpl(IGridEngine):
                         successful_orders.append(result)
                         retry_success += 1
                     else:
+                        error_str = str(result)
+                        # 🔥 解析錯誤碼並更新熔斷狀態
+                        parsed_code = self._parse_and_set_circuit(error_str)
                         # 仍然失败，记录下来
-                        failed_orders.append((retry_orders[idx], str(result)))
+                        failed_orders.append((retry_orders[idx], error_str))
+                        # 🔥 -2015 永久性錯誤：立即停止後續重試
+                        if parsed_code == '-2015':
+                            self.logger.critical(
+                                f"⛔ 檢測到 -2015（重試中），立即停止重試循環"
+                            )
+                            break
 
                 self.logger.info(
                     f"重试结果: 成功{retry_success}/{len(retry_orders)}个，"
@@ -2122,6 +2213,14 @@ class GridEngineImpl(IGridEngine):
             else:
                 self.logger.info(f"📡 活躍窗口刷新循環啟動（間隔 {refresh_interval}s）")
             while self._running:
+                # 🔥 熔斷守衛：API 熔斷中（-2015 永久 / -1003 定時）則跳過本輪
+                if self._is_circuit_open():
+                    self.logger.debug(
+                        f"⛔ API 熔斷中 (code={self._last_api_error_code})，"
+                        f"跳過本輪活躍窗口刷新"
+                    )
+                    await asyncio.sleep(refresh_interval)
+                    continue
                 try:
                     await self._refresh_active_window_once(window_each_side)
                 except Exception as e:
