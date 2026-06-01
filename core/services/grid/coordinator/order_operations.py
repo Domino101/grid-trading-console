@@ -85,6 +85,19 @@ class OrderOperations:
 
         return False
 
+    def _is_circuit_open(self, operation_name: str) -> bool:
+        """🛑 熔斷守衛：BAN 期間禁止 REST 訂單操作，避免延長 BAN 期。"""
+        try:
+            if hasattr(self.engine, '_is_circuit_open') and self.engine._is_circuit_open():
+                code = getattr(self.engine, '_last_api_error_code', None)
+                self.logger.warning(
+                    f"⛔ {operation_name}：API 熔斷中 (code={code})，本次跳過"
+                )
+                return True
+        except Exception:
+            pass
+        return False
+
     async def cancel_all_orders_with_verification(
         self,
         max_retries: int = 3,
@@ -109,6 +122,9 @@ class OrderOperations:
             True: 所有订单已取消
             False: 仍有订单无法取消
         """
+        # 🛑 熔斷守衛：BAN 期間略過驗證式取消，由上層決定是否重試
+        if self._is_circuit_open("批量取消订单"):
+            return False
         self.logger.info("📋 取消所有订单并验证...")
 
         # 🔥 检查交易所类型
@@ -254,6 +270,9 @@ class OrderOperations:
             True: 所有满足条件的订单已取消
             False: 仍有满足条件的订单无法取消
         """
+        # 🛑 熔斷守衛：BAN 期間略過按條件取消
+        if self._is_circuit_open(f"取消{filter_description}"):
+            return False
         for attempt in range(max_attempts):
             self.logger.info(
                 f"🔄 取消{filter_description}尝试 {attempt+1}/{max_attempts}..."
@@ -469,6 +488,10 @@ class OrderOperations:
 
         # 🆕 检查系统是否暂停
         if self._check_if_paused("挂单"):
+            return None
+
+        # 🛑 熔斷守衛：BAN 期間禁止挂单（會立即失败並延長 BAN）
+        if self._is_circuit_open("挂单"):
             return None
 
         for attempt in range(max_attempts):

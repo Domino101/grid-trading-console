@@ -25,9 +25,11 @@ Lighter 交易所特殊处理：
 """
 
 import asyncio
+import json
+import os
 import re
 import time
-from typing import List, Optional, Callable, Dict, Set, Tuple
+from typing import List, Optional, Callable, Dict, Set, Tuple, Any
 from decimal import Decimal
 from datetime import datetime
 
@@ -36,7 +38,100 @@ from ....adapters.exchanges import ExchangeInterface, OrderSide as ExchangeOrder
 from ....adapters.exchanges.models import ExchangeType
 from collections import deque
 from ..interfaces.grid_engine import IGridEngine
-from ..models import GridConfig, GridOrder, GridOrderSide, GridOrderStatus
+from ..models import GridConfig, GridOrder, GridOrderSide, GridOrderStatus, GridType
+
+
+# ---------------------------------------------------------------------------
+# 🔥 API 熔斷器跨進程持久化（防止重啟期間繼續打 API 加劇 BAN）
+#
+# 狀態檔位置：data/.circuit_breaker_state.json
+# 內容範例：
+#   {"code": "-1003", "until_ts": 1777801349.452,
+#    "until_iso": "2026-05-03 15:22:29", "saved_at": 1777800000.0}
+#   {"code": "-2015", "until_ts": null, "until_iso": "permanent", ...}
+# ---------------------------------------------------------------------------
+
+CIRCUIT_STATE_FILENAME = ".circuit_breaker_state.json"
+
+
+def _get_circuit_state_file_path() -> str:
+    """取得熔斷狀態檔絕對路徑（位於 repo 根的 data/ 目錄）"""
+    repo_root = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+    return os.path.join(repo_root, "data", CIRCUIT_STATE_FILENAME)
+
+
+def read_persisted_circuit_state() -> Optional[Dict[str, object]]:
+    """
+    讀取持久化的熔斷狀態。
+
+    Returns:
+        - None：無檔案 / 已過期 / 解析失敗
+        - dict：{"code": str, "until_ts": float|None, "until_iso": str}
+                until_ts 為 None 表示永久熔斷（-2015）
+    """
+    path = _get_circuit_state_file_path()
+    try:
+        if not os.path.exists(path):
+            return None
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        until_ts = data.get("until_ts")
+        # 永久熔斷：保留
+        if until_ts is None:
+            return data
+        # 已過期：清理檔案後回傳 None
+        if float(until_ts) <= time.time():
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            return None
+        return data
+    except Exception:
+        return None
+
+
+def write_persisted_circuit_state(code: str, until_ts: Optional[float]) -> None:
+    """
+    寫入熔斷狀態到磁碟。
+
+    Args:
+        code: 錯誤碼，如 '-1003' 或 '-2015'
+        until_ts: 熔斷到期 unix 時間戳；None = 永久熔斷
+    """
+    path = _get_circuit_state_file_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        if until_ts is None:
+            until_iso = "permanent"
+        else:
+            until_iso = datetime.fromtimestamp(float(until_ts)).strftime(
+                "%Y-%m-%d %H:%M:%S")
+        payload = {
+            "code": code,
+            "until_ts": until_ts,
+            "until_iso": until_iso,
+            "saved_at": time.time(),
+            "saved_at_iso": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        tmp_path = path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, path)
+    except Exception:
+        # 持久化失敗不應影響主流程
+        pass
+
+
+def clear_persisted_circuit_state() -> None:
+    """刪除熔斷狀態檔（BAN 解除後可呼叫以清除磁碟殘留）"""
+    path = _get_circuit_state_file_path()
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except OSError:
+        pass
 
 
 class GridEngineImpl(IGridEngine):
@@ -56,6 +151,16 @@ class GridEngineImpl(IGridEngine):
     _price_failure_reset_timeout = 30  # 超过30秒没有新失败则重置计数器
     _price_max_failures = 15  # 🔥 最大连续失败次数（15次后判定为网络故障）
     _price_success_required_to_reset = 3  # 🆕 连续成功N次后才重置失败计数器（确认网络稳定）
+
+    # 🔥 类变量：API 熔斷器狀態（所有實例共享）
+    # 当一个 GridEngineImpl 实例检测到 BAN（-1003）或 API Key 无效（-2015）时，
+    # 所有并发运行的实例都会立即看到熔断状态并停止 REST 调用。
+    # _api_circuit_until = float('inf')  → -2015 永久熔斷
+    # _api_circuit_until = <timestamp>   → -1003 定時熔斷至 banned_until
+    # _api_circuit_until = 0.0           → 正常（無熔斷）
+    _shared_api_circuit_until: float = 0.0
+    _shared_last_api_error_code: Optional[str] = None
+    _shared_circuit_initialized: bool = False  # 确保持久化状态只加载一次
 
     def __init__(self, exchange_adapter: ExchangeInterface):
         """
@@ -116,23 +221,59 @@ class GridEngineImpl(IGridEngine):
         self._price_fetch_lock = asyncio.Lock()
 
         # 🔥 API 熔斷器（BAN / Invalid API Key 短路保護）
-        # _api_circuit_until = float('inf')  → -2015 永久熔斷，等人工介入
-        # _api_circuit_until = <timestamp>   → -1003 定時熔斷至 banned_until
-        self._last_api_error_code: Optional[str] = None
-        self._api_circuit_until: float = 0.0
+        # 使用类变量共享状态 — 所有 GridEngineImpl 实例共用同一份熔断状态
+        # 通过 @property 提供实例级访问接口（见下方 _api_circuit_until / _last_api_error_code）
+
+        # 🔥 跨進程熔斷狀態：首次实例化时从磁碟载入持久化资料（仅加载一次）
+        if not GridEngineImpl._shared_circuit_initialized:
+            GridEngineImpl._shared_circuit_initialized = True
+            persisted = read_persisted_circuit_state()
+            if persisted is not None:
+                until_ts = persisted.get("until_ts")
+                GridEngineImpl._shared_last_api_error_code = persisted.get("code")
+                if until_ts is None:
+                    GridEngineImpl._shared_api_circuit_until = float('inf')
+                else:
+                    GridEngineImpl._shared_api_circuit_until = float(until_ts)
+        else:
+            persisted = None  # 后续实例不重复加载
 
         # 获取交易所ID，避免直接打印整个对象（可能导致循环引用）
         exchange_id = getattr(exchange_adapter.config,
                               'exchange_id', 'unknown')
         self.logger.info(f"网格执行引擎初始化: {exchange_id}")
+        if persisted is not None:
+            self.logger.warning(
+                f"⛔ 從磁碟載入熔斷狀態: code={GridEngineImpl._shared_last_api_error_code}, "
+                f"until={persisted.get('until_iso')}（所有引擎實例共享此熔斷狀態）"
+            )
 
     # ------------------------------------------------------------------
     # 🔥 API 熔斷器輔助方法
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # 🔥 类变量到实例的桥接属性（保持向后兼容，所有旧代码的 self.xxx 仍可用）
+    # ------------------------------------------------------------------
+    @property
+    def _api_circuit_until(self) -> float:
+        return GridEngineImpl._shared_api_circuit_until
+
+    @_api_circuit_until.setter
+    def _api_circuit_until(self, value: float):
+        GridEngineImpl._shared_api_circuit_until = value
+
+    @property
+    def _last_api_error_code(self) -> Optional[str]:
+        return GridEngineImpl._shared_last_api_error_code
+
+    @_last_api_error_code.setter
+    def _last_api_error_code(self, value: Optional[str]):
+        GridEngineImpl._shared_last_api_error_code = value
+
     def _parse_and_set_circuit(self, error_str: str) -> Optional[str]:
         """
-        解析 API 錯誤字串，提取錯誤碼並設定熔斷狀態。
+        解析 API 錯誤字串，提取錯誤碼並設定熔斷狀態（寫入類變量，所有實例共享）。
 
         規則：
         - code -2015 → 永久熔斷（float('inf')），等人工更新 IP 白名單
@@ -149,40 +290,51 @@ class GridEngineImpl(IGridEngine):
         code = str(m.group(1)) if m else None
 
         if code == '-2015':
-            self._last_api_error_code = code
-            self._api_circuit_until = float('inf')
+            GridEngineImpl._shared_last_api_error_code = code
+            GridEngineImpl._shared_api_circuit_until = float('inf')
             self.logger.critical(
-                "🚨 API Key/IP 白名單無效 (-2015)，已永久熔斷所有 REST 呼叫！"
+                "🚨 API Key/IP 白名單無效 (-2015)，已永久熔斷所有引擎實例的 REST 呼叫！"
                 " 請至 Binance 後台更新 IP 白名單後手動重啟交易引擎。"
             )
+            # 🔥 持久化到磁碟：until_ts=None 表永久熔斷
+            write_persisted_circuit_state(code, None)
         elif code == '-1003':
-            self._last_api_error_code = code
+            GridEngineImpl._shared_last_api_error_code = code
             bm = re.search(r'banned until (\d+)', error_str)
             if bm:
                 until_ms = int(bm.group(1))
-                self._api_circuit_until = until_ms / 1000.0
-                wait_sec = max(0, self._api_circuit_until - time.time())
+                new_until = until_ms / 1000.0
+                # 🔥 只延長不縮短：避免較短的 BAN 覆蓋較長的 BAN
+                if new_until > GridEngineImpl._shared_api_circuit_until:
+                    GridEngineImpl._shared_api_circuit_until = new_until
+                wait_sec = max(0, GridEngineImpl._shared_api_circuit_until - time.time())
                 self.logger.error(
-                    f"🚫 IP 被 BAN (-1003)，熔斷 {wait_sec:.0f} 秒"
-                    f"（直到 {datetime.fromtimestamp(self._api_circuit_until).strftime('%H:%M:%S')}）"
+                    f"🚫 IP 被 BAN (-1003)，全局熔斷 {wait_sec:.0f} 秒"
+                    f"（直到 {datetime.fromtimestamp(GridEngineImpl._shared_api_circuit_until).strftime('%H:%M:%S')}）"
+                    f"（影響所有並發引擎實例）"
                 )
             else:
-                self._api_circuit_until = time.time() + 120.0
+                fallback_until = time.time() + 120.0
+                if fallback_until > GridEngineImpl._shared_api_circuit_until:
+                    GridEngineImpl._shared_api_circuit_until = fallback_until
                 self.logger.error(
-                    "🚫 IP 被 BAN (-1003)，未解析到 banned until 時間戳，預設退避 120 秒"
+                    "🚫 IP 被 BAN (-1003)，未解析到 banned until 時間戳，"
+                    "全局預設退避 120 秒（影響所有並發引擎實例）"
                 )
+            # 🔥 持久化到磁碟：寫入確切的解封時間戳
+            write_persisted_circuit_state(code, GridEngineImpl._shared_api_circuit_until)
 
         return code
 
     def _is_circuit_open(self) -> bool:
         """
-        判斷 API 熔斷器是否開啟。
+        判斷 API 熔斷器是否開啟（讀取類變量，所有實例共享狀態）。
 
         Returns:
             True  → 熔斷中，所有 REST 呼叫應立即跳過
             False → 正常，可進行 API 呼叫
         """
-        return time.time() < self._api_circuit_until
+        return time.time() < GridEngineImpl._shared_api_circuit_until
 
     async def initialize(self, config: GridConfig):
         """
@@ -508,19 +660,25 @@ class GridEngineImpl(IGridEngine):
             self.logger.error(f"❌ 市价单失败: {e}")
             raise
 
-    async def place_batch_orders(self, orders: List[GridOrder], max_retries: int = 2) -> List[GridOrder]:
+    async def place_batch_orders(self, orders: List[GridOrder], max_retries: int = 2, current_price: 'Optional[Decimal]' = None) -> List[GridOrder]:
         """
         批量下单 - 优化版，支持大批量订单和失败重试
 
         Args:
             orders: 订单列表
             max_retries: 最大重试次数（默认2次）
+            current_price: 可選的預取現價，避免重複查詢（Fix #2/#4）
 
         Returns:
             更新后的订单列表
         """
         ex_id = str(getattr(self.exchange.config, 'exchange_id', '')).lower()
         total_orders = len(orders)
+
+        # 🔥 Fix #2: 只查一次現價，後續全部複用
+        if current_price is None:
+            current_price = await self.get_current_price()
+
         if ex_id == 'binance':
             try:
                 allowed = await self._allowed_orders_for_symbol(total_orders)
@@ -533,11 +691,10 @@ class GridEngineImpl(IGridEngine):
                     self.logger.info("中性网格：初始不生成订单，跳过批量下单")
                     return []
 
-                # 🆕 強制窗口大小：現價上下各N格
+                # 🆕 強制窗口大小：現價上下各N格（使用已取得的 current_price）
                 window_each_side = int(getattr(self.config, 'active_window_each_side', 0) or 0)
                 if window_each_side <= 0:
                     window_each_side = 10
-                current_price = await self.get_current_price()
                 below = sorted([o for o in orders if o.price <= current_price], key=lambda o: abs(float(o.price - current_price)))
                 above = sorted([o for o in orders if o.price > current_price], key=lambda o: abs(float(o.price - current_price)))
                 target_total = window_each_side * 2 if window_each_side > 0 else allowed
@@ -593,12 +750,12 @@ class GridEngineImpl(IGridEngine):
             else:
                 if ex_id == 'binance':
                     # 🆕 幣安窗口策略：僅選擇現價±active_window_each_side 的掛單
+                    # 🔥 Fix #2: 使用方法開頭已取得的 current_price，不再重複查詢
                     try:
                         window_each_side = int(getattr(self.config, 'active_window_each_side', 0) or 0)
                         if window_each_side <= 0:
                             window_each_side = 10
                         if window_each_side > 0:
-                            current_price = await self.get_current_price()
                             # 根據網格價格計算距離現價最近的上下各N格
                             def _distance(o):
                                 return abs(float(o.price - current_price))
@@ -625,39 +782,40 @@ class GridEngineImpl(IGridEngine):
                         return []
                     self._last_batch_place_time = now
 
-                    # 🔥 以交易所真實開放訂單為準，決定本批需補單項目（TTL 已降至 5s）
-                    exchange_open_grid_ids = await self._get_open_grid_ids_from_exchange(force_refresh=False)
+                    # 🔥 Fix #3: 直接用 force_refresh=True 一次查詢，去掉二次確認邏輯
+                    exchange_open_grid_ids = await self._get_open_grid_ids_from_exchange(force_refresh=True)
                     orders_to_place = []
                     for order in batch:
                         if order.grid_id not in exchange_open_grid_ids:
                             orders_to_place.append(order)
 
-                    # 🔥 修復：只要判斷為無需補單，一律強制刷新以二次確認（不再依賴時間條件）
-                    if not orders_to_place:
-                        self.logger.info("🔧 窗口看似充足，強制刷新交易所掛單以二次確認...")
-                        exchange_open_grid_ids = await self._get_open_grid_ids_from_exchange(force_refresh=True)
-                        orders_to_place = []
-                        for order in batch:
-                            if order.grid_id not in exchange_open_grid_ids:
-                                orders_to_place.append(order)
-
                     if not orders_to_place:
                         results = []
-                        self.logger.info("🔧 窗口內掛單已充足（二次確認），跳過本批補單")
+                        self.logger.info("🔧 窗口內掛單已充足，跳過本批補單")
                     else:
                         self.logger.info(f"🔧 窗口內需補單: {len(orders_to_place)}/{len(batch)}")
-                        results = []
-                        for order in orders_to_place:
-                            try:
-                                result = await self.place_order(order)
-                                results.append(result)
-                                await asyncio.sleep(0.1)  # 🔥 避免限頻
-                            except Exception as e:
-                                results.append(e)
-                                await asyncio.sleep(0.5)  # 🔥 若發生錯誤（如429），延長等待時間
+                        # 🔥 Fix #1: 使用批量下單 API（每 5 張一批），取代逐筆串行
+                        results = await self._place_orders_via_batch_api(
+                            orders_to_place, current_price
+                        )
                 else:
-                    tasks = [self.place_order(order) for order in batch]
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    # 🔥 [格位去重] 非 Binance 路徑：同樣先查詢交易所已開放的 grid_id，過濾重複格
+                    try:
+                        exchange_open_grid_ids_else = await self._get_open_grid_ids_from_exchange(force_refresh=True)
+                        batch_filtered = [o for o in batch if o.grid_id not in exchange_open_grid_ids_else]
+                        if len(batch_filtered) < len(batch):
+                            self.logger.info(
+                                f"🔍 批量下單去重：過濾掉 {len(batch) - len(batch_filtered)} 個已存在格位的訂單"
+                            )
+                        batch = batch_filtered
+                    except Exception:
+                        pass  # 查詢失敗時跳過去重，保持原有行為
+
+                    if not batch:
+                        results = []
+                    else:
+                        tasks = [self.place_order(order) for order in batch]
+                        results = await asyncio.gather(*tasks, return_exceptions=True)
 
             # 统计当前批次结果
             batch_success = 0
@@ -793,6 +951,99 @@ class GridEngineImpl(IGridEngine):
 
         return successful_orders
 
+    async def _place_orders_via_batch_api(
+        self,
+        orders: List[GridOrder],
+        current_price: Decimal,
+    ) -> List:
+        """
+        🔥 Fix #1: 透過 BinanceRest.create_batch_orders() 批量下單。
+        每次最多 5 張訂單走一個 REST 請求，20 張只需 4 次 REST 呼叫。
+
+        Args:
+            orders: 待下單的 GridOrder 列表
+            current_price: 已預取的現價（避免再查 REST）
+
+        Returns:
+            結果列表，成功為 GridOrder，失敗為 Exception
+        """
+        from core.adapters.exchanges.adapters.binance_rest import BinanceRest
+
+        min_tick = Decimal('1') / (Decimal('10') ** int(getattr(self.config, 'price_decimals', 2)))
+
+        # 準備訂單參數（包含 maker 價格調整）
+        batch_order_dicts: List[Dict[str, Any]] = []
+        for order in orders:
+            target_price = order.price
+            # Maker price 調整：確保限價單不會立即成交
+            if order.side == GridOrderSide.BUY:
+                if not (target_price <= current_price - min_tick):
+                    target_price = current_price - min_tick
+            else:
+                if not (target_price >= current_price + min_tick):
+                    target_price = current_price + min_tick
+
+            params = {
+                'timeInForce': 'GTX',
+                'postOnly': True,
+            }
+            # 加入 grid_id 作為 clientOrderId（對應 Binance newClientOrderId）
+            grid_id = order.grid_id
+            if grid_id:
+                cid = f"grid_{grid_id}_{int(time.time() * 1000) % 1000000}"
+                params['clientOrderId'] = cid
+
+            batch_order_dicts.append({
+                'side': ExchangeOrderSide.BUY if order.side == GridOrderSide.BUY else ExchangeOrderSide.SELL,
+                'order_type': OrderType.LIMIT,
+                'amount': order.amount,
+                'price': target_price,
+                'params': params,
+            })
+
+        # 取得底層 BinanceRest adapter
+        rest_adapter = None
+        adapter = self.exchange
+        if hasattr(adapter, 'rest') and isinstance(adapter.rest, BinanceRest):
+            rest_adapter = adapter.rest
+        elif isinstance(adapter, BinanceRest):
+            rest_adapter = adapter
+
+        results: List = []
+        if rest_adapter is not None:
+            symbol = self.config.symbol
+            self.logger.info(
+                f"📦 [Batch API] 正在透過 batchOrders 下 {len(orders)} 張訂單 "
+                f"(~{(len(orders) + 4) // 5} 個 REST 請求)"
+            )
+            api_results = await rest_adapter.create_batch_orders(symbol, batch_order_dicts)
+            for idx, res in enumerate(api_results):
+                if res is not None:
+                    # 將結果映射回 GridOrder
+                    order = orders[idx]
+                    order.status = GridOrderStatus.PENDING
+                    if hasattr(res, 'order_id'):
+                        order.exchange_order_id = res.order_id
+                    if hasattr(res, 'client_id') and res.client_id:
+                        order.client_id = res.client_id
+                        self._pending_orders_by_client_id[res.client_id] = order
+                    results.append(order)
+                else:
+                    results.append(Exception(f"批量下單失敗: grid_id={orders[idx].grid_id}"))
+        else:
+            # Fallback: 無法取得 BinanceRest adapter 時，使用逐筆下單
+            self.logger.warning("⚠️ 無法取得 BinanceRest adapter，退回逐筆下單")
+            for order in orders:
+                try:
+                    result = await self.place_order(order)
+                    results.append(result)
+                    await asyncio.sleep(0.1)
+                except Exception as e:
+                    results.append(e)
+                    await asyncio.sleep(0.5)
+
+        return results
+
     async def _apply_order_rate_limit(self) -> None:
         try:
             if self._order_rate_window_seconds <= 0 or self._order_rate_max_orders <= 0:
@@ -818,6 +1069,9 @@ class GridEngineImpl(IGridEngine):
             ex_id = str(getattr(self.exchange.config, 'exchange_id', '')).lower()
             if ex_id != 'binance':
                 return planned
+            # 🛑 熔斷守衛：BAN 期間略過 cap 檢查，回傳 planned（其餘下單路徑會自行短路）
+            if self._is_circuit_open():
+                return planned
             existing = await self.exchange.get_open_orders(self.config.symbol)
             cap = 200
             rem = cap - len(existing)
@@ -831,6 +1085,9 @@ class GridEngineImpl(IGridEngine):
         try:
             ex_id = str(getattr(self.exchange.config, 'exchange_id', '')).lower()
             if ex_id != 'binance':
+                return
+            # 🛑 熔斷守衛：BAN 期間跳過 cap 檢查，避免額外 REST
+            if self._is_circuit_open():
                 return
             async with self._symbol_open_orders_cache_lock:
                 key = self.config.symbol
@@ -1270,6 +1527,11 @@ class GridEngineImpl(IGridEngine):
     async def _get_open_grid_ids_from_exchange(self, force_refresh: bool = False) -> Set[int]:
         """取得交易所當前開放訂單的 grid_id 集合（輕量、帶容差）"""
         try:
+            # 🛑 熔斷守衛：BAN 期間優先回傳本地快取，沒快取就回傳 set()，避免擊中 REST
+            if self._is_circuit_open():
+                cached = getattr(self, '_cached_open_grid_ids', set())
+                return cached if cached else set()
+
             # 節流：避免過於頻繁調用交易所 API
             # 🔥 修復：TTL 由 30秒改為 5秒，避免過時緩存造成「充足」誤判
             now = time.time()
@@ -1311,11 +1573,17 @@ class GridEngineImpl(IGridEngine):
     async def sync_with_exchange(self):
         """
         強制與交易所狀態同步
-        
+
         1. 獲取交易所最新掛單
         2. 調用 _sync_orders_from_exchange 更新本地緩存
         """
         try:
+            # 🛑 熔斷守衛：BAN 期間略過深度同步，避免擊中 REST 加劇 BAN
+            if self._is_circuit_open():
+                self.logger.warning(
+                    f"⛔ 深度同步：API 熔斷中 (code={self._last_api_error_code})，本次跳過"
+                )
+                return
             self.logger.info("🔄 執行深度同步：強制拉取交易所掛單狀態...")
             open_orders = await self.exchange.get_open_orders(self.config.symbol)
             await self._sync_orders_from_exchange(open_orders)
@@ -1662,6 +1930,12 @@ class GridEngineImpl(IGridEngine):
             if hasattr(self, '_last_sync_after_batch_time') and now - self._last_sync_after_batch_time < 30:
                 self.logger.info("跳過批量後的REST同步，避免請求過於頻繁")
                 return
+            # 🛑 熔斷守衛：BAN 期間略過批量後的 REST 同步
+            if self._is_circuit_open():
+                self.logger.warning(
+                    f"⛔ 批量後REST同步：API 熔斷中 (code={self._last_api_error_code})，本次跳過"
+                )
+                return
             self._last_sync_after_batch_time = now
 
             open_orders = await self.exchange.get_open_orders(self.config.symbol)
@@ -1718,6 +1992,12 @@ class GridEngineImpl(IGridEngine):
     async def _check_pending_orders(self) -> int:
         """检查挂单状态（通过REST API）"""
         try:
+            # 🛑 熔斷守衛：BAN 期間跳過 REST 輪詢，回傳 0 表示本輪未檢測
+            if self._is_circuit_open():
+                self.logger.debug(
+                    f"⛔ _check_pending_orders：API 熔斷中 (code={self._last_api_error_code})，本輪跳過"
+                )
+                return 0
             # 获取当前所有挂单
             open_orders = await self.exchange.get_open_orders(self.config.symbol)
 
@@ -1804,6 +2084,10 @@ class GridEngineImpl(IGridEngine):
 
             # === Hyperliquid/Lighter: OrderData对象 ===
             if isinstance(update_data, ExchangeOrderData):
+                # 过滤掉非当前交易对的订单更新（多播推送时的跨交易对过滤）
+                if update_data.symbol != self.config.symbol:
+                    return
+
                 order_id = str(update_data.id)
                 status = update_data.status.value.upper() if update_data.status else ""
 
@@ -1984,6 +2268,15 @@ class GridEngineImpl(IGridEngine):
             if not isinstance(data, dict):
                 self.logger.debug(f"data字段不是字典格式，跳过: {type(data)}")
                 return
+
+            # 过滤掉非当前交易对的订单更新（多播推送时的跨交易对过滤）
+            event_symbol = data.get('s')
+            if event_symbol:
+                expected_symbol = self.exchange._map_symbol(self.config.symbol)
+                expected_clean = expected_symbol.replace('/', '').replace(':', '').upper()
+                event_clean = event_symbol.replace('/', '').replace(':', '').upper()
+                if event_clean != expected_clean:
+                    return
 
             # 从data字段中提取订单信息（Backpack/Binance格式）
             order_id = str(data.get('i', ''))  # Backpack/Binance使用'i'表示订单ID
@@ -2248,14 +2541,21 @@ class GridEngineImpl(IGridEngine):
         # 🔥 Fix 2: ws_only_mode 下也使用交易所真實掛單判斷窗口是否充足
         # 原本使用本地 _pending_orders，但因 WS 成交事件未觸發，已成交訂單殘留於本地緩存
         # 導致窗口永遠「充足」而跳過補單。改為使用交易所 REST 快照（帶 TTL 緩存避免過頻）
-        try:
-            open_orders = await self.exchange.get_open_orders(self.config.symbol)
-            open_prices = {o.price: o for o in open_orders}
-            self.logger.debug(f"🔍 活躍窗口: 交易所掛單 {len(open_orders)} 筆")
-        except Exception as e:
-            # 降級：使用本地掛單（可能含舊資料，但優於完全跳過）
-            self.logger.warning(f"⚠️ 活躍窗口無法取得交易所掛單，降級使用本地 pending: {e}")
+        # 🛑 熔斷守衛：BAN 期間直接降級使用本地 pending，避免擊中 REST
+        if self._is_circuit_open():
+            self.logger.debug(
+                f"⛔ 活躍窗口：API 熔斷中 (code={self._last_api_error_code})，降級使用本地 pending"
+            )
             open_prices = {o.price: o for o in self.get_pending_orders()}
+        else:
+            try:
+                open_orders = await self.exchange.get_open_orders(self.config.symbol)
+                open_prices = {o.price: o for o in open_orders}
+                self.logger.debug(f"🔍 活躍窗口: 交易所掛單 {len(open_orders)} 筆")
+            except Exception as e:
+                # 降級：使用本地掛單（可能含舊資料，但優於完全跳過）
+                self.logger.warning(f"⚠️ 活躍窗口無法取得交易所掛單，降級使用本地 pending: {e}")
+                open_prices = {o.price: o for o in self.get_pending_orders()}
 
         # 取消窗口外掛單（只針對我們追蹤的掛單）
         to_cancel = [o for p, o in open_prices.items() if p not in targets]

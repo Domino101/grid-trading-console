@@ -396,6 +396,14 @@ class ScalpingOperations:
             self.logger.warning("⏸️ REST API不可用，跳过挂止盈订单（等待恢复）")
             return False
 
+        # 🛑 熔斷守衛：BAN 期間禁止挂止盈订单
+        if hasattr(self.engine, '_is_circuit_open') and self.engine._is_circuit_open():
+            self.logger.warning(
+                f"⛔ 挂止盈订单：API 熔斷中 "
+                f"(code={getattr(self.engine, '_last_api_error_code', None)})，本次跳過"
+            )
+            return False
+
         # 🛡️ 1. 操作频率限制（基于方向性订单成交，防止错误循环）
         # 🆕 如果是更新操作（已取消旧订单），跳过频率限制检查
         if not skip_frequency_check:
@@ -623,6 +631,14 @@ class ScalpingOperations:
         # 🔥 修复：is_paused 是方法，需要调用
         if self.coordinator.is_paused():
             self.logger.debug("⏸️ REST API不可用，跳过更新止盈订单（等待恢复）")
+            return
+
+        # 🛑 熔斷守衛：BAN 期間禁止更新止盈订单
+        if hasattr(self.engine, '_is_circuit_open') and self.engine._is_circuit_open():
+            self.logger.warning(
+                f"⛔ 更新止盈订单：API 熔斷中 "
+                f"(code={getattr(self.engine, '_last_api_error_code', None)})，本次跳過"
+            )
             return
 
         current_position = self.tracker.get_current_position()

@@ -688,8 +688,23 @@ class BinanceWebSocket(BinanceBase):
             if self.logger:
                 self.logger.error(f"❌ 处理账户配置更新失败: {str(e)}")
     
-    async def _safe_callback(self, callback: Callable, data: Any):
-        """安全调用回调函数"""
+    def _add_subscription(self, subscription_dict, key, callback):
+        """Helper to append a callback without overwriting existing ones."""
+        if key not in subscription_dict:
+            subscription_dict[key] = []
+        elif not isinstance(subscription_dict[key], list):
+            subscription_dict[key] = [subscription_dict[key]]
+        
+        if callback not in subscription_dict[key]:
+            subscription_dict[key].append(callback)
+
+    async def _safe_callback(self, callback: Any, data: Any):
+        """安全调用回调函数（支持单个回调或回调列表）"""
+        if isinstance(callback, list):
+            for cb in callback:
+                await self._safe_callback(cb, data)
+            return
+
         try:
             if asyncio.iscoroutinefunction(callback):
                 await callback(data)
@@ -856,7 +871,7 @@ class BinanceWebSocket(BinanceBase):
                 stream_name = f"{binance_symbol}@bookTicker"
                 
                 # 注册到期货订阅
-                self._futures_subscriptions[stream_name] = callback
+                self._add_subscription(self._futures_subscriptions, stream_name, callback)
                 
                 # 发送订阅消息到期货WebSocket
                 subscribe_msg = {
@@ -891,7 +906,7 @@ class BinanceWebSocket(BinanceBase):
                 self._spot_websockets[stream_name] = ws
                 
                 # 注册回调
-                self._subscriptions[stream_name] = callback
+                self._add_subscription(self._subscriptions, stream_name, callback)
                 
                 # 启动消息处理任务
                 asyncio.create_task(self._handle_spot_stream_messages(stream_name, ws))
@@ -920,7 +935,7 @@ class BinanceWebSocket(BinanceBase):
             stream_name = f"{binance_symbol}@depth@100ms"
             
             # 注册回调
-            self._subscriptions[stream_name] = callback
+            self._add_subscription(self._subscriptions, stream_name, callback)
             
             # 发送订阅消息
             subscribe_msg = {
@@ -953,7 +968,7 @@ class BinanceWebSocket(BinanceBase):
             stream_name = f"{binance_symbol}@trade"
             
             # 注册回调
-            self._subscriptions[stream_name] = callback
+            self._add_subscription(self._subscriptions, stream_name, callback)
             
             # 发送订阅消息
             subscribe_msg = {
@@ -982,9 +997,9 @@ class BinanceWebSocket(BinanceBase):
                 await self._connect_user_stream()
 
             # 注册回调
-            self._user_subscriptions['balance'] = callback
-            self._user_subscriptions['order'] = callback
-            self._user_subscriptions['config'] = callback
+            self._add_subscription(self._user_subscriptions, 'balance', callback)
+            self._add_subscription(self._user_subscriptions, 'order', callback)
+            self._add_subscription(self._user_subscriptions, 'config', callback)
 
             # 🔥 修復D：啟動一次性 watchdog，30 秒後檢查是否收到任何 user stream 訊息
             self._last_user_message_time = 0  # 重置

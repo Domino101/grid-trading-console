@@ -464,6 +464,14 @@ class PositionMonitor:
                 self._ban_cooldown_until = cooldown_until
                 self._rest_is_available = False
 
+            # 🔥 同步通報引擎熔斷器：讓 balance_monitor / active_window_refresh 等其他模組也能短路
+            # 否則 PositionMonitor 自有的 _ban_cooldown_until 只能保護自己，無法阻止跨模組 REST 轟炸
+            if hasattr(self.engine, '_parse_and_set_circuit'):
+                try:
+                    self.engine._parse_and_set_circuit(error_msg)
+                except Exception as ce:
+                    self.logger.debug(f"熔斷通報失敗（非致命）: {ce}")
+
     async def _check_position_anomaly(self, new_position: Decimal):
         """
         检测持仓异常（防止持仓失控）

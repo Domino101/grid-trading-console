@@ -4,11 +4,27 @@ from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import asyncio
 import logging
+import sys
+import os
 from typing import List, Dict
+
+# 確保專案根目錄在 sys.path 中，供 core 模組匯入
+_project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
+# 載入 .env 環境變數（需在 auth 等模組匯入前執行）
+from dotenv import load_dotenv
+load_dotenv(os.path.join(_project_root, ".env"))
 
 from process_manager import process_manager
 from file_manager import file_manager
 from models import ProcessStatus, StartProcessRequest
+
+# 🆕 Hermes Grid API v1 路由
+from routes.system import router as system_router
+from routes.grids import router as grids_router
+from routes.market import router as market_router
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -26,9 +42,14 @@ async def lifespan(app: FastAPI):
     except asyncio.CancelledError:
         pass
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    lifespan=lifespan,
+    title="Grid Trading Control API",
+    description="Hermes Agent × Grid Trading 控制接口",
+    version="1.0.0",
+)
 
-# CORS
+# CORS — TODO(security): 階段三應收緊 allow_origins 白名單
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -36,6 +57,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 🆕 掛載 v1 API 路由（與現有 /api/scripts 等端點共存）
+app.include_router(system_router)
+app.include_router(grids_router)
+app.include_router(market_router)
 
 async def monitor_processes():
     """Background task to monitor processes and update their status."""
@@ -115,13 +141,13 @@ async def websocket_endpoint(websocket: WebSocket, pid: int):
 
     # Queue for new logs
     queue = asyncio.Queue()
+    loop = asyncio.get_running_loop()
 
     def log_listener(line: str):
         # This runs in thread, so use call_soon_threadsafe
         try:
-            loop = asyncio.get_running_loop()
             loop.call_soon_threadsafe(queue.put_nowait, line)
-        except RuntimeError:
+        except Exception:
             # Loop might be closed
             pass
 

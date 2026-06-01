@@ -251,6 +251,25 @@ class GridCoordinator:
         try:
             self.logger.info("开始初始化网格系统...")
 
+            # 🛑 熔斷守衛：初始化階段需要多次 REST（get_current_price / place_batch_orders / get_initial_price），
+            # 若 IP 仍在 BAN 中強行執行會持續擊中 API 加劇 BAN，直接中止讓上層重試或退出
+            if hasattr(self.engine, '_is_circuit_open') and self.engine._is_circuit_open():
+                code = getattr(self.engine, '_last_api_error_code', None)
+                until_ts = getattr(self.engine, '_api_circuit_until', 0)
+                if until_ts == float('inf'):
+                    msg = (
+                        f"⛔ API 熔斷器永久開啟 (code={code})，"
+                        f"無法初始化網格系統，請更新 IP 白名單或 API Key"
+                    )
+                else:
+                    remaining = max(0, until_ts - datetime.now().timestamp())
+                    msg = (
+                        f"⛔ API 熔斷器開啟 (code={code})，剩餘 {remaining:.0f} 秒才能解封，"
+                        f"中止初始化以避免擊中 BAN"
+                    )
+                self.logger.critical(msg)
+                raise RuntimeError(msg)
+
             # 1. 先初始化执行引擎（设置 engine.config）
             await self.engine.initialize(self.config)
             self.logger.info("执行引擎初始化完成")
@@ -573,6 +592,19 @@ class GridCoordinator:
                 parent_order_id=filled_order.order_id
             )
 
+            # 🔥 [格位去重] 反手单掛出前，先检查本地状态中是否已有同 grid_id 的 PENDING 订单
+            # 场景：横盘时价格反复穿越同一格，每次成交都会挂反手单，导致同格累积多张
+            existing_at_grid = [
+                o for o in self.state.active_orders.values()
+                if o.grid_id == new_grid_id and o.status == GridOrderStatus.PENDING
+            ]
+            if existing_at_grid:
+                self.logger.warning(
+                    f"⚠️ 反手单去重：Grid {new_grid_id} @${new_price} 已有 {len(existing_at_grid)} 张 PENDING 掛单，"
+                    f"跳过重复挂单（已有 OrderID: {existing_at_grid[0].order_id[:12]}...）"
+                )
+                return
+
             # 6. 下反向订单
             # 🔥 Lighter交易所：grid_engine_impl.py 的 place_order 方法已自动使用全局锁
             # 确保所有下单操作（反手单、止盈订单、健康检查补单等）都串行执行
@@ -816,6 +848,15 @@ class GridCoordinator:
         2. 平掉所有持仓（市价单）
         3. 等待清理生效
         """
+        # 🛑 熔斷守衛：若 IP 在 BAN 中，整段清理會擊中 REST API 加劇 BAN，直接跳過
+        if hasattr(self.engine, '_is_circuit_open') and self.engine._is_circuit_open():
+            self.logger.warning(
+                f"⛔ 啟動前清理：API 熔斷中 "
+                f"(code={getattr(self.engine, '_last_api_error_code', None)})，"
+                f"跳過清理階段以避免擊中 BAN"
+            )
+            return
+
         self.logger.info("=" * 80)
         self.logger.info("🧹 启动前清理：正在清理旧订单和持仓...")
         self.logger.info("=" * 80)
@@ -1108,8 +1149,17 @@ class GridCoordinator:
             position_data = await self.engine.get_real_time_position(self.config.symbol)
 
             # 如果WebSocket缓存为空，使用REST API获取并同步
+            # 🛑 熔斷守衛：BAN 期間跳過 REST 回退，沿用空 position_data
             if position_data['size'] == 0 and position_data['entry_price'] == 0:
-                positions = await self.engine.exchange.get_positions(symbols=[self.config.symbol])
+                if hasattr(self.engine, '_is_circuit_open') and self.engine._is_circuit_open():
+                    self.logger.warning(
+                        f"⛔ 初始持仓 REST 同步：API 熔斷中"
+                        f" (code={getattr(self.engine, '_last_api_error_code', None)})，"
+                        f"跳過 get_positions，等待 WebSocket 推送補齊"
+                    )
+                    positions = []
+                else:
+                    positions = await self.engine.exchange.get_positions(symbols=[self.config.symbol])
                 if positions and len(positions) > 0:
                     position = positions[0]
                     real_size = position.size or Decimal('0')
@@ -1149,7 +1199,16 @@ class GridCoordinator:
         try:
             if self.config.grid_type == GridType.NEUTRAL:
                 window_each_side = int(getattr(self.config, 'active_window_each_side', 0) or 0)
-                if window_each_side > 0:
+                circuit_open = (
+                    hasattr(self.engine, '_is_circuit_open')
+                    and self.engine._is_circuit_open()
+                )
+                if window_each_side > 0 and circuit_open:
+                    # 🛑 熔斷守衛：BAN 期間略過啟動窗口（避免 get_current_price 與 batch place 擊中 REST）
+                    self.logger.warning(
+                        f"⛔ 中性網格啟動窗口：API 熔斷中，略過此次窗口布置"
+                    )
+                elif window_each_side > 0:
                     current_price = await self.engine.get_current_price()
                     center_grid = self.config.get_grid_index_by_price(current_price)
                     window_orders = []
@@ -1182,7 +1241,7 @@ class GridCoordinator:
                             created_at=datetime.now()
                         ))
                     self.logger.info(f"🪟 中性網格啟動窗口：現價上下各{window_each_side}格，準備掛{len(window_orders)}單")
-                    placed_orders = await self.engine.place_batch_orders(window_orders)
+                    placed_orders = await self.engine.place_batch_orders(window_orders, current_price=current_price)
                     self.logger.info(f"✅ 啟動窗口已掛出 {len(placed_orders)} 單")
         except Exception as e:
             self.logger.error(f"啟動窗口布置失敗：{e}")
@@ -1190,53 +1249,72 @@ class GridCoordinator:
         # 🔥 检查是否应该立即激活剥头皮模式
         # 如果启动时已有持仓，且价格已在触发阈值以下，立即激活
         if self.config.is_scalping_enabled():
+            # 🛑 熔斷守衛：BAN 期間略過剥頭皮觸發檢查（依賴 get_current_price）
+            if hasattr(self.engine, '_is_circuit_open') and self.engine._is_circuit_open():
+                self.logger.warning("⛔ 剝頭皮觸發檢查：API 熔斷中，本次跳過")
+            else:
+                try:
+                    current_price = await self.engine.get_current_price()
+                    current_grid_id = self.config.get_grid_index_by_price(
+                        current_price)
+
+                    # 更新scalping_manager的持仓信息
+                    if position_data['size'] != 0:
+                        initial_capital = self.scalping_manager.get_initial_capital()
+                        self.scalping_manager.update_position(
+                            position_data['size'],
+                            position_data['entry_price'],
+                            initial_capital,
+                            self.balance_monitor.collateral_balance  # 🔥 使用 BalanceMonitor 的余额
+                        )
+
+                    # 检查是否应该触发剥头皮模式（需要传递current_price和current_grid_id）
+                    if self.scalping_manager.should_trigger(current_price, current_grid_id):
+                        self.logger.info(
+                            f"🎯 检测到启动时已在触发区域 (Grid {current_grid_id} <= "
+                            f"Grid {self.config.get_scalping_trigger_grid()})，立即激活剥头皮模式"
+                        )
+                        # 🔥 使用新模块
+                        if self.scalping_ops:
+                            await self.scalping_ops.activate()
+                    else:
+                        self.logger.info(
+                            f"📊 剥头皮模式待触发 (当前: Grid {current_grid_id}, "
+                            f"触发点: Grid {self.config.get_scalping_trigger_grid()})"
+                        )
+                except Exception as e:
+                    self.logger.warning(f"检查剥头皮模式失败: {e}")
+                    import traceback
+                    self.logger.error(traceback.format_exc())
+
+        # 🔥 订阅WebSocket持仓流/订单流（实时更新，避免频繁REST查询）
+        # 註：僅 Lighter 適配器提供 subscribe_positions/subscribe_orders 細粒度訂閱；
+        # Binance / Backpack / OKX / Hyperliquid / EdgeX 透過 subscribe_user_data 統一處理，
+        # 由各 *_websocket 內部 _handle_balance_update 直接更新 _position_cache。
+        ex = self.engine.exchange
+        if hasattr(ex, 'subscribe_positions'):
             try:
-                current_price = await self.engine.get_current_price()
-                current_grid_id = self.config.get_grid_index_by_price(
-                    current_price)
-
-                # 更新scalping_manager的持仓信息
-                if position_data['size'] != 0:
-                    initial_capital = self.scalping_manager.get_initial_capital()
-                    self.scalping_manager.update_position(
-                        position_data['size'],
-                        position_data['entry_price'],
-                        initial_capital,
-                        self.balance_monitor.collateral_balance  # 🔥 使用 BalanceMonitor 的余额
-                    )
-
-                # 检查是否应该触发剥头皮模式（需要传递current_price和current_grid_id）
-                if self.scalping_manager.should_trigger(current_price, current_grid_id):
-                    self.logger.info(
-                        f"🎯 检测到启动时已在触发区域 (Grid {current_grid_id} <= "
-                        f"Grid {self.config.get_scalping_trigger_grid()})，立即激活剥头皮模式"
-                    )
-                    # 🔥 使用新模块
-                    if self.scalping_ops:
-                        await self.scalping_ops.activate()
-                else:
-                    self.logger.info(
-                        f"📊 剥头皮模式待触发 (当前: Grid {current_grid_id}, "
-                        f"触发点: Grid {self.config.get_scalping_trigger_grid()})"
-                    )
+                self.logger.info("📡 正在订阅WebSocket持仓流...")
+                await ex.subscribe_positions(self._on_position_update_from_ws)
+                self.logger.info("✅ WebSocket持仓流订阅成功")
             except Exception as e:
-                self.logger.warning(f"检查剥头皮模式失败: {e}")
-                import traceback
-                self.logger.error(traceback.format_exc())
+                self.logger.warning(f"⚠️  WebSocket持仓流订阅失败: {e}，将使用REST API备用")
+        else:
+            self.logger.info(
+                "ℹ️  适配器无 subscribe_positions（Binance/Backpack 等通过 user_data 统一推送）"
+            )
 
-        # 🔥 订阅WebSocket持仓流（实时更新，避免频繁REST查询）
-        try:
-            self.logger.info("📡 正在订阅WebSocket持仓流...")
-            await self.engine.exchange.subscribe_positions(self._on_position_update_from_ws)
-            self.logger.info("✅ WebSocket持仓流订阅成功")
-            
-            # 🔥 订阅WebSocket订单流（用于实时统计）
-            self.logger.info("📡 正在订阅WebSocket订单流...")
-            await self.engine.exchange.subscribe_orders(self._on_order_update_from_ws)
-            self.logger.info("✅ WebSocket订单流订阅成功")
-            
-        except Exception as e:
-            self.logger.warning(f"⚠️  WebSocket流订阅失败: {e}，将使用REST API备用")
+        if hasattr(ex, 'subscribe_orders'):
+            try:
+                self.logger.info("📡 正在订阅WebSocket订单流...")
+                await ex.subscribe_orders(self._on_order_update_from_ws)
+                self.logger.info("✅ WebSocket订单流订阅成功")
+            except Exception as e:
+                self.logger.warning(f"⚠️  WebSocket订单流订阅失败: {e}，将使用REST API备用")
+        else:
+            self.logger.info(
+                "ℹ️  适配器无 subscribe_orders（订单更新已由 engine.subscribe_user_data 处理）"
+            )
 
         # 🔥 价格移动网格：启动价格脱离监控
         if self.config.is_follow_mode():
