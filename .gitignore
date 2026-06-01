@@ -150,3 +150,8 @@ cython_debug/
 logs/
 out.txt
 .DS_Store
+data/
+config/active_grids.json
+*.db
+*.sqlite
+*.sqlite3

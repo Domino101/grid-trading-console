@@ -42,12 +42,13 @@ class IGridEngine(ABC):
         pass
     
     @abstractmethod
-    async def place_batch_orders(self, orders: List[GridOrder]) -> List[GridOrder]:
+    async def place_batch_orders(self, orders: List[GridOrder], current_price: Optional[Decimal] = None) -> List[GridOrder]:
         """
         批量下单
         
         Args:
             orders: 订单列表
+            current_price: 可选的预取现价，避免重复查询
         
         Returns:
             更新后的订单列表

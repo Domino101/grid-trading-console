@@ -143,9 +143,36 @@ async def load_config(config_path: str) -> dict:
         raise
 
 
+def load_grid_defaults() -> dict:
+    """
+    載入全局網格默認配置
+
+    優先級：代碼硬編碼默認值 ← defaults.yaml ← 個別幣對 YAML
+
+    Returns:
+        defaults.yaml 中 grid_defaults 區塊的字典，若文件不存在則返回空字典
+    """
+    defaults_path = Path("config/grid/defaults.yaml")
+    if defaults_path.exists():
+        try:
+            with open(defaults_path, 'r', encoding='utf-8') as f:
+                data = yaml.safe_load(f)
+            defaults = data.get('grid_defaults', {})
+            if defaults:
+                print(f"   ✓ 已載入全局默認配置: {defaults_path} ({len(defaults)} 個參數)")
+            return defaults
+        except Exception as e:
+            print(f"   ⚠️ 載入全局默認配置失敗: {e}，使用代碼級默認值")
+            return {}
+    return {}
+
+
 def create_grid_config(config_data: dict) -> GridConfig:
     """
     创建网格配置对象
+
+    🔥 重構（2026-05）：參數分層加載
+    優先級：代碼默認值 ← defaults.yaml ← 個別幣對 YAML
 
     Args:
         config_data: 配置数据
@@ -153,28 +180,47 @@ def create_grid_config(config_data: dict) -> GridConfig:
     Returns:
         网格配置对象
     """
+    # 載入全局默認值
+    defaults = load_grid_defaults()
     grid_config = config_data['grid_system']
     grid_type = GridType(grid_config['grid_type'])
+
+    # 🔥 合併工具函數：個別 YAML → defaults.yaml → 代碼默認值
+    def get(key, code_fallback=None):
+        """依優先級查找參數值"""
+        if key in grid_config:
+            return grid_config[key]
+        if key in defaults:
+            return defaults[key]
+        return code_fallback
 
     # 基础参数
     params = {
         'exchange': grid_config['exchange'],
         'symbol': grid_config['symbol'],
         'grid_type': grid_type,
-        'grid_interval': Decimal(str(grid_config['grid_interval'])),
         'order_amount': Decimal(str(grid_config['order_amount'])),
         'max_position': Decimal(str(grid_config.get('max_position'))) if grid_config.get('max_position') else None,
-        'enable_notifications': grid_config.get('enable_notifications', False),
-        'order_health_check_enabled': grid_config.get('order_health_check_enabled', True),
-        'order_health_check_interval': grid_config.get('order_health_check_interval', 600),
-        'rest_position_query_interval': grid_config.get('rest_position_query_interval', 1),
-        # 默认万分之1
-        'fee_rate': Decimal(str(grid_config.get('fee_rate', '0.0001'))),
-        # 🔥 数量精度参数（重要！不同代币精度不同）
-        'quantity_precision': int(grid_config.get('quantity_precision', 3)),
-        # 🔥 价格精度参数（重要！不同交易所和交易对精度不同）
-        'price_decimals': int(grid_config.get('price_decimals', 2)),
+        'enable_notifications': get('enable_notifications', False),
+        'order_health_check_enabled': get('order_health_check_enabled', True),
+        'order_health_check_interval': get('order_health_check_interval', 600),
+        'rest_position_query_interval': get('rest_position_query_interval', 1),
+        'fee_rate': Decimal(str(get('fee_rate', '0.0001'))),
     }
+
+    # 🔥 精度參數（可選：省略時由 auto_fill_precision() 自動從交易所獲取）
+    qty_prec = get('quantity_precision')
+    price_dec = get('price_decimals')
+    if qty_prec is not None:
+        params['quantity_precision'] = int(qty_prec)
+    if price_dec is not None:
+        params['price_decimals'] = int(price_dec)
+
+    # 🔥 網格密度參數：grid_count 與 grid_interval（二選一）
+    if 'grid_count' in grid_config:
+        params['_grid_count_input'] = int(grid_config['grid_count'])
+    if 'grid_interval' in grid_config:
+        params['grid_interval'] = Decimal(str(grid_config['grid_interval']))
 
     # 🔥 价格移动网格：使用 follow_grid_count
     if grid_type in [GridType.FOLLOW_LONG, GridType.FOLLOW_SHORT]:
@@ -235,9 +281,9 @@ def create_grid_config(config_data: dict) -> GridConfig:
         params['price_lock_start_at_threshold'] = grid_config['price_lock_start_at_threshold']
 
     # 🎯 反手挂单参数：添加反手挂单格子距离参数
-    if 'reverse_order_grid_distance' in grid_config:
-        params['reverse_order_grid_distance'] = int(
-            grid_config['reverse_order_grid_distance'])
+    reverse_dist = get('reverse_order_grid_distance')
+    if reverse_dist is not None:
+        params['reverse_order_grid_distance'] = int(reverse_dist)
 
     # 🛑 止损保护模式：添加止损保护参数
     if 'stop_loss_protection_enabled' in grid_config:
@@ -268,31 +314,104 @@ def create_grid_config(config_data: dict) -> GridConfig:
     if 'spot_reserve' in grid_config:
         params['spot_reserve'] = grid_config['spot_reserve']
 
-    # 🔥 健康检查容错配置
-    if 'position_tolerance' in grid_config:
-        params['position_tolerance'] = grid_config['position_tolerance']
+    # 🔥 健康检查容错配置（合併 defaults.yaml）
+    pos_tolerance = get('position_tolerance')
+    if pos_tolerance is not None:
+        params['position_tolerance'] = pos_tolerance
 
     # 📸 健康检查快照次数配置
     if 'health_check_snapshot_count' in grid_config:
         params['health_check_snapshot_count'] = int(
             grid_config['health_check_snapshot_count'])
 
-    # 🆕 活躍窗口參數
-    if 'active_window_each_side' in grid_config:
-        params['active_window_each_side'] = int(grid_config['active_window_each_side'])
-    if 'active_window_refresh_interval' in grid_config:
-        params['active_window_refresh_interval'] = int(grid_config['active_window_refresh_interval'])
+    # 🔥 健康檢查行為開關（合併 defaults.yaml）
+    hc_adj = get('health_check_adjust_position_enabled')
+    if hc_adj is not None:
+        params['health_check_adjust_position_enabled'] = hc_adj
 
-    # 🆕 ws_only_mode 参数
-    if 'ws_only_mode' in grid_config:
-        params['ws_only_mode'] = grid_config['ws_only_mode']
-    if 'rest_backup_enabled' in grid_config:
-        params['rest_backup_enabled'] = grid_config['rest_backup_enabled']
+    # 🆕 活躍窗口參數（合併 defaults.yaml）
+    aw_each = get('active_window_each_side')
+    if aw_each is not None:
+        params['active_window_each_side'] = int(aw_each)
+    aw_interval = get('active_window_refresh_interval')
+    if aw_interval is not None:
+        params['active_window_refresh_interval'] = int(aw_interval)
+
+    # 🆕 ws_only_mode 参数（合併 defaults.yaml）
+    ws_only = get('ws_only_mode')
+    if ws_only is not None:
+        params['ws_only_mode'] = ws_only
+    rest_backup = get('rest_backup_enabled')
+    if rest_backup is not None:
+        params['rest_backup_enabled'] = rest_backup
+
+    # 🆕 limit_only 参数（合併 defaults.yaml）
+    limit_only = get('limit_only')
+    if limit_only is not None:
+        params['limit_only'] = limit_only
 
     return GridConfig(**params)
 
 
+
+async def auto_fill_precision(grid_config: GridConfig, exchange_adapter, logger=None):
+    """
+    自動從交易所獲取精度信息
+
+    🔥 若 YAML 中省略了 quantity_precision / price_decimals，
+    此函數會從 exchange.load_markets() 的 precision 字段自動填入。
+    若 YAML 中已手動指定，則跳過（以 YAML 為準）。
+
+    Args:
+        grid_config: 網格配置對象（將被原地修改）
+        exchange_adapter: 交易所適配器（需已連接並執行過 load_markets）
+        logger: 可選的日誌記錄器
+    """
+    log = logger or print
+
+    try:
+        # 嘗試從 adapter 中獲取已加載的市場信息
+        exchange = getattr(exchange_adapter, 'exchange', None)
+        if exchange is None:
+            return
+
+        markets = getattr(exchange, 'markets', None)
+        if not markets:
+            return
+
+        symbol = grid_config.symbol
+        if symbol not in markets:
+            if callable(log):
+                log(f"   ⚠️ 交易對 {symbol} 未在 markets 中找到，使用默認精度")
+            return
+
+        market = markets[symbol]
+        precision = market.get('precision', {})
+
+        # 從交易所數據中提取精度
+        exchange_qty_prec = precision.get('amount')
+        exchange_price_prec = precision.get('price')
+
+        # 只在未手動指定時才自動填入
+        # 注意：GridConfig.__post_init__ 已將 None 替換為兜底默認值（3/2），
+        # 因此這裡需要在 create_grid_config 中記錄是否是手動指定的
+        filled = False
+        if exchange_qty_prec is not None:
+            grid_config.quantity_precision = int(exchange_qty_prec)
+            filled = True
+        if exchange_price_prec is not None:
+            grid_config.price_decimals = int(exchange_price_prec)
+            filled = True
+
+        if filled:
+            print(f"   ✅ 自動獲取精度: quantity={grid_config.quantity_precision}位, price={grid_config.price_decimals}位")
+
+    except Exception as e:
+        print(f"   ⚠️ 自動獲取精度失敗，使用配置/默認值: {e}")
+
+
 def detect_market_type(symbol: str, exchange_name: str) -> ExchangeType:
+
     """
     根据交易对符号自动检测市场类型
 
@@ -373,7 +492,7 @@ async def create_exchange_adapter(config_data: dict):
         load_dotenv(Path(".env"), override=False)
 
     # 再優先加載私密檔案（若存在）以填充環境變數
-    secrets_path = Path("/root/nofx/.secrets/binance.env")
+    secrets_path = Path(__file__).parent / ".secrets" / "binance.env"
     if secrets_path.exists() and not os.getenv("BINANCE_API_KEY"):
         if load_dotenv:
             load_dotenv(secrets_path, override=False)
@@ -637,6 +756,9 @@ async def main(config_path: str = "config/grid/default_grid.yaml", debug: bool =
         exchange_adapter = await create_exchange_adapter(config_data)
         print(f"✅ 交易所连接成功: {grid_config.exchange}")
 
+        # 🔥 自動獲取精度信息（若 YAML 中省略了 quantity_precision / price_decimals）
+        await auto_fill_precision(grid_config, exchange_adapter)
+
         # 3. 创建核心组件
         print("\n⚙️  步骤 3/6: 初始化核心组件...")
 
@@ -647,6 +769,32 @@ async def main(config_path: str = "config/grid/default_grid.yaml", debug: bool =
         # 创建执行引擎
         engine = GridEngineImpl(exchange_adapter)
         print("   ✓ 执行引擎已创建")
+
+        # 🛑 啟動護欄：若磁碟熔斷狀態指示 IP 仍在 BAN 中，等待解封後再繼續
+        # 詳見：data/.circuit_breaker_state.json（由 _parse_and_set_circuit 寫入）
+        if engine._is_circuit_open():
+            import time as _t
+            from datetime import datetime as _dt
+            if engine._api_circuit_until == float('inf'):
+                print("\n🚨 偵測到永久熔斷狀態 (-2015): API Key 或 IP 白名單失效")
+                print(f"   錯誤碼: {engine._last_api_error_code}")
+                print("   請至 Binance 後台更新 IP 白名單或 API Key 後，")
+                print("   刪除 data/.circuit_breaker_state.json，再重啟本程式")
+                await exchange_adapter.disconnect()
+                sys.exit(1)
+            until_str = _dt.fromtimestamp(engine._api_circuit_until).strftime(
+                "%Y-%m-%d %H:%M:%S")
+            wait_total = engine._api_circuit_until - _t.time()
+            print(f"\n⛔ 偵測到磁碟熔斷狀態：IP 仍在 BAN 中（直到 {until_str}）")
+            print(f"   為避免再次擊中 API 加劇 BAN，啟動將等待 {wait_total:.0f} 秒...")
+            while engine._is_circuit_open():
+                remaining = engine._api_circuit_until - _t.time()
+                if remaining <= 0:
+                    break
+                sleep_for = min(30.0, remaining)
+                print(f"   ⏳ 等待解封：剩餘 {remaining:.0f} 秒...")
+                await asyncio.sleep(sleep_for)
+            print("✅ 磁碟熔斷狀態已過期，繼續啟動")
 
         # 创建网格状态
         grid_state = GridState()
@@ -748,10 +896,34 @@ async def main(config_path: str = "config/grid/default_grid.yaml", debug: bool =
             print("=" * 70)
             print()
             
+            # Headless monitor to log stats periodically for the Web UI
+            async def headless_monitor():
+                import json
+                from datetime import timedelta, datetime
+                import decimal
+                
+                class JSONEncoder(json.JSONEncoder):
+                    def default(self, obj):
+                        if isinstance(obj, decimal.Decimal):
+                            return float(obj)
+                        if isinstance(obj, timedelta):
+                            return str(obj)
+                        if isinstance(obj, datetime):
+                            return obj.isoformat()
+                        return super().default(obj)
+                        
+                while True:
+                    try:
+                        stats = await coordinator.get_statistics()
+                        stats_dict = stats.to_display_dict()
+                        print(f"[STATS_JSON] {json.dumps(stats_dict, cls=JSONEncoder)}")
+                    except Exception as e:
+                        pass
+                    await asyncio.sleep(2)
+            
             # Keep running until cancelled
             try:
-                # Use a future that never completes
-                await asyncio.Future()
+                await headless_monitor()
             except asyncio.CancelledError:
                 pass
 

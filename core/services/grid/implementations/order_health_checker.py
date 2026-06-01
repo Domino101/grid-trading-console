@@ -2008,11 +2008,26 @@ class OrderHealthChecker:
             current_price = await self.engine.get_current_price()
             self.logger.debug(f"📊 当前价格: ${current_price}")
 
+            # 🔥 [补单去重] 先查询交易所实际开放的 grid_id 集合，避免时间差内重复挂单
+            try:
+                live_grid_ids = await self.engine._get_open_grid_ids_from_exchange(force_refresh=True)
+                self.logger.debug(f"📡 交易所现有格位: {len(live_grid_ids)} 个")
+            except Exception as e:
+                self.logger.warning(f"⚠️ 查询交易所格位失败（跳过去重）: {e}")
+                live_grid_ids = set()
+
             # 创建订单
             orders_to_place = []
 
             for grid_id in missing_grids:
                 try:
+                    # 🔥 [补单去重] 若交易所已有该格的挂单，跳过
+                    if grid_id in live_grid_ids:
+                        self.logger.debug(
+                            f"🔍 补单去重：Grid {grid_id} 交易所已有掛单，跳过"
+                        )
+                        continue
+
                     grid_price = self.config.get_grid_price(grid_id)
 
                     # 判断订单方向
@@ -2056,6 +2071,7 @@ class OrderHealthChecker:
             self.logger.error(f"❌ 补充缺失网格失败: {e}")
             import traceback
             self.logger.error(traceback.format_exc())
+
 
     async def _clean_stale_cache(self):
         """

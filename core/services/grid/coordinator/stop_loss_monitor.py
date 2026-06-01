@@ -463,12 +463,23 @@ class StopLossMonitor:
     async def _cancel_all_orders(self):
         """取消所有挂单"""
         try:
+            # 🛑 熔斷守衛：BAN 期間略過 get_open_orders 查詢（仍嘗試 cancel_all_orders 以保護倉位）
+            if hasattr(self.engine, '_is_circuit_open') and self.engine._is_circuit_open():
+                self.logger.warning(
+                    f"⛔ 取消挂单：API 熔斷中 "
+                    f"(code={getattr(self.engine, '_last_api_error_code', None)})，"
+                    f"略過 get_open_orders 直接調用 cancel_all_orders"
+                )
+                await self.engine.exchange.cancel_all_orders(self.config.symbol)
+                self.logger.info("✅ 已嘗試 cancel_all_orders（BAN 中可能失敗）")
+                return
+
             orders = await self.engine.exchange.get_open_orders(self.config.symbol)
-            
+
             if not orders or len(orders) == 0:
                 self.logger.info("✅ 无挂单，跳过取消")
                 return
-            
+
             self.logger.warning(f"🚫 取消{len(orders)}个挂单...")
             await self.engine.exchange.cancel_all_orders(self.config.symbol)
             
@@ -487,6 +498,14 @@ class StopLossMonitor:
         """
         for retry in range(max_retries):
             try:
+                # 🛑 熔斷守衛：BAN 期間無法查詢，跳過驗證並提前中止重試循環
+                if hasattr(self.engine, '_is_circuit_open') and self.engine._is_circuit_open():
+                    self.logger.error(
+                        f"⛔ 殘留驗證：API 熔斷中 "
+                        f"(code={getattr(self.engine, '_last_api_error_code', None)})，"
+                        f"無法執行驗證查詢，提前中止重試"
+                    )
+                    return
                 # 重新查询当前持仓和订单（注意：get_positions 需要传入列表）
                 positions = await self.engine.exchange.get_positions([self.config.symbol])
                 orders = await self.engine.exchange.get_open_orders(self.config.symbol)

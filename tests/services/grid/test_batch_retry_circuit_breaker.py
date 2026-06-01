@@ -9,11 +9,43 @@
 """
 
 import asyncio
+import os
+import tempfile
 import time
 import unittest
 from decimal import Decimal
 from typing import List
 from unittest.mock import AsyncMock, MagicMock, patch
+
+
+# ---------------------------------------------------------------------------
+# 測試隔離：將熔斷狀態檔重導至臨時目錄，避免污染 data/.circuit_breaker_state.json
+# ---------------------------------------------------------------------------
+
+_CIRCUIT_TMP_DIR = None
+_CIRCUIT_PATH_PATCH = None
+
+
+def setUpModule():  # noqa: N802 (unittest naming convention)
+    global _CIRCUIT_TMP_DIR, _CIRCUIT_PATH_PATCH
+    _CIRCUIT_TMP_DIR = tempfile.mkdtemp(prefix="circuit_state_test_")
+    tmp_path = os.path.join(_CIRCUIT_TMP_DIR, ".circuit_breaker_state.json")
+    _CIRCUIT_PATH_PATCH = patch(
+        "core.services.grid.implementations.grid_engine_impl._get_circuit_state_file_path",
+        return_value=tmp_path,
+    )
+    _CIRCUIT_PATH_PATCH.start()
+
+
+def tearDownModule():  # noqa: N802
+    global _CIRCUIT_TMP_DIR, _CIRCUIT_PATH_PATCH
+    if _CIRCUIT_PATH_PATCH is not None:
+        _CIRCUIT_PATH_PATCH.stop()
+        _CIRCUIT_PATH_PATCH = None
+    if _CIRCUIT_TMP_DIR and os.path.isdir(_CIRCUIT_TMP_DIR):
+        import shutil
+        shutil.rmtree(_CIRCUIT_TMP_DIR, ignore_errors=True)
+        _CIRCUIT_TMP_DIR = None
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +264,103 @@ class TestPlaceBatchOrdersCircuitBreaker(unittest.IsolatedAsyncioTestCase):
         )
         # 初始 1 次 + 重試 2 次 = 3 次
         self.assertEqual(calls, 3, f"Expected 3 calls total, got {calls}")
+
+
+class TestBalanceMonitorCircuitPropagation(unittest.IsolatedAsyncioTestCase):
+    """測試 BalanceMonitor 與 engine 熔斷器的雙向協作"""
+
+    def _make_balance_monitor(self, engine):
+        """建立最小化 BalanceMonitor 實例"""
+        from core.services.grid.coordinator.balance_monitor import BalanceMonitor
+
+        config = MagicMock()
+        config.symbol = "BTC/USDC:USDC"
+        config.exchange = "binance"
+
+        coordinator = MagicMock()
+        coordinator.take_profit_manager = None
+        coordinator.capital_protection_manager = None
+        coordinator.scalping_manager = None
+
+        return BalanceMonitor(engine=engine, config=config, coordinator=coordinator, update_interval=60)
+
+    async def test_update_balance_propagates_1003_to_engine_circuit(self):
+        """
+        Bug A 驗證：update_balance() 收到 -1003 例外時，
+        必須呼叫 engine._parse_and_set_circuit，將 BAN 寫入熔斷器。
+        """
+        engine = _make_engine()
+        # 模擬 exchange.get_balances 拋出 -1003
+        future_ms = int((time.time() + 300) * 1000)
+        err_msg = f'binance 418 I\'m a teapot {{"code":-1003,"msg":"Way too many requests; IP banned until {future_ms}."}}'
+        engine.exchange.get_balances = AsyncMock(side_effect=Exception(err_msg))
+        # 移除 _balance_cache 屬性，強制走 REST 分支
+        if hasattr(engine.exchange, '_balance_cache'):
+            del engine.exchange._balance_cache
+
+        monitor = self._make_balance_monitor(engine)
+        # 確認熔斷器初始為關閉
+        self.assertFalse(engine._is_circuit_open())
+
+        await monitor.update_balance()
+
+        # 驗證熔斷器已被 BalanceMonitor 例外處理器啟動
+        self.assertEqual(engine._last_api_error_code, '-1003')
+        self.assertTrue(engine._is_circuit_open(),
+                        "engine 熔斷器應被 update_balance 的例外處理器啟動")
+
+    async def test_update_balance_skips_when_circuit_open(self):
+        """
+        Bug B 驗證：當 engine 熔斷器已開啟時，
+        update_balance() 必須在入口直接 return，不呼叫 exchange.get_balances。
+        """
+        engine = _make_engine()
+        # 預先設定永久熔斷
+        engine._api_circuit_until = float('inf')
+        engine._last_api_error_code = '-2015'
+        engine.exchange.get_balances = AsyncMock(return_value=[])
+
+        monitor = self._make_balance_monitor(engine)
+        await monitor.update_balance()
+
+        # 驗證 get_balances 完全沒被呼叫
+        engine.exchange.get_balances.assert_not_called()
+
+
+class TestPositionMonitorCircuitPropagation(unittest.IsolatedAsyncioTestCase):
+    """測試 PositionMonitor 撞 BAN 後是否同步通報 engine 熔斷器"""
+
+    async def test_handle_rate_limit_error_propagates_to_engine(self):
+        """
+        Bug C 驗證：_handle_rate_limit_error 解析到 BAN 時，
+        除設定自身 _ban_cooldown_until 外，必須同步呼叫 engine._parse_and_set_circuit。
+        """
+        from core.services.grid.coordinator.position_monitor import PositionMonitor
+
+        engine = _make_engine()
+        config = MagicMock()
+        config.symbol = "BTC/USDC:USDC"
+        config.rest_position_query_interval = 60
+        tracker = MagicMock()
+        coordinator = MagicMock()
+
+        monitor = PositionMonitor(engine=engine, tracker=tracker, config=config, coordinator=coordinator)
+
+        # 模擬撞到 -1003 的錯誤訊息
+        future_ms = int((time.time() + 600) * 1000)
+        err_msg = f'binance 418 I\'m a teapot {{"code":-1003,"msg":"Way too many requests; IP banned until {future_ms}."}}'
+
+        # 確認熔斷器初始為關閉
+        self.assertFalse(engine._is_circuit_open())
+
+        await monitor._handle_rate_limit_error(err_msg)
+
+        # 驗證 PositionMonitor 自身冷卻被啟動
+        self.assertGreater(monitor._ban_cooldown_until, time.time())
+        # 驗證 engine 熔斷器同步被啟動（Bug C 修復重點）
+        self.assertEqual(engine._last_api_error_code, '-1003')
+        self.assertTrue(engine._is_circuit_open(),
+                        "engine 熔斷器應被 PositionMonitor 同步啟動")
 
 
 if __name__ == "__main__":

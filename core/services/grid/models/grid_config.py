@@ -63,14 +63,26 @@ class GridConfig:
     网格配置
 
     所有参数由用户在配置文件中设置
+
+    🔥 重构说明（2026-05）：参数分层治理
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    - grid_interval 改为 Optional，可由 grid_count 自动推算
+    - quantity_precision / price_decimals 改为 Optional，可由 load_markets() 自动填入
+    - 系统级常数参数由 config/grid/defaults.yaml 统一管理
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     """
 
     # 基础参数（必需参数）
     exchange: str                           # 交易所名称 (如 "backpack")
     symbol: str                             # 交易对符号 (如 "BTC_USDC_PERP")
     grid_type: GridType                     # 网格类型（做多/做空）
-    grid_interval: Decimal                  # 网格间隔（等差）
     order_amount: Decimal                   # 每格订单数量（基础金额）
+
+    # 🔥 网格密度参数（grid_count 与 grid_interval 二选一）
+    # - 推荐使用 grid_count：格数固定 → API 消耗可预测
+    # - 向后兼容 grid_interval：间隔固定 → 格数由价格区间决定
+    grid_interval: Optional[Decimal] = None   # 网格间隔（可选，由 grid_count 自动推算）
+    _grid_count_input: Optional[int] = None   # 用户指定的网格格数（可选）
 
     # 价格区间参数（可选参数，价格移动网格时不需要）
     lower_price: Optional[Decimal] = None   # 价格下限（价格移动网格时可选）
@@ -105,21 +117,12 @@ class GridConfig:
     # - 10x+：较高风险，保证金需求低但需谨慎管理仓位
     # 💡 Lighter交易所：支持1-20倍杠杆，默认10倍
 
-    # 交易精度参数（重要！）
-    quantity_precision: int = 3              # 数量精度（小数位数，默认3位，如BNB）
-    # 说明：不同代币的交易所数量精度不同，需要根据实际情况设置
-    # - BTC: 8位小数 (0.00000001)
-    # - ETH: 6位小数 (0.000001)
-    # - BNB: 3位小数 (0.001)
-    # - SOL: 4位小数 (0.0001)
-    # 💡 查看方法：在交易所下单界面查看最小下单单位
-
-    price_decimals: int = 2                  # 价格精度（小数位数，默认2位，如USD）
-    # 说明：不同交易所和交易对的价格精度不同
-    # - Backpack BTC/USD: 2位小数 ($110,000.50)
-    # - Lighter BTC: 1位小数 ($110,000.5)
-    # - Hyperliquid BTC: 1位小数 ($110,000.5)
-    # 💡 查看方法：在交易所订单簿中查看价格显示格式
+    # 交易精度参数（可选！可由 exchange.load_markets() 自动获取）
+    # 🔥 设为 Optional[int]：省略时启动后自动从交易所获取
+    quantity_precision: Optional[int] = None   # 数量精度（小数位数，如 BTC=8, BNB=3, SOL=4）
+    price_decimals: Optional[int] = None       # 价格精度（小数位数，如 USD=2）
+    # 💡 若 YAML 中填写了这两个值，则以 YAML 为准（手动覆盖）
+    # 💡 若省略，启动时从 exchange.load_markets() 的 precision 字段自动获取
 
     # 马丁网格参数（可选）
     martingale_increment: Optional[Decimal] = None  # 马丁网格递增金额（None表示不启用马丁模式）
@@ -228,18 +231,43 @@ class GridConfig:
         # 初始化 logger
         self.logger = get_logger(self.__class__.__name__)
 
+        # 🔥 精度参数兜底：若仍为 None，使用安全的默认值
+        # （正式值应在启动后由 auto_fill_precision() 从 load_markets() 填入）
+        if self.quantity_precision is None:
+            self.quantity_precision = 3  # 代码级兜底默认值
+        if self.price_decimals is None:
+            self.price_decimals = 2      # 代码级兜底默认值
+
         # 🔥 价格移动网格：使用用户指定的网格数量
         if self.is_follow_mode():
             if self.follow_grid_count is None:
                 raise ValueError("价格移动网格必须指定 follow_grid_count")
             self.grid_count = self.follow_grid_count
             # 价格区间将在运行时根据当前价格动态计算
+            # follow 模式仍然需要 grid_interval
+            if self.grid_interval is None:
+                raise ValueError("价格移动网格必须指定 grid_interval")
         else:
             # 普通网格和马丁网格：根据价格区间计算网格数量
             if self.upper_price is None or self.lower_price is None:
                 raise ValueError("普通网格和马丁网格必须指定 upper_price 和 lower_price")
             price_range = abs(self.upper_price - self.lower_price)
-            self.grid_count = int(price_range / self.grid_interval)
+
+            if self._grid_count_input is not None:
+                # 🆕 用户指定了格数 → 自动推算 interval
+                self.grid_count = self._grid_count_input
+                self.grid_interval = price_range / Decimal(self.grid_count)
+                self.logger.info(
+                    f"📐 grid_count={self.grid_count} → 自动推算 grid_interval={self.grid_interval}"
+                )
+            elif self.grid_interval is not None and self.grid_interval > 0:
+                # 向后兼容：用户指定了 interval → 自动推算格数
+                self.grid_count = int(price_range / self.grid_interval)
+            else:
+                raise ValueError(
+                    "必须指定 grid_count 或 grid_interval 之一。"
+                    "推荐使用 grid_count 以确保 API 消耗可预测。"
+                )
 
         # 验证参数
         self._validate()

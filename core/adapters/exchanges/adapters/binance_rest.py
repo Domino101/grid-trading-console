@@ -6,12 +6,14 @@ Binance交易所REST API模块 - 重构版
 """
 
 import asyncio
+import collections
 import ccxt
 import hmac
 import hashlib
+import re
 import time
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Set
 from decimal import Decimal
 
 from .binance_base import BinanceBase
@@ -24,7 +26,33 @@ from ..models import (
 
 class BinanceRest(BinanceBase):
     """Binance REST API接口实现"""
-    
+
+    # ---------------------------------------------------------------------------
+    # 🔥 適配器級別 API 熔斷器（類變量，所有 BinanceRest 實例共享）
+    # ---------------------------------------------------------------------------
+    _adapter_circuit_until: float = 0.0
+    _adapter_last_error_code: Optional[str] = None
+    _adapter_circuit_initialized: bool = False
+
+    # ---------------------------------------------------------------------------
+    # 🔥 全局 REST 限速器（類變量，所有 BinanceRest 實例共享）
+    #
+    # 機制：滑動窗口 (sliding window)
+    #   - 記錄最近 _throttle_window_sec 秒內的 REST 調用時間戳
+    #   - 若窗口內已達 _throttle_max_calls 次，後續請求排隊等待
+    #
+    # 資源消耗：
+    #   記憶體 ~200 bytes（deque 最多 3 個 float + Lock + 計數器）
+    #   CPU < 10μs/call（比較 3 個時間戳）
+    # ---------------------------------------------------------------------------
+    _throttle_max_calls: int = 3
+    _throttle_window_sec: float = 5.0
+    _throttle_timestamps: collections.deque = collections.deque()
+    _throttle_lock: Optional[asyncio.Lock] = None
+    _throttle_total_calls: int = 0        # 累計 REST 調用次數
+    _throttle_total_waits: int = 0        # 累計排隊等待次數
+    _throttle_total_wait_sec: float = 0.0 # 累計排隊等待秒數
+
     def __init__(self, config, logger=None):
         super().__init__(config)
         self.logger = logger
@@ -44,15 +72,36 @@ class BinanceRest(BinanceBase):
         # 重试配置
         self.max_retries = 3
         self.retry_delay = 1.0
+
+        # 🔥 首次實例化時從磁碟載入持久化熔斷狀態（僅加載一次）
+        if not BinanceRest._adapter_circuit_initialized:
+            BinanceRest._adapter_circuit_initialized = True
+            try:
+                from core.services.grid.implementations.grid_engine_impl import read_persisted_circuit_state
+                persisted = read_persisted_circuit_state()
+                if persisted is not None:
+                    until_ts = persisted.get('until_ts')
+                    BinanceRest._adapter_last_error_code = persisted.get('code')
+                    if until_ts is None:
+                        BinanceRest._adapter_circuit_until = float('inf')
+                    else:
+                        BinanceRest._adapter_circuit_until = float(until_ts)
+                    if self.logger:
+                        self.logger.warning(
+                            f"⛔ [BinanceRest] 從磁碟載入熔斷狀態: code={persisted.get('code')}, "
+                            f"until={persisted.get('until_iso')}"
+                        )
+            except Exception:
+                pass  # 首次导入失败不影响功能
         
     async def initialize(self) -> bool:
-        """初始化CCXT交易所实例"""
+        """初始化CCXT交易所实例（經過全局限速器）"""
         try:
             # 创建ccxt交易所实例
-            # 支持公开数据模式：当未提供密钥或使用public_data_only时，仅使用公共端点
             self.exchange = ccxt.binance(self.ccxt_config)
             
-            # 加载市场信息
+            # 加载市场信息（經過限速器）
+            await BinanceRest._throttle_acquire(self.logger, 'load_markets')
             await asyncio.get_event_loop().run_in_executor(
                 None, self.exchange.load_markets
             )
@@ -60,7 +109,8 @@ class BinanceRest(BinanceBase):
             # 缓存市场信息
             self._market_info = self.exchange.markets
             
-            # 测试公共API连接（不需要密钥）
+            # 测试公共API连接（經過限速器）
+            await BinanceRest._throttle_acquire(self.logger, 'fetch_time')
             await asyncio.get_event_loop().run_in_executor(None, self.exchange.fetch_time)
             
             if self.logger:
@@ -78,8 +128,183 @@ class BinanceRest(BinanceBase):
             # ccxt没有显式的close方法，只需清理引用
             self.exchange = None
     
+    # ------------------------------------------------------------------
+    # 🔥 適配器級別熔斷器輔助方法
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _is_adapter_circuit_open(cls) -> bool:
+        """判斷適配器級別 API 熔斷器是否開啟"""
+        return time.time() < cls._adapter_circuit_until
+
+    @classmethod
+    def _update_adapter_circuit(cls, error_str: str, logger=None) -> Optional[str]:
+        """
+        解析 API 錯誤字串並更新適配器級別熔斷狀態。
+        同時同步到 GridEngineImpl 的類變量和磁碟持久化。
+
+        Returns:
+            解析到的錯誤碼字串（如 '-2015'），或 None
+        """
+        m = re.search(r'"?code"?\s*:\s*(-?\d+)', error_str)
+        if not m:
+            m = re.search(r'(?<!\d)(-\d{4})(?!\d)', error_str)
+        code = str(m.group(1)) if m else None
+
+        if code == '-2015':
+            cls._adapter_last_error_code = code
+            cls._adapter_circuit_until = float('inf')
+            if logger:
+                logger.critical(
+                    "🚨 [BinanceRest] API Key/IP 白名單無效 (-2015)，"
+                    "已永久熔斷所有 REST 呼叫！請至 Binance 後台更新 IP 白名單後重啟。"
+                )
+            # 持久化到磁碟 & 同步到 GridEngineImpl
+            cls._sync_circuit_to_engine(code, None)
+
+        elif code == '-1003':
+            cls._adapter_last_error_code = code
+            bm = re.search(r'banned until (\d+)', error_str)
+            if bm:
+                until_ms = int(bm.group(1))
+                new_until = until_ms / 1000.0
+                # 只延長不縮短
+                if new_until > cls._adapter_circuit_until:
+                    cls._adapter_circuit_until = new_until
+                wait_sec = max(0, cls._adapter_circuit_until - time.time())
+                if logger:
+                    logger.error(
+                        f"🚫 [BinanceRest] IP 被 BAN (-1003)，熔斷 {wait_sec:.0f} 秒"
+                        f"（直到 {datetime.fromtimestamp(cls._adapter_circuit_until).strftime('%H:%M:%S')}）"
+                    )
+            else:
+                fallback_until = time.time() + 120.0
+                if fallback_until > cls._adapter_circuit_until:
+                    cls._adapter_circuit_until = fallback_until
+                if logger:
+                    logger.error(
+                        "🚫 [BinanceRest] IP 被 BAN (-1003)，未解析到 banned until 時間戳，"
+                        "預設退避 120 秒"
+                    )
+            cls._sync_circuit_to_engine(code, cls._adapter_circuit_until)
+
+        return code
+
+    @staticmethod
+    def _sync_circuit_to_engine(code: str, until_ts: Optional[float]) -> None:
+        """同步熔斷狀態到 GridEngineImpl 類變量和磁碟持久化檔"""
+        try:
+            from core.services.grid.implementations.grid_engine_impl import (
+                GridEngineImpl, write_persisted_circuit_state
+            )
+            GridEngineImpl._shared_last_api_error_code = code
+            if until_ts is None:
+                GridEngineImpl._shared_api_circuit_until = float('inf')
+            else:
+                if until_ts > GridEngineImpl._shared_api_circuit_until:
+                    GridEngineImpl._shared_api_circuit_until = until_ts
+            write_persisted_circuit_state(code, until_ts)
+        except Exception:
+            pass  # 同步失敗不影響主流程
+
+    @classmethod
+    def clear_adapter_circuit(cls) -> None:
+        """清除適配器層熔斷狀態（手動恢復後可呼叫）"""
+        cls._adapter_circuit_until = 0.0
+        cls._adapter_last_error_code = None
+
+    # ------------------------------------------------------------------
+    # 🔥 全局 REST 限速器方法
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _get_throttle_lock(cls) -> asyncio.Lock:
+        """惰性建立 asyncio.Lock（需在事件迴圈中建立）"""
+        if cls._throttle_lock is None:
+            cls._throttle_lock = asyncio.Lock()
+        return cls._throttle_lock
+
+    @classmethod
+    async def _throttle_acquire(cls, logger=None, caller: str = '') -> None:
+        """
+        獲取一個 REST 調用配額。若窗口已滿，阻塞等待直到有空位。
+
+        機制：
+          1. 取得 Lock（排隊）
+          2. 清理窗口外的過期時間戳
+          3. 若窗口已滿 → 計算需等待的秒數 → sleep
+          4. 記錄此次調用時間戳
+          5. 釋放 Lock
+
+        所有等待者按 FIFO 排隊，確保公平性。
+        """
+        lock = cls._get_throttle_lock()
+        async with lock:
+            now = time.time()
+
+            # 清理窗口外的過期時間戳
+            while (cls._throttle_timestamps
+                   and cls._throttle_timestamps[0] < now - cls._throttle_window_sec):
+                cls._throttle_timestamps.popleft()
+
+            # 窗口已滿 → 等待最早的那筆過期
+            if len(cls._throttle_timestamps) >= cls._throttle_max_calls:
+                oldest = cls._throttle_timestamps[0]
+                wait_until = oldest + cls._throttle_window_sec
+                wait_sec = max(0.05, wait_until - now)  # 至少 50ms 避免忙等
+                cls._throttle_total_waits += 1
+                cls._throttle_total_wait_sec += wait_sec
+                if logger:
+                    queue_depth = 0  # Lock 內無法精確測量，但等待次數可追蹤
+                    logger.debug(
+                        f"⏱️ [限速] {caller or 'REST'} 排隊等待 {wait_sec:.1f}s "
+                        f"(窗口 {cls._throttle_max_calls}/{cls._throttle_window_sec}s，"
+                        f"累計等待 {cls._throttle_total_waits} 次)"
+                    )
+                await asyncio.sleep(wait_sec)
+                # sleep 後重新清理
+                now = time.time()
+                while (cls._throttle_timestamps
+                       and cls._throttle_timestamps[0] < now - cls._throttle_window_sec):
+                    cls._throttle_timestamps.popleft()
+
+            # 記錄此次調用
+            cls._throttle_timestamps.append(time.time())
+            cls._throttle_total_calls += 1
+
+    @classmethod
+    def get_throttle_stats(cls) -> Dict[str, Any]:
+        """回傳限速器統計資訊（用於日誌 / 監控面板）"""
+        now = time.time()
+        recent = sum(1 for t in cls._throttle_timestamps
+                     if t > now - cls._throttle_window_sec)
+        return {
+            'total_calls': cls._throttle_total_calls,
+            'total_waits': cls._throttle_total_waits,
+            'total_wait_sec': round(cls._throttle_total_wait_sec, 1),
+            'window_current': recent,
+            'window_max': cls._throttle_max_calls,
+            'window_sec': cls._throttle_window_sec,
+        }
+
     async def _execute_with_retry(self, func, *args, **kwargs):
-        """带重试的API调用（含429/BAN智慧退避）"""
+        """带重试的API调用（含限速器 + 熔斷器 + 429/BAN退避）"""
+
+        # 🔥 熔斷器前置檢查：IP 仍在 BAN 中時直接拒絕 REST 呼叫
+        if BinanceRest._is_adapter_circuit_open():
+            until = BinanceRest._adapter_circuit_until
+            code = BinanceRest._adapter_last_error_code or '?'
+            if until == float('inf'):
+                msg = f"API 熔斷器永久開啟 (code={code})，拒絕 REST 呼叫"
+            else:
+                remaining = max(0, until - time.time())
+                msg = f"API 熔斷中 (code={code})，剩餘 {remaining:.0f} 秒，拒絕 REST 呼叫"
+            raise RuntimeError(f"⛔ [BinanceRest] {msg}")
+
+        # 🔥 全局限速器：排隊取得配額（每 5 秒最多 3 次）
+        func_name = getattr(func, '__name__', str(func)[:30])
+        await BinanceRest._throttle_acquire(self.logger, func_name)
+
         last_error = None
 
         for attempt in range(self.max_retries):
@@ -92,7 +317,7 @@ class BinanceRest(BinanceBase):
                 last_error = e
                 err_str = str(e).lower()
 
-                # 🔥 429 / BAN 特殊处理：立即停止重试，让上层冷却逻辑生效
+                # 🔥 429 / BAN 特殊处理：立即停止重试 + 更新適配器熔斷器
                 is_rate_limit = (
                     'ratelimit' in type(e).__name__.lower()
                     or '429' in err_str
@@ -107,12 +332,19 @@ class BinanceRest(BinanceBase):
                         self.logger.error(
                             f"❌ API速率限制/BAN错误，立即停止重试: {str(e)}"
                         )
+                    # 🔥 更新適配器級別熔斷器狀態（全局生效）
+                    BinanceRest._update_adapter_circuit(str(e), self.logger)
                     # 同步失效所有缓存，避免返回过时数据
                     self._balances_cache = None
                     self._balances_cache_time = 0
                     self._open_orders_cache.clear()
                     self._positions_cache.clear()
                     raise  # 直接抛出，让 PositionMonitor 的 BAN 冷却逻辑处理
+
+                # 🔥 -2015 特殊檢查（可能不在 rate_limit 分支但仍需熔斷）
+                if '-2015' in err_str:
+                    BinanceRest._update_adapter_circuit(str(e), self.logger)
+                    raise
 
                 if attempt < self.max_retries - 1:
                     # 指数退避：1s → 3s → 9s...（避免瞬断时暴力重试）
@@ -434,7 +666,83 @@ class BinanceRest(BinanceBase):
             if self.logger:
                 self.logger.error(f"创建订单失败 {symbol}: {str(e)}")
             raise
-    
+
+    async def create_batch_orders(
+        self,
+        symbol: str,
+        orders: List[Dict[str, Any]],
+    ) -> List[Optional[OrderData]]:
+        """
+        批量下單 — 利用 Binance POST /fapi/v1/batchOrders（每次最多 5 張）
+
+        Args:
+            symbol: 交易對（內部格式，如 SOL_USDC）
+            orders: 訂單字典列表，每個包含:
+                - side: OrderSide
+                - order_type: OrderType
+                - amount: Decimal
+                - price: Optional[Decimal]
+                - params: Optional[Dict]
+
+        Returns:
+            與 orders 等長的列表，成功為 OrderData，失敗為 None
+        """
+        mapped_symbol = self.map_symbol_to_binance(symbol)
+        batch_size = 5  # Binance 批量 API 上限
+        results: List[Optional[OrderData]] = []
+
+        for i in range(0, len(orders), batch_size):
+            batch = orders[i:i + batch_size]
+            ccxt_orders = []
+            for o in batch:
+                ccxt_orders.append({
+                    'symbol': mapped_symbol,
+                    'type': self.ORDER_TYPE_MAPPING.get(o['order_type'], 'LIMIT'),
+                    'side': o['side'].value.lower(),
+                    'amount': float(o['amount']),
+                    'price': float(o['price']) if o.get('price') is not None else None,
+                    'params': o.get('params') or {},
+                })
+
+            try:
+                # 🔥 全局限速器：排隊取得配額
+                await BinanceRest._throttle_acquire(self.logger, 'create_orders_batch')
+
+                # 🔥 熔斷器前置檢查
+                if BinanceRest._is_adapter_circuit_open():
+                    code = BinanceRest._adapter_last_error_code or '?'
+                    raise RuntimeError(f"⛔ [BinanceRest] API 熔斷中 (code={code})，拒絕批量下單")
+
+                batch_results = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    self.exchange.create_orders,
+                    ccxt_orders,
+                )
+
+                for idx, res in enumerate(batch_results):
+                    try:
+                        if res and not isinstance(res, Exception):
+                            results.append(self.parse_order(res, symbol))
+                        else:
+                            results.append(None)
+                    except Exception:
+                        results.append(None)
+
+            except Exception as e:
+                err_str = str(e)
+                if self.logger:
+                    self.logger.error(f"❌ 批量下單失敗 (batch {i // batch_size + 1}): {err_str}")
+                # 更新熔斷器
+                BinanceRest._update_adapter_circuit(err_str, self.logger)
+                # 本批全部標記為 None
+                results.extend([None] * len(batch))
+
+            # 批次間短暫延遲
+            if i + batch_size < len(orders):
+                await asyncio.sleep(0.15)
+
+        return results
+
     async def cancel_order(self, order_id: str, symbol: str) -> OrderData:
         """取消订单"""
         try:

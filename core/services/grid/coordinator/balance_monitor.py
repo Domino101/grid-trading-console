@@ -126,6 +126,14 @@ class BalanceMonitor:
 
         🔥 优化：优先使用 WebSocket 缓存，只有在缓存失效时才调用 REST API
         """
+        # 🔥 入口守衛：API 熔斷中（-2015 永久 / -1003 定時）直接 return
+        # 防止 start_monitoring 立即呼叫或外部觸發者繞過 _balance_monitor_loop 守衛
+        if hasattr(self.engine, '_is_circuit_open') and self.engine._is_circuit_open():
+            self.logger.debug(
+                f"⛔ API 熔斷中 (code={getattr(self.engine, '_last_api_error_code', '?')})，"
+                f"跳過 update_balance 呼叫"
+            )
+            return
         try:
             # 🔥 优先使用 WebSocket 缓存（避免频繁REST查询）
             if hasattr(self.engine.exchange, '_balance_cache'):
@@ -276,6 +284,13 @@ class BalanceMonitor:
             self.logger.error(f"❌ 获取账户余额失败: {e}")
             import traceback
             self.logger.error(traceback.format_exc())
+            # 🔥 通報引擎熔斷器：將 -2015 / -1003 / 418 等錯誤同步至 engine._api_circuit_until
+            # 否則 BalanceMonitor 自身的例外吞噬會讓熔斷器永遠不被觸發
+            if hasattr(self.engine, '_parse_and_set_circuit'):
+                try:
+                    self.engine._parse_and_set_circuit(str(e))
+                except Exception as ce:
+                    self.logger.debug(f"熔斷通報失敗（非致命）: {ce}")
 
     def _initialize_managers_capital(self):
         """初始化各个管理器的本金（首次获取时）"""

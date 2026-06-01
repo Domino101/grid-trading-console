@@ -16,13 +16,18 @@ cd "$SCRIPT_DIR"
 
 # 檢查 Python 依賴
 echo -e "${YELLOW}[1/4] 檢查後端依賴...${NC}"
-pip install -q -r web_ui/backend/requirements.txt
+# $SCRIPT_DIR/venv/bin/pip install -q -r web_ui/backend/requirements.txt
+
 
 # 構建前端
 echo -e "${YELLOW}[2/4] 構建前端...${NC}"
 cd web_ui/frontend
-npm install
-npm run build
+if [ -f "package.json" ]; then
+    npm install
+    npm run build
+else
+    echo -e "${YELLOW}⚠️ 找不到 package.json，跳過前端構建 (Web UI 可能無法正常顯示介面)...${NC}"
+fi
 cd ../..
 
 # 啟動後端 (nohup 持久化)
@@ -41,7 +46,7 @@ if [ -f "$PID_FILE" ]; then
     rm "$PID_FILE"
 fi
 
-nohup python3 main.py > ../../logs/web_ui.log 2>&1 &
+nohup $SCRIPT_DIR/venv/bin/python3 main.py > ../../logs/web_ui.log 2>&1 &
 WEB_UI_PID=$!
 echo $WEB_UI_PID > ../../logs/web_ui.pid
 cd ../..

@@ -1,0 +1,11 @@
+grid_system:
+  exchange: binance
+  symbol: WLD/USDC:USDC
+  grid_type: neutral
+  price_range:
+    lower_price: 0.2
+    upper_price: 1
+  order_amount: 15
+  leverage: 75
+  margin_mode: cross
+  grid_count: 800
