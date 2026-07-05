@@ -1268,42 +1268,55 @@ class LighterWebSocket(LighterBase):
         """运行直接WebSocket订阅（永久运行，自动重连）"""
         retry_count = 0
 
+        # 🔥 修復:scanner 之類只需要公開行情的場景沒有 signer_client,
+        #         仍要能訂閱 market_stats(公開頻道),不能卡在 sleep 10 秒的無限循環
+        public_only = not bool(self.signer_client)
+        if public_only:
+            logger.info(
+                "🛰️ 未配置 SignerClient,將以公開模式訂閱 Lighter WebSocket"
+                "(僅訂閱 market_stats,跳過 account 相關頻道)")
+
         logger.info(
-            f"🔧 _run_direct_ws_subscription 任务启动 (_running={self._running})")
+            f"🔧 _run_direct_ws_subscription 任務啟動 (_running={self._running})")
 
         # 🔥 外层循环：确保任务永不退出
         while self._running:
             try:
-                # 检查SignerClient是否可用
-                if not self.signer_client:
-                    logger.error(
-                        f"❌ SignerClient未初始化，无法订阅market_stats (retry_count={retry_count})")
-                    await asyncio.sleep(10)
-                    retry_count += 1
-                    continue
+                auth_token = None
 
-                logger.debug("SignerClient可用，准备连接WebSocket")
+                # 🔥 修復:若無 signer_client,跳過 auth token 生成,
+                #         直接走公開訂閱流程
+                if not public_only:
+                    # 检查SignerClient是否可用
+                    if not self.signer_client:
+                        logger.error(
+                            f"❌ SignerClient未初始化,無法訂閱market_stats (retry_count={retry_count})")
+                        await asyncio.sleep(10)
+                        retry_count += 1
+                        continue
 
-                # 🔥 生成auth token（使用SDK推荐的10分钟过期时间）
-                import lighter
-                try:
-                    logger.debug("准备生成认证token...")
-                    auth_token, err = self.signer_client.create_auth_token_with_expiry(
-                        lighter.SignerClient.DEFAULT_10_MIN_AUTH_EXPIRY
-                    )
-                    if err:
-                        logger.error(f"❌ 生成认证token失败: {err}")
+                    logger.debug("SignerClient可用,準備連接WebSocket")
+
+                    # 🔥 生成auth token（使用SDK推薦的10分鐘過期時間）
+                    import lighter
+                    try:
+                        logger.debug("準備生成認token...")
+                        auth_token, err = self.signer_client.create_auth_token_with_expiry(
+                            lighter.SignerClient.DEFAULT_10_MIN_AUTH_EXPIRY
+                        )
+                        if err:
+                            logger.error(f"❌ 生成認token失敗: {err}")
+                            await asyncio.sleep(10)
+                            continue
+                        logger.debug(f"生成認token成功")
+                    except Exception as e:
+                        logger.error(f"❌ 生成認token失敗: {e}", exc_info=True)
                         await asyncio.sleep(10)
                         continue
-                    logger.debug(f"生成认证token成功")
-                except Exception as e:
-                    logger.error(f"❌ 生成认证token失败: {e}", exc_info=True)
-                    await asyncio.sleep(10)
-                    continue
 
                 # 连接WebSocket
                 ws_url = self.ws_url
-                logger.info(f"🔗 连接Lighter WebSocket...")
+                logger.info(f"🔗 連接Lighter WebSocket...")
 
                 # 🔥 修复：直接使用 async with 语法，不要提前 await
                 # 🔥 关键配置说明：
@@ -1319,8 +1332,9 @@ class LighterWebSocket(LighterBase):
                     logger.info("✅ WebSocket已连接并订阅成功")
                     self._direct_ws = ws
 
-                    # 发送订阅消息
-                    if self.account_index:
+                    # 🔥 修復:公開模式下跳過所有需要 auth 的頻道
+                    #   只訂閱 market_stats(公開,無需 auth)
+                    if not public_only and self.account_index:
                         # 1️⃣ 订阅account_all_orders（订单状态推送）
                         subscribe_msg = {
                             "type": "subscribe",
@@ -1352,6 +1366,8 @@ class LighterWebSocket(LighterBase):
                         await ws.send(json.dumps(subscribe_stats_msg))
                         logger.info(
                             f"📨 已发送订阅请求: user_stats/{self.account_index} (包含余额数据)")
+                    else:
+                        logger.info("🛰️ 公開模式:跳過 account_* 與 user_stats 訂閱")
 
                     # 3️⃣ 订阅market_stats（无需认证）
                     logger.debug("准备发送market_stats订阅")
@@ -1602,29 +1618,49 @@ class LighterWebSocket(LighterBase):
             if not last_price:
                 return
 
-            # 构造TickerData（使用正确的字段名）
+            # 24h成交量(基礎資產)
+            daily_base_volume = self._safe_decimal(
+                market_stats.get("daily_base_token_volume", 0))
+
+            # 構造TickerData(使用正確的字段名)
             ticker = TickerData(
                 symbol=symbol,
-                timestamp=datetime.now(),  # ✅ 必需字段，使用datetime对象
-                last=last_price,  # ✅ 最新成交价
+                timestamp=datetime.now(),  # ✅ 必需字段,使用datetime對象
+                last=last_price,  # ✅ 最新成交價
                 bid=self._safe_decimal(market_stats.get(
-                    "mark_price", last_price)),  # 使用mark_price作为bid近似值
+                    "mark_price", last_price)),  # 使用mark_price作為bid近似值
                 ask=self._safe_decimal(market_stats.get(
-                    "index_price", last_price)),  # 使用index_price作为ask近似值
-                volume=self._safe_decimal(
-                    market_stats.get("daily_base_token_volume", 0)),  # 24小时成交量
+                    "index_price", last_price)),  # 使用index_price作為ask近似值
+                volume=daily_base_volume,  # 24小時成交量(基礎資產)
+                # 🔥 修復:Lighter WS不直接給 quote_volume,需以 base_volume × last_price 推算
+                quote_volume=(
+                    daily_base_volume * last_price
+                    if daily_base_volume and daily_base_volume > 0
+                    else None
+                ),
                 high=self._safe_decimal(
-                    market_stats.get("daily_price_high", 0)),  # 24小时最高价
+                    market_stats.get("daily_price_high", 0)),  # 24小時最高價
                 low=self._safe_decimal(
-                    market_stats.get("daily_price_low", 0)),  # 24小时最低价
-                # Lighter: current_funding_rate 是百分比形式的1小时费率
-                # 需要先÷100转为小数，再×8转为8小时费率
+                    market_stats.get("daily_price_low", 0)),  # 24小時最低價
+                # 🔥 修復:percentage Lighter WS不直接提供,改用 (high-low)/low 作為日內振幅代理
+                # 注意:這不是真實的 24h 漲跌幅,而是日內波動幅度;真實漲跌幅需 24h open price
+                percentage=(
+                    (self._safe_decimal(market_stats.get("daily_price_high", 0))
+                     - self._safe_decimal(market_stats.get("daily_price_low", 0)))
+                    / self._safe_decimal(market_stats.get("daily_price_low", 0))
+                    * Decimal('100')
+                    if market_stats.get("daily_price_low") and
+                    self._safe_decimal(market_stats.get("daily_price_low", 0)) > 0
+                    else None
+                ),
+                # Lighter: current_funding_rate 是百分比形式的1小時費率
+                # 需要先÷100轉為小數,再×8轉為8小時費率
                 funding_rate=(
                     self._safe_decimal(market_stats.get(
                         "current_funding_rate")) / 100 * 8
                     if market_stats.get("current_funding_rate") is not None
                     else None
-                )  # 资金费率（0.12% → 0.0012 → 0.0096）
+                )  # 資金費率(0.12% → 0.0012 → 0.0096)
             )
 
             # 🔥 每60秒（1分钟）打印一次价格日志（只输出到文件，不显示在终端）

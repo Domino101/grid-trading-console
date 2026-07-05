@@ -76,9 +76,17 @@ class BinanceWebSocket(BinanceBase):
         self._heartbeat_task = None
         self._listen_key_task = None
         self._user_stream_watchdog_task = None
+        self._futures_stream_watchdog_task = None
 
         # 🔥 用戶數據流最後收到訊息時間（用於死寂偵測/watchdog）
         self._last_user_message_time: float = 0
+
+        # 🔥 期貨行情流最後收到訊息時間（用於死寂偵測/watchdog）
+        # 修法：解「連線存活但無訊息」的殭屍 WebSocket 情境（ping/pong 通但應用層停擺）
+        self._last_futures_message_time: float = 0
+        # 期貨 stream watchdog 參數（單獨設定，不沿用 user stream 的 30s 一次性檢查）
+        self.futures_watchdog_threshold = 60  # 60 秒無任何訊息視為死寂
+        self.futures_watchdog_check_interval = 15  # 每 15 秒檢查一次
         
     async def initialize(self) -> bool:
         """初始化WebSocket连接"""
@@ -121,7 +129,7 @@ class BinanceWebSocket(BinanceBase):
                     await self._heartbeat_task
                 except asyncio.CancelledError:
                     pass
-            
+
             # 取消listen key任务
             if self._listen_key_task:
                 self._listen_key_task.cancel()
@@ -129,22 +137,31 @@ class BinanceWebSocket(BinanceBase):
                     await self._listen_key_task
                 except asyncio.CancelledError:
                     pass
-            
+
+            # 🔥 取消期貨行情流 watchdog
+            if self._futures_stream_watchdog_task:
+                self._futures_stream_watchdog_task.cancel()
+                try:
+                    await self._futures_stream_watchdog_task
+                except asyncio.CancelledError:
+                    pass
+                self._futures_stream_watchdog_task = None
+
             # 关闭WebSocket连接
             if self._websocket:
                 await self._websocket.close()
                 self._websocket = None
-                
+
             if self._user_websocket:
                 await self._user_websocket.close()
                 self._user_websocket = None
-            
+
             self._connected = False
             self._user_connected = False
-            
+
             if self.logger:
                 self.logger.info("✅ Binance WebSocket连接已关闭")
-                
+
         except Exception as e:
             if self.logger:
                 self.logger.error(f"❌ 关闭WebSocket连接失败: {str(e)}")
@@ -203,13 +220,17 @@ class BinanceWebSocket(BinanceBase):
             self._futures_websocket = await websockets.connect(futures_ws_url, ssl=ssl_context)
             self._futures_connected = True
             self._futures_reconnect_attempts = 0
-            
+
+            # 🔥 修法：重置訊息時間戳並啟動持久 watchdog（偵測「連線存活但無訊息」的殭屍狀態）
+            self._last_futures_message_time = time.time()
+            self._start_futures_stream_watchdog()
+
             # 启动消息处理任务
             asyncio.create_task(self._handle_futures_messages())
-            
+
             if self.logger:
                 self.logger.info("✅ Binance期货数据流连接成功")
-            
+
             return True
             
         except Exception as e:
@@ -372,6 +393,8 @@ class BinanceWebSocket(BinanceBase):
         """处理期货/永续合约市场数据消息"""
         try:
             async for message in self._futures_websocket:
+                # 🔥 修法：無論訊息內容為何（訂閱響應/ticker/depth），只要收到即視為「活著」
+                self._last_futures_message_time = time.time()
                 try:
                     data = json.loads(message)
                     await self._process_market_message(data, is_futures=True)
@@ -381,7 +404,7 @@ class BinanceWebSocket(BinanceBase):
                 except Exception as e:
                     if self.logger:
                         self.logger.error(f"❌ 处理期货消息失败: {str(e)}")
-                        
+
         except websockets.exceptions.ConnectionClosed:
             if self.logger:
                 self.logger.warning("⚠️ 期货数据流连接断开，尝试重连")
@@ -1049,7 +1072,74 @@ class BinanceWebSocket(BinanceBase):
         except Exception as e:
             if self.logger:
                 self.logger.error(f"❌ User Stream Watchdog 異常: {e}")
-    
+
+    def _start_futures_stream_watchdog(self):
+        """
+        啟動期貨行情流持久 watchdog
+
+        背景任務：每隔 futures_watchdog_check_interval 秒檢查一次，
+        若 self._last_futures_message_time 超過 futures_watchdog_threshold 秒未更新，
+        代表「連線存活但無訊息」（ping/pong 通但應用層停擺），
+        主動 close WebSocket 觸發 ConnectionClosed → _reconnect_futures_stream()。
+
+        與一次性 _user_stream_watchdog 不同的點：
+        - 一次性 vs 持久（重連後自動重新啟動）
+        - User stream 30s 閾值（listenKey 訂閱後等待首批訊息）
+        - Futures stream 60s 閾值（bookTicker 本身頻率為 100ms-1s 級，正常情況下 60s 內必有訊息）
+        """
+        if (self._futures_stream_watchdog_task is not None
+                and not self._futures_stream_watchdog_task.done()):
+            # 已有 watchdog 在跑，不重複啟動
+            return
+        self._futures_stream_watchdog_task = asyncio.create_task(
+            self._futures_stream_watchdog()
+        )
+        if self.logger:
+            self.logger.info(
+                f"🛡️ 期货行情 Watchdog 已啟動：閾值={self.futures_watchdog_threshold}s, "
+                f"檢查間隔={self.futures_watchdog_check_interval}s"
+            )
+
+    async def _futures_stream_watchdog(self):
+        """期貨行情流 watchdog 主迴圈（持久運行）"""
+        try:
+            while True:
+                await asyncio.sleep(self.futures_watchdog_check_interval)
+
+                # 連線未標記為已連線時跳過（避免在重連空窗期誤判）
+                if not self._futures_connected:
+                    continue
+
+                # 訊息時間戳尚未初始化時跳過（剛連線的冷啟動期）
+                if self._last_futures_message_time == 0:
+                    continue
+
+                silence_seconds = time.time() - self._last_futures_message_time
+                if silence_seconds > self.futures_watchdog_threshold:
+                    if self.logger:
+                        self.logger.warning(
+                            f"🛡️ 期货行情 Watchdog 觸發：{silence_seconds:.0f} 秒無訊息 "
+                            f"(閾值={self.futures_watchdog_threshold}s)，"
+                            f"主動關閉連線觸發重連..."
+                        )
+                    # 🔥 關鍵：主動 close 連線，_handle_futures_messages 會收到 ConnectionClosed
+                    # 然後走 _reconnect_futures_stream 重新訂閱
+                    if self._futures_websocket:
+                        try:
+                            await self._futures_websocket.close()
+                        except Exception:
+                            pass
+                    # 重置時間戳避免在重連空窗期反覆觸發
+                    self._last_futures_message_time = 0
+                    # 注意：close 會讓 _handle_futures_messages 結束，
+                    # _reconnect_futures_stream 會在新的 _connect_futures_stream 中重新啟動本 watchdog
+        except asyncio.CancelledError:
+            if self.logger:
+                self.logger.info("🛡️ 期货行情 Watchdog 已停止")
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"❌ 期货行情 Watchdog 異常: {e}")
+
     async def unsubscribe(self, symbol: Optional[str] = None):
         """取消订阅"""
         try:

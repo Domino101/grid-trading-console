@@ -695,11 +695,15 @@ class BinanceRest(BinanceBase):
             batch = orders[i:i + batch_size]
             ccxt_orders = []
             for o in batch:
+                o_amount = o['amount']
+                o_price = o.get('price')
+                if o_price is not None:
+                    o_amount = self._adjust_min_notional(mapped_symbol, o_amount, o_price)
                 ccxt_orders.append({
                     'symbol': mapped_symbol,
                     'type': self.ORDER_TYPE_MAPPING.get(o['order_type'], 'LIMIT'),
                     'side': o['side'].value.lower(),
-                    'amount': float(o['amount']),
+                    'amount': float(o_amount),
                     'price': float(o['price']) if o.get('price') is not None else None,
                     'params': o.get('params') or {},
                 })

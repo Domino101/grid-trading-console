@@ -1,0 +1,11 @@
+grid_system:
+  exchange: binance
+  symbol: COAI/USDT:USDT
+  grid_type: neutral
+  price_range:
+    lower_price: 0.2
+    upper_price: 0.630
+  order_amount: 30
+  leverage: 10
+  margin_mode: cross
+  grid_count: 200

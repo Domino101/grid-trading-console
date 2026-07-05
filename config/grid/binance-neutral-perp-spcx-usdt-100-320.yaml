@@ -1,0 +1,11 @@
+grid_system:
+  exchange: binance
+  symbol: SPCX/USDT:USDT
+  grid_type: neutral
+  price_range:
+    lower_price: 100.00
+    upper_price: 320.00
+  order_amount: 0.05
+  leverage: 20
+  margin_mode: cross
+  grid_count: 170

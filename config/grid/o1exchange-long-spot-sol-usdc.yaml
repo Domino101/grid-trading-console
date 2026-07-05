@@ -1,0 +1,20 @@
+# ====================================
+# O1Exchange SOL/USDC 现货做多网格
+# ====================================
+
+grid_system:
+  exchange: o1exchange
+  symbol: SOL/USDC
+  
+  o1exchange:
+    network: base
+    slippage_bps: 500       # 5% 滑点（波动性较高的币种）
+    enable_mev_protection: true
+  
+  grid_type: long
+  price_range:
+    lower_price: 100.0
+    upper_price: 160.0
+  
+  order_amount: 0.5         # 每个网格 0.5 SOL
+  grid_count: 120

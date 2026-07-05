@@ -1,0 +1,63 @@
+# ====================================
+# O1Exchange 交易所配置文件
+# ====================================
+# 本配置文件用于配置 O1Exchange 交易所的各项参数
+# 包括 API 连接、认证信息、网络配置等
+
+o1exchange:
+  # API 连接配置
+  api:
+    base_url: https://api.o1.exchange        # REST API 基础 URL
+    timeout: 30                            # API 请求超时时间 (秒)
+    version: v2                            # API 版本
+
+  # 认证配置
+  authentication:
+    api_key: ''                            # 🔑 O1Exchange API Key
+    private_key: ''                        # 🔑 钱包私钥 (用于签名)
+    wallet_address: ''                     # 📍 钱包地址
+
+  # 网络配置
+  network:
+    default: base                          # 默认网络 (base, bsc, solana)
+    enabled:
+      - base
+      - bsc
+      - solana
+
+  # 交易配置
+  trading:
+    default_slippage_bps: 300              # 默认滑点 (300 = 3%
+    enable_mev_protection: true               # 启用 MEV 保护
+
+  # 速率限制配置
+  rate_limits:
+    order_creation: 20                      # 订单创建速率限制 (每分钟)
+    rest_api: 100                           # REST API 速率限制 (每分钟)
+
+  # 精度配置
+  precision:
+    price:
+      default: 6                             # 默认价格精度
+    quantity:
+      default: 6                             # 默认数量精度
+
+  # 支持的交易对
+  symbols:
+    - ETH/USDC
+    - BTC/USDC
+    - SOL/USDC
+
+  # WebSocket 配置
+  websocket:
+    enabled: false                           # 暂不启用 WebSocket
+    auto_reconnect: true
+
+  # 开发配置
+  development:
+    debug: false
+    mock_data: false
+
+  # 交易所信息
+  exchange_id: o1exchange
+  name: O1Exchange

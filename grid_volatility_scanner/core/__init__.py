@@ -1,12 +1,9 @@
 """
-核心逻辑模块 - Core
+核心逻辑模組 - Core
 
-包含价格监控、循环检测、APR计算等核心功能
+包含 APR 計算、APR 報警等核心功能
 """
 
-from .price_monitor import PriceMonitor
-from .cycle_detector import CycleDetector
 from .apr_calculator import APRCalculator
 
-__all__ = ['PriceMonitor', 'CycleDetector', 'APRCalculator']
-
+__all__ = ['APRCalculator']  # PriceMonitor / CycleDetector 已 deprecated,移除

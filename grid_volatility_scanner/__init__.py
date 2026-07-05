@@ -15,20 +15,19 @@
 5. 计算实时APR并排序
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __author__ = "Crypto Trading System"
 
 from .models.virtual_grid import VirtualGrid
 from .models.simulation_result import SimulationResult
-from .core.price_monitor import PriceMonitor
-from .core.cycle_detector import CycleDetector
 from .core.apr_calculator import APRCalculator
+
+# 🔥 修复 P1-5：PriceMonitor / CycleDetector 已标记为 deprecated（见对应模块）
+# 不再对外导出，避免新用户误用；保留模块文件以备新交易所接入时参考
 
 __all__ = [
     'VirtualGrid',
     'SimulationResult',
-    'PriceMonitor',
-    'CycleDetector',
     'APRCalculator',
 ]
 

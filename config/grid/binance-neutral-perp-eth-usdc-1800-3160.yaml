@@ -3,9 +3,9 @@ grid_system:
   symbol: ETH/USDC:USDC
   grid_type: neutral
   price_range:
-    lower_price: 1800.0
+    lower_price: 1300
     upper_price: 3000.0
-  order_amount: 0.011
+  order_amount: 0.014
   leverage: 100
   margin_mode: cross
   grid_count: 170

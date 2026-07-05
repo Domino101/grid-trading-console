@@ -425,8 +425,13 @@ def detect_market_type(symbol: str, exchange_name: str) -> ExchangeType:
     symbol_upper = symbol.upper()
     exchange_lower = exchange_name.lower()
 
+    # O1Exchange 交易所 - DEX 聚合器，仅现货
+    if exchange_lower == "o1exchange":
+        # O1Exchange 是现货 DEX 聚合器，所有交易对都是现货
+        return ExchangeType.SPOT
+
     # Hyperliquid 交易所
-    if exchange_lower == "hyperliquid":
+    elif exchange_lower == "hyperliquid":
         # Hyperliquid符号格式：
         # - 现货: BTC/USDC (没有后缀)
         # - 永续: BTC/USDC:USDC (后缀:USDC)
@@ -534,6 +539,11 @@ async def create_exchange_adapter(config_data: dict):
                         'private_key', "")  # 同一个密钥
                     wallet_address = wallet_address or auth_config.get(
                         'wallet_address', "")
+                elif exchange_name == "o1exchange":
+                    # O1Exchange 使用 API Key 和钱包私钥
+                    api_key = api_key or auth_config.get('api_key', "")
+                    api_secret = api_secret or auth_config.get('private_key', "")
+                    wallet_address = wallet_address or auth_config.get('wallet_address', "")
                 elif exchange_name == "lighter":
                     # Lighter 使用 API Key私钥和账户索引
                     api_config = exchange_config_data.get('api_config', {})
@@ -556,6 +566,9 @@ async def create_exchange_adapter(config_data: dict):
                     if exchange_name == "hyperliquid" and wallet_address:
                         print(
                             f"   ✓ 钱包地址: {wallet_address[:10]}...{wallet_address[-6:]}")
+                    if exchange_name == "o1exchange" and wallet_address:
+                        print(
+                            f"   ✓ 钱包地址: {wallet_address[:10]}...{wallet_address[-6:]}")
         except Exception as e:
             print(f"   ⚠️  无法读取交易所配置文件: {e}")
 
@@ -569,6 +582,11 @@ async def create_exchange_adapter(config_data: dict):
         if exchange_name == "hyperliquid":
             print(f"   💡 Hyperliquid 需要配置:")
             print(f"      - private_key: 钱包私钥")
+            print(f"      - wallet_address: 钱包地址")
+        elif exchange_name == "o1exchange":
+            print(f"   💡 O1Exchange 需要配置:")
+            print(f"      - api_key: O1Exchange API Key")
+            print(f"      - private_key: 钱包私钥（用于签名）")
             print(f"      - wallet_address: 钱包地址")
         elif exchange_name == "lighter":
             print(f"   💡 Lighter 需要配置:")
@@ -622,6 +640,19 @@ async def create_exchange_adapter(config_data: dict):
                 enable_websocket=True,
                 enable_auto_reconnect=True
             )
+    elif exchange_name == "o1exchange":
+        # O1Exchange 配置
+        exchange_config = ExchangeConfig(
+            exchange_id="o1exchange",
+            name="O1Exchange",
+            exchange_type=market_type,  # 现货
+            api_key=api_key or "public_data_only",
+            api_secret=api_secret or "public_data_only",
+            wallet_address=wallet_address,  # O1Exchange 需要钱包地址
+            testnet=False,
+            enable_websocket=False,  # O1Exchange 暂不支持 WebSocket
+            enable_auto_reconnect=True
+        )
     else:
         # 其他交易所使用标准配置
         exchange_config = ExchangeConfig(
@@ -721,6 +752,8 @@ async def main(config_path: str = "config/grid/default_grid.yaml", debug: bool =
             is_spot = ":SPOT" in symbol.upper()
         elif exchange_name == "backpack":
             is_spot = "_SPOT" in symbol.upper() or "SPOT" in symbol.upper()
+        elif exchange_name == "o1exchange":
+            is_spot = True  # O1Exchange 全部是现货
 
         # 如果是现货且选择了做空网格，拒绝启动
         if is_spot and grid_config.grid_type.value in ["short", "martingale_short", "follow_short"]:

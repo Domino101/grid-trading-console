@@ -173,13 +173,14 @@ class LighterRest(LighterBase):
             self.candlestick_api = CandlestickApi(self.api_client)
             self.funding_api = FundingApi(self.api_client)
 
-            # 如果配置了私钥，创建签名客户端
-            if self.api_key_private_key:
+            # 🔥 修復:只有當私鑰看起來像真實的 hex key(>=64 字元)時才初始化 SignerClient
+            #      否則 scanner 之類只需要公開行情的場景會因 SDK 簽名變更而 crash
+            if self.api_key_private_key and len(self.api_key_private_key) >= 64:
+                # 🔥 修復:SDK 升級後簽名改為 (url, account_index, api_private_keys: Dict[int, str])
                 self.signer_client = SignerClient(
                     url=self.base_url,
-                    private_key=self.api_key_private_key,
                     account_index=self.account_index,
-                    api_key_index=self.api_key_index,
+                    api_private_keys={self.api_key_index: self.api_key_private_key},
                 )
 
                 # 检查客户端
@@ -188,6 +189,10 @@ class LighterRest(LighterBase):
                     error_msg = self.parse_error(err)
                     logger.error(f"SignerClient检查失败: {error_msg}")
                     raise Exception(f"SignerClient初始化失败: {error_msg}")
+            elif self.api_key_private_key:
+                logger.info(
+                    f"ℹ️ api_key_private_key 長度僅 {len(self.api_key_private_key)} 字元,"
+                    f"視為佔位符,跳過 SignerClient 初始化(公開行情模式)")
 
             self._connected = True
             logger.info("Lighter REST客户端连接成功")
@@ -392,8 +397,20 @@ class LighterRest(LighterBase):
                 bid=bid_price,
                 ask=ask_price,
                 volume=daily_volume,
+                # 🔥 修復:Lighter REST 不直接給 quote_volume,以 base_volume × last_price 推算
+                quote_volume=(
+                    daily_volume * last_price
+                    if daily_volume and last_price and daily_volume > 0 and last_price > 0
+                    else None
+                ),
                 high=daily_high,
                 low=daily_low,
+                # 🔥 修復:以 (high-low)/low 作為日內振幅代理(非真實 24h 漲跌幅)
+                percentage=(
+                    (daily_high - daily_low) / daily_low * Decimal('100')
+                    if daily_high and daily_low and daily_low > 0
+                    else None
+                ),
                 timestamp=datetime.now()
             )
 
