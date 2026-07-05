@@ -3,8 +3,8 @@
 
 # 🔥 默认配置（未单独配置的代币使用此配置）
 default:
-  grid_width_percent: 50.0         # 网格总宽度：50%（±25%）
-  grid_interval_percent: 0.1       # 格子间距：0.1%（千分之1）
+  grid_width_percent: 10.0         # 网格总宽度：10%（±5%）修复 P2-11：原 50% 导致 500 格 × 10 USDC = 5000 USDC 总本金
+  grid_interval_percent: 0.5       # 格子间距：0.5%（千分之5）
 
 # 🪙 主流币种配置（BTC、ETH、SOL、BNB）
 BTC:
@@ -75,30 +75,73 @@ scanner_config:
   # WebSocket配置
   reconnect_interval: 5            # WebSocket断线重连间隔（秒）
   price_update_timeout: 30         # 价格更新超时（秒）
-  
+
   # 扫描配置
   min_24h_volume_usdc: 100000      # 最小24小时成交量（USDC），低于此值不扫描
   scan_duration_seconds: 3600      # 默认扫描时长（秒），1小时
-  
+
   # APR计算配置
-  order_value_usdc: 10             # 每格订单价值（USDC）- 固定值
-  fee_rate_percent: 0.004          # 双边手续费率（%）- 固定值 0.02% × 2
-  
+  order_value_usdc: 10             # 每格订单价值（USDC）- 默认值
+  fee_rate_percent: 0.004          # 默认双边手续费率（%）- 0.02% × 2
+                                  # ⚠️ 实际值会被 exchanges.<name>.fee_rate_percent 覆盖
+
   # UI刷新配置
   ui_refresh_interval: 0.5         # UI刷新间隔（秒）
   log_queue_size: 20               # 日志队列大小（条）
-  
+
   # 结果过滤
   min_cycles_to_display: 0         # 最小循环次数（0=显示所有，包括还没有循环的）
   top_n_results: 50                # 显示前N名结果（按APR排序）
-  
+
   # APR计算配置
-  apr_time_window_minutes: 5       # APR滚动窗口时长（分钟）- 只统计过去5分钟的循环
-  
+  apr_time_window_minutes: 15      # APR滚动窗口时长（分钟）- 15分钟避免短期噪音放大成 S 级误判
+
   # 🔔 APR报警配置
-  apr_alert_threshold: 1500.0       # APR报警阈值（%），超过此值触发声音报警
+  apr_alert_threshold: 300.0       # APR报警阈值（%），超过此值触发声音报警（与 A 级门槛对齐）
   apr_alert_max_count: 3           # 每个代币最大报警次数（避免无限报警）
   apr_alert_cooldown_seconds: 300  # 报警冷却时间（秒），避免频繁报警（默认5分钟）
+
+  # 订阅批次配置（默认值，可被 exchanges.<name> 覆盖）
+  subscription_batch_size: 50      # 每批订阅 symbol 数（已根据各交易所限制调优）
+  subscription_batch_delay_ms: 100 # 批次间延迟（毫秒），避免触发 WS 限流
+
+# 🌐 交易所适配配置 (2026-06-27 新增)
+# 目的:不同交易所的 WS 限流、费率、symbol 格式各异,把硬编码从 scanner.py 抽到这里
+exchanges:
+  lighter:
+    fee_rate_percent: 0.004        # Lighter maker 0% / taker 0.02% × 2 = 0.04% → 实际双边约 0.004%
+    subscription_batch_size: 50    # Lighter WS 无硬限流,大批量安全
+    subscription_batch_delay_ms: 100
+    quote_currency_aliases: [USD, USDC, USDT]   # Lighter 用 "BTC" / "BTC-USD" 两种格式
+    skip_symbol_prefixes: [m, 1000]             # 1000PEPE 类合成代币跳过
+
+  hyperliquid:
+    fee_rate_percent: 0.0035       # Hyperliquid maker 0.0175% × 2 = 0.035% (含 VIP 折扣)
+    subscription_batch_size: 30    # Hyperliquid WS 较敏感,减小批次
+    subscription_batch_delay_ms: 150
+    quote_currency_aliases: [USD]   # Hyperliquid 仅 USD 结算
+    skip_symbol_prefixes: [k, M]                # kPEPE / MBONK 跳过
+
+  binance:
+    fee_rate_percent: 0.002        # Binance VIP0 maker 0.02% × 2 = 0.04% / 取 maker-friendly 估计
+    subscription_batch_size: 100   # Binance WS 限流宽松
+    subscription_batch_delay_ms: 50
+    quote_currency_aliases: [USDT, USDC, BUSD]
+    skip_symbol_prefixes: []
+
+  backpack:
+    fee_rate_percent: 0.002        # Backpack VIP0 maker 0.02% × 2
+    subscription_batch_size: 30    # Backpack WS 较敏感
+    subscription_batch_delay_ms: 200
+    quote_currency_aliases: [USDC, USD, SOL]
+    skip_symbol_prefixes: []
+
+  default:
+    fee_rate_percent: 0.004        # 未识别交易所 fallback
+    subscription_batch_size: 30
+    subscription_batch_delay_ms: 200
+    quote_currency_aliases: [USDT, USDC, USD]
+    skip_symbol_prefixes: []
 
 # 📝 说明：
 # 1. grid_width_percent: 网格总宽度百分比（从当前价格计算上下边界）

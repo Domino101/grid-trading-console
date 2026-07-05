@@ -1,0 +1,11 @@
+grid_system:
+  exchange: binance
+  symbol: AEVO/USDT:USDT
+  grid_type: neutral
+  price_range:
+    lower_price: 0.016
+    upper_price: 0.030
+  order_amount: 333
+  leverage: 50
+  margin_mode: cross
+  grid_count: 20

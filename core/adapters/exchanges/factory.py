@@ -56,8 +56,9 @@ class ExchangeFactory:
             from .adapters.binance import BinanceAdapter
             from .adapters.edgex import EdgeXAdapter
             from .adapters.lighter import LighterAdapter
+            from .adapters.o1exchange import O1ExchangeAdapter
 
-            # 注册Hyperliquid适配器
+            # 注册 Hyperliquid 适配器
             self.register_adapter(
                 exchange_id="hyperliquid",
                 adapter_class=HyperliquidAdapter,
@@ -80,7 +81,7 @@ class ExchangeFactory:
                 }
             )
 
-            # 注册Backpack适配器
+            # 注册 Backpack 适配器
             self.register_adapter(
                 exchange_id="backpack",
                 adapter_class=BackpackAdapter,
@@ -103,7 +104,7 @@ class ExchangeFactory:
                 }
             )
 
-            # 注册Binance适配器
+            # 注册 Binance 适配器
             self.register_adapter(
                 exchange_id="binance",
                 adapter_class=BinanceAdapter,
@@ -126,7 +127,7 @@ class ExchangeFactory:
                 }
             )
 
-            # 注册EdgeX适配器
+            # 注册 EdgeX 适配器
             self.register_adapter(
                 exchange_id="edgex",
                 adapter_class=EdgeXAdapter,
@@ -149,7 +150,7 @@ class ExchangeFactory:
                 }
             )
 
-            # 注册Lighter适配器
+            # 注册 Lighter 适配器
             self.register_adapter(
                 exchange_id="lighter",
                 adapter_class=LighterAdapter,
@@ -168,6 +169,28 @@ class ExchangeFactory:
                         "ticker": {"max_requests": 100, "time_window": 60},
                         "orderbook": {"max_requests": 100, "time_window": 60},
                         "trading": {"max_requests": 10, "time_window": 60}
+                    }
+                }
+            )
+
+            # 注册 O1Exchange 适配器
+            self.register_adapter(
+                exchange_id="o1exchange",
+                adapter_class=O1ExchangeAdapter,
+                exchange_type=ExchangeType.SPOT,
+                name="O1Exchange",
+                description="O1Exchange MEV保护DEX聚合器",
+                supported_features=[
+                    "spot_trading", "mev_protection", "permit2",
+                    "orderbook", "ticker"
+                ],
+                default_config={
+                    "testnet": False,
+                    "enable_websocket": False,  # O1Exchange暂不支持WebSocket
+                    "rate_limits": {
+                        "ticker": {"max_requests": 100, "time_window": 60},
+                        "orderbook": {"max_requests": 100, "time_window": 60},
+                        "trading": {"max_requests": 20, "time_window": 60}
                     }
                 }
             )

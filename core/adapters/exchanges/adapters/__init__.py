@@ -11,6 +11,7 @@
    - OKX: 现货、永续合约、期货、期权交易所
    - EdgeX: 永续合约交易所
    - Lighter: 永续合约交易所
+   - O1Exchange: MEV 保护的 DEX 聚合器
 
    每个适配器都包含:
    - 完整的交易功能实现
@@ -25,6 +26,7 @@ from .binance import BinanceAdapter
 from .okx import OKXAdapter
 from .edgex import EdgeXAdapter
 from .lighter import LighterAdapter
+from .o1exchange import O1ExchangeAdapter
 
 __all__ = [
     'HyperliquidAdapter',
@@ -32,5 +34,6 @@ __all__ = [
     'BinanceAdapter',
     'OKXAdapter',
     'EdgeXAdapter',
-    'LighterAdapter'
+    'LighterAdapter',
+    'O1ExchangeAdapter'
 ]

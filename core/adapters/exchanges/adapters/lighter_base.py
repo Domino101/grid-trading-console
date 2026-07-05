@@ -100,18 +100,24 @@ class LighterBase:
 
         # 初始化SignerClient（用于认证和签名）
         self.signer_client = None
-        if self.api_key_private_key:
+        # 🔥 修復:只有當私鑰看起來像真實的 hex key(>=64 字元,排除佔位符)時才初始化
+        # 否則 scanner 之類只需要公開行情的場景會因 SDK 簽名變更而 crash
+        if self.api_key_private_key and len(self.api_key_private_key) >= 64:
             try:
                 from lighter import SignerClient
+                # 🔥 修復:SDK 升級後簽名改為 (url, account_index, api_private_keys: Dict[int, str])
                 self.signer_client = SignerClient(
                     url=self.base_url,
-                    private_key=self.api_key_private_key,
                     account_index=self.account_index,
-                    api_key_index=self.api_key_index,
+                    api_private_keys={self.api_key_index: self.api_key_private_key},
                 )
                 logger.info("✅ SignerClient初始化成功")
             except Exception as e:
                 logger.warning(f"⚠️ SignerClient初始化失败: {e}")
+        elif self.api_key_private_key:
+            logger.info(
+                f"ℹ️ api_key_private_key 長度僅 {len(self.api_key_private_key)} 字元,"
+                f"視為佔位符,跳過 SignerClient 初始化(公開行情模式)")
 
         logger.info(
             f"Lighter基础配置初始化完成 - URL: {self.base_url}, 测试网: {self.testnet}")

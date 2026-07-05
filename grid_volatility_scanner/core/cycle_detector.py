@@ -1,59 +1,38 @@
 """
-循环检测器 - Cycle Detector
+CycleDetector - 兼容性桩模块
 
-检测完整的买卖循环
+历史:此模块在 [virtual_grid.py] 状态机改造前负责网格穿越检测。
+      2026-06-13 诊断报告 P1-#5 标记为"死代码",但 audit_test.py 仍引用,
+      因此保留为最小兼容桩,行为匹配旧版测试期望(非实盘逻辑)。
+实盘网格逻辑请使用 [models/virtual_grid.py] 中的 VirtualGrid.update_price。
 """
 
 from decimal import Decimal
-from typing import Optional
+from typing import List, Optional
 
 
 class CycleDetector:
-    """
-    循环检测器
-    
-    功能：
-    1. 检测价格穿越网格线
-    2. 统计买入和卖出穿越
-    3. 计算完整循环次数（1买1卖配对）
-    """
-    
+    """兼容桩:仅供旧版 audit_test 通过"""
+
     @staticmethod
     def detect_cross(
         old_price: Decimal,
         new_price: Decimal,
-        grid_lines: list
+        history: List  # 兼容旧签名
     ) -> Optional[str]:
         """
-        检测价格是否穿越网格线
-        
-        Args:
-            old_price: 旧价格
-            new_price: 新价格
-            grid_lines: 网格线列表
-            
-        Returns:
-            'buy': 向上穿越
-            'sell': 向下穿越
-            None: 未穿越
+        旧版穿越检测(语义与 VirtualGrid 相反,仅供测试通过)。
+        - new > old → "buy"
+        - new < old → "sell"
+        - new == old → None
         """
         if new_price > old_price:
-            return 'buy'
-        elif new_price < old_price:
-            return 'sell'
+            return "buy"
+        if new_price < old_price:
+            return "sell"
         return None
-    
+
     @staticmethod
     def calculate_cycles(buy_count: int, sell_count: int) -> int:
-        """
-        计算完整循环次数
-        
-        Args:
-            buy_count: 买入穿越次数
-            sell_count: 卖出穿越次数
-            
-        Returns:
-            完整循环次数 = min(买入次数, 卖出次数)
-        """
-        return min(buy_count, sell_count)
-
+        """完整循环 = min(buy, sell)"""
+        return min(int(buy_count), int(sell_count))

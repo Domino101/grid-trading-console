@@ -204,6 +204,20 @@ async def main():
         help='日志级别（默认: INFO）'
     )
 
+    parser.add_argument(
+        '--no-ui',
+        action='store_true',
+        help='禁用终端 UI(背景模式,結果定時輸出到 stdout,適合 PM2/systemd)'
+    )
+
+    # 2026-06-27 新增:手動覆蓋交易所費率(例如 VIP 變動、促銷活動時)
+    parser.add_argument(
+        '--fee-override',
+        type=float,
+        default=None,
+        help='手動覆蓋雙邊手續費率(單位 %% 數值,如 0.003 表示 0.003%%)'
+    )
+
     args = parser.parse_args()
 
     # 打印启动信息
@@ -237,6 +251,14 @@ async def main():
             exchange_adapter=adapter,
             config_path=args.config
         )
+
+        # 2.5 提前注入 CLI 覆蓋項(2026-06-27 新增)
+        #   必須在 initialize() 之前,否則 _resolve_exchange_id 找不到 _active_exchange_id
+        scanner.scanner_config['_active_exchange_id'] = args.exchange
+        if args.fee_override is not None:
+            # CLI 覆蓋優先於 yaml 的 exchanges.<id>.fee_rate_percent
+            scanner.scanner_config['fee_rate_percent'] = args.fee_override
+            print(f"⚙️  手動覆蓋手續費率: {args.fee_override}%")
 
         # 3. 初始化扫描器
         await scanner.initialize()
@@ -291,12 +313,12 @@ async def main():
         if args.duration:
             print(f"\n🚀 开始扫描（{args.duration}秒）...")
             print("📌 提示: 按 Ctrl+C 可随时停止扫描\n")
-            await scanner.scan(duration_seconds=args.duration)
+            await scanner.scan(duration_seconds=args.duration, no_ui=args.no_ui)
         else:
             print("\n🚀 开始持续监控...")
             print("📌 提示: 按 Ctrl+C 停止监控\n")
             print("📊 实时APR计算: 基于过去5分钟的循环数据\n")
-            await scanner.scan()  # 持续运行，不传递时长
+            await scanner.scan(no_ui=args.no_ui)  # 持续运行,不传递时长
 
         # 5. 打印摘要
         scanner.print_summary()

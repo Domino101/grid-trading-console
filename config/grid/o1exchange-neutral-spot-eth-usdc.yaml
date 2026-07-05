@@ -1,0 +1,41 @@
+# ====================================
+# O1Exchange 网格交易配置文件
+# ====================================
+# 适用于 O1Exchange DEX 聚合器的现货网格交易
+# 特点：MEV 保护、Permit2 签名、多网络支持
+# ====================================
+
+grid_system:
+  # 交易所配置
+  exchange: o1exchange
+  symbol: ETH/USDC
+  
+  # O1Exchange 特有参数
+  o1exchange:
+    network: base           # 选择网络：base, bsc, solana
+    slippage_bps: 300       # 滑点容忍度（300 = 3%）
+    enable_mev_protection: true  # 启用 MEV 保护
+  
+  # 网格类型 - 现货只能做多
+  grid_type: long          # 现货网格类型：long（做多）
+  
+  # 价格区间
+  price_range:
+    lower_price: 1800.0
+    upper_price: 3000.0
+  
+  # 订单参数
+  order_amount: 0.01       # 每个网格的订单数量（ETH）
+  grid_count: 170          # 网格数量
+  
+  # 现货不需要以下参数（保留但无效）
+  # leverage: 1             # O1Exchange 不支持杠杆
+  # margin_mode: cross      # O1Exchange 不支持保证金模式
+  
+  # 精度参数（可选，省略时自动获取）
+  # quantity_precision: 5
+  # price_decimals: 2
+  
+  # 可选的高级功能
+  # scalping_enabled: false
+  # take_profit_enabled: false

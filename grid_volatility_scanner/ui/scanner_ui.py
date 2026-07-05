@@ -78,6 +78,9 @@ class ScannerUI:
         self.ui_log_handler: Optional[UILogHandler] = None
         self._running = False
 
+        # 🔥 修复 P0-3：用于从 scanner_config 读取 top_n_results 等参数
+        self.scanner_config: Dict[str, Any] = {}
+
         # 当前扫描数据
         self.scan_results: List[SimulationResult] = []
         self.scan_start_time: Optional[datetime] = None
@@ -266,7 +269,9 @@ class ScannerUI:
                 self.scan_results,
                 key=sort_key,
                 reverse=True  # 从高到低
-            )[:50]  # 显示前50个
+            )  # 🔥 修复 P0-3：从配置读取 top_n_results（默认 50）
+            top_n = self.scanner_config.get('top_n_results', 50)
+            sorted_results = sorted_results[:top_n]
 
             for rank, result in enumerate(sorted_results, 1):
                 # 排名样式
@@ -332,7 +337,7 @@ class ScannerUI:
 
         return Panel(
             table,
-            title="🏆 代币波动率排行榜 (Top 50) - 按APR从高到低排序",
+            title=f"🏆 代币波动率排行榜 (Top {self.scanner_config.get('top_n_results', 50)}) - 按APR从高到低排序",
             border_style="yellow"
         )
 

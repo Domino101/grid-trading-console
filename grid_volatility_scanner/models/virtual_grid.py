@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Tuple
 from collections import deque
 import logging
+import bisect
 from enum import Enum
 
 logger = logging.getLogger(__name__)
@@ -211,12 +212,11 @@ class VirtualGrid:
         if price >= self.upper_price:
             return self.grid_count - 1
 
-        # 二分查找
-        for i in range(len(self.grid_lines) - 1):
-            if self.grid_lines[i] <= price < self.grid_lines[i + 1]:
-                return i
-
-        return self.grid_count - 1
+        # 🔥 修复 P2-9：使用 bisect.bisect_right 实现真正的 O(log n) 二分查找
+        # grid_lines 是递增序列；返回满足 grid_lines[i] <= price 的最大 i
+        # 然后 -1 即为价格所在格子的索引
+        idx = bisect.bisect_right(self.grid_lines, float(price)) - 1
+        return min(max(idx, 0), self.grid_count - 1)
 
     def update_price(self, new_price: Decimal) -> Optional[str]:
         """
@@ -376,25 +376,39 @@ class VirtualGrid:
         self,
         order_value_usdc: Decimal = Decimal('10'),
         fee_rate_percent: Decimal = Decimal('0.004'),
-        time_window_minutes: int = 5  # 🔥 滚动窗口：5分钟
+        time_window_minutes: int = 15  # 滚动窗口:15 分钟(避免短期噪音)
     ) -> Decimal:
         """
         计算实时预估APR（基于滚动窗口）
 
         Args:
-            order_value_usdc: 每格订单价值（USDC）
+            order_value_usdc: 每格订单价值（USDC）（保留参数以兼容旧调用）
             fee_rate_percent: 双边手续费率（%）
             time_window_minutes: 滚动窗口时长（分钟）
 
         Returns:
             年化APR（%）
 
-        公式：
-        APR = (格子间距% - 手续费%) × 格子间距% / 网格宽度% × 每小时循环 × 8760
+        公式(2026-06-27 修正):
+            APR(%) = (interval% − fee%) × cycles_per_hour × 8760
 
-        逻辑：
-        - 只统计过去N分钟的循环次数
-        - 运行时间<N分钟时返回0（数据不足）
+        推导:
+            - 单次完整循环净利 = 仓位价值 × (interval% − fee%) / 100
+            - 若以「仓位价值」为基数,单次循环 ROI = interval% − fee%
+            - 年化 = 单次 ROI × 年循环次数
+            - 年循环次数 = cycles_per_hour × 8760 小时
+            - 因此 APR(%) = (interval% − fee%) × cycles_per_hour × 8760
+
+        ⚠️ 旧公式 bug:
+            旧版乘了 interval × interval / width,这是把「仓位占总资金的比例」
+            错误地塞进单次收益率,导致：
+            - BTC(0.03% / 20%)被低估约 670 倍
+            - PEPE(0.1% / 50%)反而被高估
+            新公式去除该冗余因子,与实盘单仓位损益口径一致。
+
+        逻辑:
+            - 只统计过去 N 分钟的循环次数
+            - 运行时间 < 60 秒时返回 0(数据不足)
         """
         # 🔥 关键：检查运行时长
         running_seconds = (self.last_update_time -
@@ -441,8 +455,10 @@ class VirtualGrid:
         window_hours = Decimal(str(actual_window_minutes)) / Decimal('60')
         self.cycles_per_hour = Decimal(str(cycles_in_window)) / window_hours
 
-        # 计算APR
-        # APR = (格子间距 - 手续费) × 格子间距 / 网格宽度 × 每小时循环 × 8760
+        # 🔥 修正后的 APR 公式(2026-06-27):
+        #   APR(%) = (interval% − fee%) × cycles_per_hour × 8760
+        # 其中 interval、fee 均以「百分比数值」表达(如 0.5 代表 0.5%),
+        # cycles_per_hour 为滚动窗口内推算的每小时循环次数。
         net_profit_rate = self.grid_interval_percent - fee_rate_percent
         if net_profit_rate <= 0:
             # 🔥 只记录BTC的日志
@@ -453,9 +469,15 @@ class VirtualGrid:
                 )
             return Decimal('0')  # 手续费超过利润，无法盈利
 
-        single_cycle_rate = net_profit_rate * \
-            self.grid_interval_percent / self.grid_width_percent
-        new_apr = single_cycle_rate * self.cycles_per_hour * Decimal('8760')
+        # 旧版错误公式(仅日志保留,供比对):
+        #   single_cycle_rate = net_profit_rate * interval / width
+        #   new_apr = single_cycle_rate * cycles_per_hour * 8760
+        new_apr = net_profit_rate * self.cycles_per_hour * Decimal('8760')
+
+        # 防御:APR 在极端参数下可达 1e6+ % ,限制展示上限避免 UI 溢出
+        MAX_DISPLAY_APR = Decimal('999999')
+        if new_apr > MAX_DISPLAY_APR:
+            new_apr = MAX_DISPLAY_APR
 
         # 🔥 只在APR显著变化时打印详细日志（避免刷屏）
         # 定义"显著变化"：变化幅度 > 5% 或者是首次计算（从0变为非0）
@@ -477,9 +499,8 @@ class VirtualGrid:
                 f"   ├─ 时间窗口: {time_window_minutes}分钟 (已运行{running_seconds/60:.1f}分钟)\n"
                 f"   ├─ 窗口内循环次数: {cycles_in_window}次\n"
                 f"   ├─ 每小时循环: {cycles_in_window}次 ÷ {window_hours:.2f}小时 = {self.cycles_per_hour:.2f}次/小时\n"
-                f"   ├─ 净利润率: 格子间距{self.grid_interval_percent}% - 手续费{fee_rate_percent}% = {net_profit_rate}%\n"
-                f"   ├─ 单次循环收益率: {net_profit_rate}% × {self.grid_interval_percent}% ÷ {self.grid_width_percent}% = {single_cycle_rate}%\n"
-                f"   └─ 年化APR: {single_cycle_rate}% × {self.cycles_per_hour:.2f}次/时 × 8760小时 = {self.estimated_apr:.2f}%"
+                f"   ├─ 单次循环净利: 间距{self.grid_interval_percent}% − 手续费{fee_rate_percent}% = {net_profit_rate}%\n"
+                f"   └─ 年化APR: {net_profit_rate}% × {self.cycles_per_hour:.2f}次/时 × 8760小时 = {self.estimated_apr:.2f}%"
             )
 
         return self.estimated_apr

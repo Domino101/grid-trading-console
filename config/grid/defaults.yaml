@@ -27,8 +27,18 @@ grid_defaults:
   order_health_check_interval: 180       # 秒（訂單健康檢查間隔）每次約消耗 6~8 次 REST API，180秒=每小時20次健康檢查≈150次API，遠低於Binance限額
   health_check_adjust_position_enabled: false
   rest_position_query_interval: 120      # 秒（REST 持倉查詢間隔）
-  ws_only_mode: true                     # WebSocket 為主要數據源
+  ws_only_mode: true                     # WebSocket 為主要數據源（大多數交易所）
   rest_backup_enabled: false             # 禁用 REST 備用查詢
+
+  # ─────────────────────────────────────────────────────────────────────
+  # O1Exchange 特殊設定
+  # ─────────────────────────────────────────────────────────────────────
+  # O1Exchange 不支持 WebSocket，使用 REST 模式
+  o1exchange:
+    ws_only_mode: false                  # O1Exchange 使用 REST 輪詢
+    rest_backup_enabled: true            # 啟用 REST 查詢
+    rest_position_query_interval: 30     # O1Exchange 查詢頻率（秒）
+    order_health_check_interval: 120     # O1Exchange 健康檢查間隔（秒）
 
   # ─────────────────────────────────────────────────────────────────────
   # 風控與執行參數
