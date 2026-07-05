@@ -142,8 +142,7 @@ async def run_single_grid_task(config_path: str, shared_adapter, logger, running
             strategy=strategy,
             engine=engine,
             tracker=tracker,
-            grid_state=grid_state,
-            reserve_manager=reserve_manager
+            grid_state=grid_state
         )
 
         # 註冊到全域運行字典，以便動態調度停止與監控
@@ -382,7 +381,7 @@ async def main():
                         grid_info["task"].cancel()
                     logger.info(f"✅ [動態控制] {path} 已成功停止並清空掛單。")
                     
-                # 情況 2：控制檔設為 true，且該網格目前未在運行狀態 -> 啟動它
+                # 情況 2：控制檔設為 true，且該網格目前未在運行狀態 -> 啟動 it
                 elif is_enabled and path not in running_grids_ref and path in valid_paths:
                     logger.info(f"▶️ [動態控制] 檢測到 {path} 被設為啟用，正在異步啟動網格...")
                     asyncio.create_task(run_single_grid_task(path, shared_adapter, logger, running_grids_ref))
@@ -432,4 +431,5 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n👋 收到鍵盤終止訊號，正在安全退出多網格系統...")
+        print("
+👋 收到鍵盤終止訊號，正在安全退出多網格系統...")
