@@ -233,27 +233,19 @@ class TestPlaceBatchOrdersCircuitBreaker(unittest.IsolatedAsyncioTestCase):
         calls = await self._run_batch_with_error(
             '{"code":-2015,"msg":"Invalid API-key, IP, or permissions for action."}'
         )
-        # 初始 1 次 + 重試第 1 輪 1 次（第 1 輪發現 -2015 後 break）= 2 次
-        self.assertEqual(calls, 2, f"Expected 2 call total, got {calls}")
+        # 首輪下單捕捉到 -2015 即啟動熔斷與不可重試標記，避免重複重試 API（1 次）
+        self.assertEqual(calls, 1, f"Expected 1 call total, got {calls}")
 
     async def test_1003_stops_retry(self):
         """
-        -1003 出現後，重試迴圈在第 1 輪重試解析到 BAN 後立即 break。
-
-        呼叫次序：
-          [初始批次] place_order × 1 → 失敗，記入 failed_orders
-          [重試第 1 輪前] _is_circuit_open() 檢查：此時熔斷尚未設定 → 進入重試
-          [重試第 1 輪] place_order × 1 → 失敗，_parse_and_set_circuit 設定 -1003，break
-          [重試第 2 輪] 因熔斷 break，永不執行
-
-        預期 place_order 總計被呼叫 2 次（初始 1 + 重試 1）。
+        -1003 出現後，首輪下單即解析到 IP BAN，立即觸發熔斷並放棄重試。
         """
         future_ms = int((time.time() + 300) * 1000)
         calls = await self._run_batch_with_error(
-            f'{{"code":-1003,"msg":"Way too many requests; IP banned until {future_ms}."}}'  
+            f'{{"code":-1003,"msg":"Way too many requests; IP banned until {future_ms}."}}'
         )
-        # 初始 1 次 + 重試第 1 輪 1 次（第 1 輪發現 -1003 後 break）= 2 次
-        self.assertEqual(calls, 2, f"Expected 2 call total, got {calls}")
+        # 首輪下單捕捉到 -1003 即啟動熔斷，不再發起重試（1 次）
+        self.assertEqual(calls, 1, f"Expected 1 call total, got {calls}")
 
     async def test_normal_error_allows_retry(self):
         """

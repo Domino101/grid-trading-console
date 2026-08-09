@@ -25,6 +25,7 @@ Lighter 交易所特殊处理：
 """
 
 import asyncio
+import inspect
 import json
 import os
 import re
@@ -284,6 +285,23 @@ class GridEngineImpl(IGridEngine):
 
         return code
 
+    # 修補 3 (C): 不可重試 API 錯誤碼
+    # 這些錯誤重試也不會改變結果,只會浪費 API 配額
+    _NON_RETRYABLE_API_CODES = frozenset({
+        '-5022',  # Post Only 訂單會立即成為 taker(價格穿越 spread) - 重試無用,需重算價格
+        '-2015',  # API key / IP 白名單無效(已由 _parse_and_set_circuit 觸發永久熔斷)
+        '-2019',  # 餘額不足 - 重試無用,需入金
+        '-4003',  # 價格低於最小允許
+        '-4004',  # 價格高於最大允許
+        '-4014',  # 價格精度無效
+        '-4104',  # 金額精度無效(已熔斷在 -2015 之外的客戶端錯)
+        '-4164',  # 訂單名義價值過小(notional too small)
+    })
+
+    def _is_non_retryable_code(self, code: Optional[str]) -> bool:
+        """判斷此錯誤碼是否屬於「邏輯性失敗,重試無用」。"""
+        return code is not None and code in self._NON_RETRYABLE_API_CODES
+
     def _is_circuit_open(self) -> bool:
         return time.time() < GridEngineImpl._shared_api_circuit_until
 
@@ -371,6 +389,10 @@ class GridEngineImpl(IGridEngine):
         try:
             await self._apply_order_rate_limit()
             await self._guard_symbol_order_cap_before_single()
+            # 修補 B:餘額預檢,沒錢直接 mark_failed 並 return(不浪費 API 配額)
+            if not await self._has_sufficient_balance(order):
+                order.mark_failed()
+                return order
             exchange_side = self._convert_order_side(order.side)
             try:
                 max_pos = getattr(self.config, 'max_position', None)
@@ -389,12 +411,22 @@ class GridEngineImpl(IGridEngine):
             current_px = await self.get_current_price()
             min_tick = Decimal('1') / (Decimal('10') ** int(getattr(self.config, 'price_decimals', 2)))
             target_price = order.price
+            # 修補 A:用訂單簿 top 計算 maker 安全價,避免 -5022 race
+            ob_top = await self._get_orderbook_top(self.config.symbol, order.side.value)
+            best_bid = ob_top[0] if ob_top else None
+            best_ask = ob_top[1] if ob_top else None
             if order.side == GridOrderSide.BUY:
                 if not (target_price <= current_px - min_tick):
                     target_price = current_px - min_tick
+                # 進一步收斂到 best_bid - 1 tick(若可用)
+                if best_bid is not None and target_price > best_bid - min_tick:
+                    target_price = best_bid - min_tick
             else:
                 if not (target_price >= current_px + min_tick):
                     target_price = current_px + min_tick
+                # 進一步收斂到 best_ask + 1 tick(若可用)
+                if best_ask is not None and target_price < best_ask + min_tick:
+                    target_price = best_ask + min_tick
 
             maker_params = None
             if exchange_id == 'binance':
@@ -666,7 +698,20 @@ class GridEngineImpl(IGridEngine):
                     successful_orders.append(result)
                     batch_success += 1
                 else:
-                    failed_orders.append((batch[idx], str(result)))
+                    error_str = str(result)
+                    # 修補 C:不可重試的錯誤碼(邏輯性失敗)直接放棄,不丟進重試佇列
+                    parsed_code = self._parse_and_set_circuit(error_str)
+                    if self._is_non_retryable_code(parsed_code):
+                        self.logger.warning(
+                            f"🚫 不可重試錯誤 {parsed_code},放棄此訂單: "
+                            f"Grid {batch[idx].grid_id}, {batch[idx].side.value} "
+                            f"{batch[idx].amount}@{batch[idx].price}, 錯誤: {error_str}"
+                        )
+                        # 不加進 failed_orders,避免後續重試浪費 API 配額
+                        if hasattr(batch[idx], 'mark_failed'):
+                            batch[idx].mark_failed()
+                        continue
+                    failed_orders.append((batch[idx], error_str))
                     self.logger.error(f"订单下单失败: {result}")
 
             self.logger.info(
@@ -725,6 +770,7 @@ class GridEngineImpl(IGridEngine):
                     results = await asyncio.gather(*tasks, return_exceptions=True)
 
                 retry_success = 0
+                saw_non_retryable = False
                 for idx, result in enumerate(results):
                     if isinstance(result, GridOrder):
                         successful_orders.append(result)
@@ -732,12 +778,29 @@ class GridEngineImpl(IGridEngine):
                     else:
                         error_str = str(result)
                         parsed_code = self._parse_and_set_circuit(error_str)
+                        # 修補 C:重試中遇 -5022/-2019 等邏輯性失敗,直接停損,不再重試
+                        if self._is_non_retryable_code(parsed_code):
+                            saw_non_retryable = True
+                            self.logger.warning(
+                                f"🚫 重試遇不可重試錯誤 {parsed_code},停止本輪重試: "
+                                f"Grid {retry_orders[idx].grid_id}, "
+                                f"錯誤: {error_str}"
+                            )
+                            if hasattr(retry_orders[idx], 'mark_failed'):
+                                retry_orders[idx].mark_failed()
+                            continue
                         failed_orders.append((retry_orders[idx], error_str))
                         if parsed_code == '-2015':
                             self.logger.critical(
                                 f"⛔ 檢測到 -2015（重試中），立即停止重試循環"
                             )
                             break
+                # 修補 C:若本輪全部失敗都是不可重試碼,跳出外層重試迴圈
+                if saw_non_retryable and not failed_orders:
+                    self.logger.info(
+                        f"⏹️ 重試遇不可重試錯誤且已無可重試項,結束重試循環"
+                    )
+                    break
 
                 self.logger.info(
                     f"重试结果: 成功{retry_success}/{len(retry_orders)}个，"
@@ -784,14 +847,28 @@ class GridEngineImpl(IGridEngine):
         min_tick = Decimal('1') / (Decimal('10') ** int(getattr(self.config, 'price_decimals', 2)))
 
         batch_order_dicts: List[Dict[str, Any]] = []
+        # 修補 A:批量前先一次性取訂單簿 top,所有訂單共用(避免每筆重複 fetch)
+        ob_top = await self._get_orderbook_top(self.config.symbol, '_batch_')
+        best_bid = ob_top[0] if ob_top else None
+        best_ask = ob_top[1] if ob_top else None
+        # 修補 B:批量前先一次性 fetch balance(命中 3s 緩存)
+        await self._get_cached_balances()
         for order in orders:
+            # 修補 B:單筆餘額預檢
+            if not await self._has_sufficient_balance(order):
+                order.mark_failed()
+                continue
             target_price = order.price
             if order.side == GridOrderSide.BUY:
                 if not (target_price <= current_price - min_tick):
                     target_price = current_price - min_tick
+                if best_bid is not None and target_price > best_bid - min_tick:
+                    target_price = best_bid - min_tick
             else:
                 if not (target_price >= current_price + min_tick):
                     target_price = current_price + min_tick
+                if best_ask is not None and target_price < best_ask + min_tick:
+                    target_price = best_ask + min_tick
 
             params = {
                 'timeInForce': 'GTX',
@@ -849,6 +926,236 @@ class GridEngineImpl(IGridEngine):
                     await asyncio.sleep(0.5)
 
         return results
+
+    # ==================== 修補 1 (A) ====================
+    # 訂單簿 top 緩存：用於計算 maker 安全價，避免 -5022 race condition
+    # 鍵: (symbol, side)，值: (best_bid, best_ask, fetch_time)
+    # 短 TTL (0.5s) 避免重複 fetch，同時容忍 WS 推播延遲
+    _ORDERBOOK_TOP_CACHE: Dict[Tuple[str, str], Tuple[Decimal, Decimal, float]] = {}
+    _ORDERBOOK_TOP_TTL = 0.5  # 秒
+
+    async def _get_orderbook_top(
+        self,
+        symbol: str,
+        side: str,
+    ) -> Optional[Tuple[Decimal, Decimal]]:
+        """
+        取得訂單簿 top-of-book (best_bid, best_ask)。
+
+        優先使用 WebSocket 緩存(免費,零延遲),失敗時退回 REST(1 次/0.5s)。
+        回傳 None 表示無法取得(網路斷、WS 未連線、REST 失敗)。
+        """
+        key = (symbol, side)
+        now = time.time()
+        cached = self._ORDERBOOK_TOP_CACHE.get(key)
+        if cached and (now - cached[2]) < self._ORDERBOOK_TOP_TTL:
+            return (cached[0], cached[1])
+
+        best_bid: Optional[Decimal] = None
+        best_ask: Optional[Decimal] = None
+
+        # 1) 優先用 WebSocket 緩存(零 weight)
+        try:
+            if hasattr(self.exchange, 'get_cached_orderbook'):
+                ob = self.exchange.get_cached_orderbook(symbol)
+                if ob is not None and ob.best_bid and ob.best_ask:
+                    best_bid = Decimal(str(ob.best_bid.price))
+                    best_ask = Decimal(str(ob.best_ask.price))
+        except Exception:
+            pass
+
+        # 2) WS 緩存不可用 → 走 REST(1 次 weight)
+        if best_bid is None or best_ask is None:
+            try:
+                ob = await self.exchange.get_orderbook(symbol, limit=5)
+                if ob and ob.best_bid and ob.best_ask:
+                    best_bid = Decimal(str(ob.best_bid.price))
+                    best_ask = Decimal(str(ob.best_ask.price))
+            except Exception as e:
+                self.logger.debug(f"取得訂單簿失敗 {symbol}: {e}")
+                return None
+
+        if best_bid is None or best_ask is None or best_bid <= 0 or best_ask <= 0:
+            return None
+        if best_bid >= best_ask:
+            # 異常 cross book,跳過
+            return None
+
+        self._ORDERBOOK_TOP_CACHE[key] = (best_bid, best_ask, now)
+        return (best_bid, best_ask)
+
+    def _calculate_maker_price(
+        self,
+        order: 'GridOrder',
+        current_px: Decimal,
+        min_tick: Decimal,
+        best_bid: Optional[Decimal] = None,
+        best_ask: Optional[Decimal] = None,
+    ) -> Decimal:
+        """
+        計算可保證 Post Only (GTX) 成功的 maker 價格。
+
+        規則:
+        - BUY  : price <= best_bid (嚴格小於,GTX 要求)
+        - SELL : price >= best_ask (嚴格大於,GTX 要求)
+        - 若 orderbook top 不可得,退到 current_px ± min_tick(舊邏輯,並記 warning)
+        - 若 order.price 已位於 maker 安全區,保留 order.price
+        """
+        try:
+            if order.side == GridOrderSide.BUY:
+                if best_bid is not None and best_bid > 0:
+                    # 嚴格低於 best_bid 1 tick,確保在掛單簿上排隊
+                    return best_bid - min_tick
+                self.logger.debug(
+                    f"[maker price] BUY 無 best_bid,退到 current_px - min_tick "
+                    f"(Grid {order.grid_id})"
+                )
+                return current_px - min_tick
+            else:  # SELL
+                if best_ask is not None and best_ask > 0:
+                    return best_ask + min_tick
+                self.logger.debug(
+                    f"[maker price] SELL 無 best_ask,退到 current_px + min_tick "
+                    f"(Grid {order.grid_id})"
+                )
+                return current_px + min_tick
+        except Exception as e:
+            self.logger.error(f"_calculate_maker_price 失敗,退到 order.price: {e}")
+            return order.price
+
+    # ==================== 修補 2 (B) ====================
+    # 餘額預檢:避免在 balance=0 或不足時無腦下單,把所有訂單都丟出去被 -2019/-5022 退件
+    # 短 TTL (3s) 避免每筆訂單都 fetch balance(每次 fetch_balance 都消耗 5~20 weight)
+    _BALANCE_CACHE: Dict[str, Tuple[Tuple[Optional[Decimal], Optional[Decimal]], float]] = {}
+    _BALANCE_CACHE_TTL = 3.0  # 秒
+
+    def _parse_symbol_currencies(self, symbol: str) -> Tuple[str, str, bool]:
+        """
+        解析 symbol,取得 (base, quote, is_perp)。
+        範例:
+          'SOL/USDC:USDC' -> ('SOL', 'USDC', True)
+          'ETH/USDT'      -> ('ETH', 'USDT', False)
+          'BTC/USDC'      -> ('BTC', 'USDC', False)
+        """
+        try:
+            is_perp = ':' in symbol
+            main = symbol.split(':')[0] if is_perp else symbol
+            parts = main.split('/')
+            if len(parts) == 2:
+                return parts[0], parts[1], is_perp
+            return '', '', is_perp
+        except Exception:
+            return '', '', False
+
+    async def _get_cached_balances(
+        self,
+    ) -> Optional[Tuple[Optional[Decimal], Optional[Decimal]]]:
+        """
+        取得 (free_quote, free_base) 餘額,3 秒緩存。
+
+        free_quote: 報價幣(USDC/USDT)可用餘額,用於保證金與現貨買單
+        free_base:  基礎幣(SOL/ETH)可用餘額,用於現貨賣單
+
+        回傳 None 表示 fetch 失敗(此時應視為「無法判斷」,由上層決定是否放行)
+        """
+        key = self.config.symbol
+        now = time.time()
+        cached = self._BALANCE_CACHE.get(key)
+        if cached and (now - cached[1]) < self._BALANCE_CACHE_TTL:
+            return cached[0]
+
+        try:
+            balances = await self.exchange.get_balances()
+        except Exception as e:
+            self.logger.warning(f"⚠️ 取得餘額失敗(放行預檢): {e}")
+            return None
+
+        _, quote, _ = self._parse_symbol_currencies(self.config.symbol)
+        # 對永續合約,基礎幣可能是 USDⓈ-M 的結算幣(通常用 quote 即可)
+        # 對現貨,需要同時知道 base 與 quote
+        base, _, is_perp = self._parse_symbol_currencies(self.config.symbol)
+
+        free_quote: Optional[Decimal] = None
+        free_base: Optional[Decimal] = None
+
+        for b in balances:
+            cur = (b.currency or '').upper()
+            if cur == quote.upper() and free_quote is None:
+                free_quote = b.free
+            if cur == base.upper() and free_base is None:
+                free_base = b.free
+            # 同時記 USDⓈ 形式(SOLUSDC 永續有時以 USDⓈ 為單位)
+            if cur in ('USDⓈ', 'USDⓈ-M') and free_quote is None:
+                free_quote = b.free
+
+        result = (free_quote, free_base)
+        self._BALANCE_CACHE[key] = (result, now)
+        return result
+
+    async def _has_sufficient_balance(self, order: 'GridOrder') -> bool:
+        """
+        檢查餘額是否足夠支撐此訂單。
+
+        規則:
+        - 永續合約(BUY/SELL):需 free_quote >= amount * price / leverage
+        - 現貨 BUY            :需 free_quote >= amount * price
+        - 現貨 SELL           :需 free_base >= amount
+
+        緩存 3s 避免重複查詢;若 fetch 失敗,放行(不阻斷下單)
+        """
+        try:
+            price = Decimal(str(order.price))
+            amount = Decimal(str(order.amount))
+            if amount <= 0 or price <= 0:
+                return True  # 異常值不擋,讓下單流程自然報錯
+
+            balances = await self._get_cached_balances()
+            if balances is None:
+                # 無法取得餘額 → 放行,避免把整個網格卡死
+                return True
+            free_quote, free_base = balances
+
+            base, quote, is_perp = self._parse_symbol_currencies(self.config.symbol)
+
+            if is_perp:
+                # 永續合約:不論 BUY/SELL 都需要保證金 = notional / leverage
+                leverage = max(1, int(getattr(self.config, 'leverage', 1) or 1))
+                required = (amount * price) / Decimal(leverage)
+                if free_quote is None:
+                    return True
+                if free_quote < required:
+                    self.logger.warning(
+                        f"💸 餘額不足跳過下單: Grid {order.grid_id}, "
+                        f"{order.side.value} {amount}@{price}, "
+                        f"需保證金 {required:.4f} {quote}, "
+                        f"可用 {free_quote:.4f} {quote}"
+                    )
+                    return False
+                return True
+            else:
+                # 現貨
+                if order.side == GridOrderSide.BUY:
+                    required = amount * price
+                    if free_quote is None or free_quote < required:
+                        self.logger.warning(
+                            f"💸 現貨買單餘額不足跳過: Grid {order.grid_id}, "
+                            f"BUY {amount}@{price}, 需 {required:.4f} {quote}, "
+                            f"可用 {free_quote}"
+                        )
+                        return False
+                    return True
+                else:  # SELL
+                    if free_base is None or free_base < amount:
+                        self.logger.warning(
+                            f"💸 現貨賣單餘額不足跳過: Grid {order.grid_id}, "
+                            f"SELL {amount}@{price}, 需 {amount} {base}, "
+                            f"可用 {free_base}"
+                        )
+                        return False
+                    return True
+        except Exception as e:
+            self.logger.debug(f"_has_sufficient_balance 例外(放行): {e}")
+            return True
 
     async def _apply_order_rate_limit(self) -> None:
         try:
@@ -1068,7 +1375,11 @@ class GridEngineImpl(IGridEngine):
                     await self._handle_price_failure()
                     raise Exception("WS-only 模式下無價格緩存且WS未更新")
 
-                ticker = await self.exchange.get_ticker(self.config.symbol)
+                ticker_res = self.exchange.get_ticker(self.config.symbol)
+                if inspect.isawaitable(ticker_res):
+                    ticker = await ticker_res
+                else:
+                    ticker = ticker_res
 
                 if ticker.last is not None:
                     price = ticker.last
@@ -1821,6 +2132,9 @@ class GridEngineImpl(IGridEngine):
         except Exception:
             pass
 
+        # ==== FIX: 接入訂單健康檢查調度鏈（之前是空實現從未調度）====
+        self._start_order_health_check()
+
     async def stop(self):
         self._running = False
         await self.cancel_all_orders()
@@ -1902,86 +2216,199 @@ class GridEngineImpl(IGridEngine):
 
     async def _refresh_active_window_once(self, window_each_side: int):
         current_price = await self.get_current_price()
-        targets = []
+        # ==== FIX-A-1: 用 grid_id 集合取代價格比對，根除 Decimal 精度問題 ====
+        # (價格經 Binance 量化後和 get_grid_price() 原始值可能有 1e-10 級的偏差，
+        #  造成 p not in targets 誤判，連窗口內的 2N 張都被取消 → 0 單空窗 60 秒)
+        target_grid_ids: Set[int] = set()
+        # 同時也保留量化後的價格集合，供 open_prices 比對用
+        price_decimals = int(getattr(self.config, 'price_decimals', 2))
+        quant = Decimal(10) ** (-price_decimals)
+        target_prices_q: Set['Decimal'] = set()
+        center_grid = None
         try:
             center_grid = self.config.get_grid_index_by_price(current_price)
             for d in range(1, window_each_side + 1):
                 g = max(1, center_grid - d)
-                targets.append(self.config.get_grid_price(g))
+                target_grid_ids.add(g)
+                px = self.config.get_grid_price(g).quantize(quant)
+                target_prices_q.add(px)
             for d in range(1, window_each_side + 1):
                 g = min(self.config.grid_count, center_grid + d)
-                targets.append(self.config.get_grid_price(g))
+                target_grid_ids.add(g)
+                px = self.config.get_grid_price(g).quantize(quant)
+                target_prices_q.add(px)
         except Exception:
             return
+
+        # ==== FIX-A-2: 建立 open_prices 時也對價格做同樣量化，並同時建立 grid_id 索引 ====
+        pending_orders_local = self.get_pending_orders()
+        # 本地 pending 的 grid_id 集合（防重複掛單用）
+        local_pending_grid_ids = {
+            o.grid_id for o in pending_orders_local
+            if o.status == GridOrderStatus.PENDING
+        }
 
         if self._is_circuit_open():
             self.logger.debug(
                 f"⛔ 活躍窗口：API 熔斷中 (code={self._last_api_error_code})，降級使用本地 pending"
             )
-            open_prices = {o.price: o for o in self.get_pending_orders()}
+            raw_open = pending_orders_local
         else:
             try:
-                open_orders = await self.exchange.get_open_orders(self.config.symbol)
-                open_prices = {o.price: o for o in open_orders}
-                self.logger.debug(f"🔍 活躍窗口: 交易所掛單 {len(open_orders)} 筆")
+                raw_open = list(await self.exchange.get_open_orders(self.config.symbol))
+                self.logger.debug(f"🔍 活躍窗口: 交易所掛單 {len(raw_open)} 筆")
             except Exception as e:
                 self.logger.warning(f"⚠️ 活躍窗口無法取得交易所掛單，降級使用本地 pending: {e}")
-                open_prices = {o.price: o for o in self.get_pending_orders()}
+                raw_open = pending_orders_local
 
-        to_cancel = [o for p, o in open_prices.items() if p not in targets]
-        for o in to_cancel:
+        # open_by_grid: {grid_id: order}  (整數主鍵，不會有精度問題)
+        # open_prices_q: {量化價格: order} (保留給 backward 兼容)
+        open_by_grid: Dict[int, Any] = {}
+        open_prices_q: Dict['Decimal', Any] = {}
+        for o in raw_open:
             try:
-                self._expected_cancellations.add(getattr(o, 'id', '') or o.order_id)
-                order_id = getattr(o, 'id', '') or o.order_id
-                if order_id:
-                    await self.exchange.cancel_order(order_id, self.config.symbol)
-                    await asyncio.sleep(0.1)
+                px = o.price.quantize(quant)
+                # 用 grid_id 當主鍵：從價格反推 grid_id，若落在正確網格點，否則用價格做 fallback
+                gid = None
+                if hasattr(o, 'grid_id') and getattr(o, 'grid_id', None):
+                    gid = int(o.grid_id)
+                else:
+                    gid = self.config.get_grid_index_by_price(o.price)
+                if gid is not None and 1 <= gid <= self.config.grid_count:
+                    # 同 grid_id 重複時保留其中一張（避免重複掛單），但記錄 warning
+                    if gid in open_by_grid:
+                        self.logger.warning(
+                            f"⚠️ [活躍窗口去重] Grid {gid} 出現 >1 張交易所掛單，"
+                            f"只保留 1 張，其餘稍後標記為取消")
+                    open_by_grid[gid] = o
+                open_prices_q[px] = o
             except Exception:
-                await asyncio.sleep(0.5)
+                # 無法解析的訂單（不屬於任何網格），稍後會被取消
                 pass
 
-        missing_prices = [p for p in targets if p not in open_prices]
-        if missing_prices:
-            # 🔥 補齊窗口補單去重：過濾掉本地 PENDING 狀態中同格位的掛單，避免極速行情或 API 延遲下重複掛單
-            local_pending_grid_ids = {
-                o.grid_id for o in self.get_pending_orders()
-                if o.status == GridOrderStatus.PENDING
-            }
+        # ==== FIX-B: 調整時序「先補缺失，再取消多餘」，杜絕 0 單真空期 ====
+        # Step 1: 先找出要補的（target_grid_ids 有，但 open_by_grid 沒有的）
+        missing_grid_ids = [g for g in sorted(target_grid_ids) if g not in open_by_grid]
+        # 額外過濾：本地 PENDING 中有的也不要重複掛
+        missing_grid_ids = [g for g in missing_grid_ids if g not in local_pending_grid_ids]
 
-            place_orders = []
-            for p in missing_prices:
+        place_orders: List = []
+        for g in missing_grid_ids:
+            try:
+                p = self.config.get_grid_price(g)
                 side = GridOrderSide.BUY if p < current_price else GridOrderSide.SELL
-                try:
-                    grid_id = self.config.get_grid_index_by_price(p)
-                    if grid_id in local_pending_grid_ids:
-                        self.logger.warning(f"⚠️ 活躍窗口去重：Grid {grid_id} 本地已有 PENDING 訂單，跳過重複掛單")
-                        continue
-                    amount = self.config.get_formatted_grid_order_amount(grid_id)
-                    order = GridOrder(
-                        order_id="",
-                        grid_id=grid_id,
-                        side=side,
-                        price=p,
-                        amount=amount,
-                        status=GridOrderStatus.PENDING,
-                        created_at=datetime.now()
-                    )
-                    place_orders.append(order)
-                except Exception:
+                amount = self.config.get_formatted_grid_order_amount(g)
+                order = GridOrder(
+                    order_id="",
+                    grid_id=g,
+                    side=side,
+                    price=p,
+                    amount=amount,
+                    status=GridOrderStatus.PENDING,
+                    created_at=datetime.now()
+                )
+                place_orders.append(order)
+            except Exception:
+                continue
+
+        if place_orders:
+            try:
+                self.logger.info(
+                    f"🧩 活躍窗口補單: center_grid={center_grid}, "
+                    f"補 {len(place_orders)}/{len(target_grid_ids)} 格 "
+                    f"(Grids {missing_grid_ids})")
+                await self.place_batch_orders(place_orders, current_price=current_price)
+            except Exception as e:
+                # ==== FIX-C: 補單失敗不要靜默 pass，留 log 方便診斷 ====
+                self.logger.warning(
+                    f"❌ 活躍窗口補單失敗 ({len(place_orders)} 張): {e}，"
+                    f"預計下一輪 refresh 重試")
+
+        # Step 2: 再取消多餘的（open_by_grid 有，但不在 target_grid_ids 的）
+        #         注意：取消前再次確認 target 一定已在線（剛才補單失敗也要避免把舊的窗口內單取消）
+        to_cancel = []
+        for gid, o in open_by_grid.items():
+            if gid in target_grid_ids:
+                continue  # 在目標集合，絕對不能取消！
+            # 額外安全檢查：價格也在 target_prices_q 的 → 不要取消（雙重保險）
+            try:
+                px = o.price.quantize(quant)
+                if px in target_prices_q:
                     continue
-            if place_orders:
-                try:
-                    await self.place_batch_orders(place_orders)
-                except Exception:
-                    pass
+            except Exception:
+                pass
+            to_cancel.append(o)
+
+        for o in to_cancel:
+            try:
+                oid = getattr(o, 'id', '') or getattr(o, 'order_id', '') or ''
+                if not oid:
+                    continue
+                self._expected_cancellations.add(oid)
+                await self.exchange.cancel_order(oid, self.config.symbol)
+                await asyncio.sleep(0.1)
+            except Exception:
+                await asyncio.sleep(0.5)
+
+        if to_cancel or missing_grid_ids:
+            self.logger.info(
+                f"✅ 活躍窗口刷新完成: 保留窗口 {window_each_side*2} 格 "
+                f"(center={center_grid}, Grids {sorted(target_grid_ids)})，"
+                f"取消 {len(to_cancel)} 張（非窗口），"
+                f"新補 {len(place_orders)} 張（缺失）"
+            )
 
     # ==================== 订单健康检查相关方法 ====================
 
     def _start_order_health_check(self):
-        return
+        # ==== FIX: 之前是空 return，現在真正啟動健康檢查 loop ====
+        enabled = getattr(self.config, 'order_health_check_enabled', False)
+        if not enabled:
+            self.logger.info("⏭️  訂單健康檢查已在配置中關閉，跳過啟動")
+            return
+        asyncio.create_task(self._order_health_check_loop())
+        interval = getattr(self.config, 'order_health_check_interval', 300)
+        self.logger.info(f"✅ 訂單健康檢查器已啟動：每 {interval} 秒執行一次")
 
     async def _order_health_check_loop(self):
-        return
+        # ==== FIX: 之前是空 return，現在真正實現健康檢查無限迴圈 ====
+        try:
+            # 延遲導入避免循環引用（OrderHealthChecker 依賴 GridEngine 介面）
+            from .order_health_checker import OrderHealthChecker
+            checker = OrderHealthChecker(self.config, self)
+        except Exception as e:
+            self.logger.error(f"❌ 無法初始化 OrderHealthChecker: {e}")
+            return
+
+        interval = int(getattr(self.config, 'order_health_check_interval', 300) or 300)
+        first_run = True
+
+        while self._running:
+            try:
+                if first_run:
+                    # 首次跑等 15s，讓初始化掛單有時間落地
+                    await asyncio.sleep(min(15, interval))
+                    first_run = False
+                else:
+                    await asyncio.sleep(interval)
+
+                if not self._running:
+                    break
+
+                if self._is_circuit_open():
+                    self.logger.debug("⛔ 健康檢查跳過：API 熔斷中")
+                    continue
+
+                try:
+                    await checker.perform_health_check()
+                except Exception as inner_e:
+                    self.logger.warning(f"⚠️ perform_health_check 丟出例外: {inner_e}")
+
+            except asyncio.CancelledError:
+                break
+            except Exception as outer_e:
+                self.logger.error(f"❌ 健康檢查 loop 丟出未預期例外: {outer_e}")
+                await asyncio.sleep(max(10, interval // 2))
 
     async def _validate_market_snapshots(self) -> Tuple[bool, Optional[Tuple[List, List]]]:
         try:

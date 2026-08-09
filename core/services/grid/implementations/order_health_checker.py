@@ -1630,7 +1630,8 @@ class OrderHealthChecker:
                 continue
 
             # 计算订单的真实网格ID
-            if self.config.grid_type in [GridType.LONG, GridType.FOLLOW_LONG, GridType.MARTINGALE_LONG]:
+            # FIX: NEUTRAL 中性網格使用與 LONG 相同的公式（從 lower_price 向上遞增）
+            if self.config.grid_type in [GridType.LONG, GridType.FOLLOW_LONG, GridType.MARTINGALE_LONG, GridType.NEUTRAL]:
                 raw_index = round(
                     (order.price - self.config.lower_price) /
                     self.config.grid_interval
@@ -1671,7 +1672,8 @@ class OrderHealthChecker:
                 continue
 
             # 计算订单的网格ID
-            if self.config.grid_type in [GridType.LONG, GridType.FOLLOW_LONG, GridType.MARTINGALE_LONG]:
+            # FIX: NEUTRAL 中性網格使用與 LONG 相同的公式（從 lower_price 向上遞增）
+            if self.config.grid_type in [GridType.LONG, GridType.FOLLOW_LONG, GridType.MARTINGALE_LONG, GridType.NEUTRAL]:
                 grid_id = round(
                     (order.price - self.config.lower_price) /
                     self.config.grid_interval
@@ -2150,7 +2152,8 @@ class OrderHealthChecker:
 
             for client_id, exchange_order in to_add:
                 # 计算网格ID
-                if self.config.grid_type in [GridType.LONG, GridType.FOLLOW_LONG, GridType.MARTINGALE_LONG]:
+                # FIX: NEUTRAL 中性網格使用與 LONG 相同的公式（從 lower_price 向上遞增）
+                if self.config.grid_type in [GridType.LONG, GridType.FOLLOW_LONG, GridType.MARTINGALE_LONG, GridType.NEUTRAL]:
                     grid_id = round(
                         (exchange_order.price - self.config.lower_price) /
                         self.config.grid_interval

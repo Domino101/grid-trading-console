@@ -51,12 +51,90 @@ from run_grid_trading import create_grid_config, detect_market_type, create_exch
 # 優化的日誌系統
 setup_optimized_logging(use_colored=True)
 
+def _pid_alive(pid: int) -> bool:
+    """檢查 PID 是否仍存活(不送信號,僅探活)"""
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def _kill_existing_runners():
+    """
+    用 pgrep 掃描所有 run_multiple_grids.py 進程並逐一清理(排除自己)。
+
+    此為 acquire_multi_lock() 的補充機制:即使 /tmp/grid_multiple_runners.pid
+    鎖檔丟失、過期,或被其他進程覆寫,仍可避免多個併發啟動造成交易所
+    連線 / 限速器互相競爭。
+    """
+    import subprocess
+    import time as _time
+    import signal
+
+    current_pid = os.getpid()
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", "run_multiple_grids.py"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except FileNotFoundError:
+        print("⚠️ pgrep 不存在,跳過重複進程掃描")
+        return
+    except subprocess.TimeoutExpired:
+        print("⚠️ pgrep 掃描逾時,跳過重複進程掃描")
+        return
+
+    if result.returncode != 0 or not result.stdout.strip():
+        return
+
+    other_pids = [
+        int(p) for p in result.stdout.strip().split()
+        if p.isdigit() and int(p) != current_pid
+    ]
+    if not other_pids:
+        return
+
+    print(f"🔍 偵測到 {len(other_pids)} 個其他 run_multiple_grids.py 進程: {other_pids}")
+
+    for pid in other_pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+            print(f"   → 已送 SIGTERM 給 PID {pid}")
+        except ProcessLookupError:
+            continue
+        except PermissionError:
+            print(f"   ❌ 無權限終止 PID {pid},跳過")
+            continue
+
+    # 等待最多 5 秒讓 SIGTERM 起作用
+    for _ in range(50):
+        if not any(_pid_alive(p) for p in other_pids):
+            break
+        _time.sleep(0.1)
+
+    # 對仍存活的進程升級為 SIGKILL
+    for pid in other_pids:
+        if _pid_alive(pid):
+            try:
+                os.kill(pid, signal.SIGKILL)
+                print(f"   → 已送 SIGKILL 給 PID {pid}")
+            except (ProcessLookupError, PermissionError):
+                pass
+    _time.sleep(0.3)
+    print("✅ 重複進程清理完成")
+
+
 def acquire_multi_lock() -> str:
     """
     獲取多網格啟動器的進程鎖，防止重複啟動。
     """
     import time
     import signal
+
+    # 🔥 先用 pgrep 掃並清理所有重複進程(不限於鎖檔記錄的那一個)
+    _kill_existing_runners()
+
     lock_file = "/tmp/grid_multiple_runners.pid"
 
     if os.path.exists(lock_file):
@@ -431,5 +509,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("
-👋 收到鍵盤終止訊號，正在安全退出多網格系統...")
+        print("\n👋 收到鍵盤終止訊號，正在安全退出多網格系統...")

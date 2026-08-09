@@ -1,0 +1,18 @@
+grid_system:
+  exchange: binance
+  symbol: 1000RATS/USDT:USDT
+  grid_type: neutral
+  price_range:
+    lower_price: 0.03000
+    upper_price: 0.08900
+  order_amount: 200
+  leverage: 50
+  margin_mode: cross
+  grid_count: 100
+
+  # 覆蓋全局精度兜底:1000RATS Binance tickSize=0.00001,stepSize=1(整數幣)
+  price_decimals: 5
+  quantity_precision: 0
+
+  # 覆蓋默認 active window:從每側 2 個 grid 擴大到 8 個,避免現價大幅波動時空倉過久
+  active_window_each_side: 8

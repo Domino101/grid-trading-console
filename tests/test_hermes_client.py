@@ -44,7 +44,10 @@ class TestHermesGridClient(unittest.IsolatedAsyncioTestCase):
         auth._API_TOKEN = TEST_TOKEN
         
         # Setup real async client linked directly to our FastAPI app
-        self.async_client = httpx.AsyncClient(app=app, base_url="http://localhost:8001")
+        if hasattr(httpx, "ASGITransport"):
+            self.async_client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://localhost:8001")
+        else:
+            self.async_client = httpx.AsyncClient(app=app, base_url="http://localhost:8001")
         
         # Patch httpx.AsyncClient inside tools.hermes_grid_client to return our in-process async_client
         self.patcher = patch("tools.hermes_grid_client.httpx.AsyncClient", return_value=self.async_client)
@@ -66,8 +69,9 @@ class TestHermesGridClient(unittest.IsolatedAsyncioTestCase):
         original_get_engine_pid = SafetyGuard.get_engine_pid
         SafetyGuard.get_engine_pid = lambda *args: 12345  # simulate engine running
         
-        # Patch BinanceRest adapter circuit status
-        with patch("core.adapters.exchanges.adapters.binance_rest.BinanceRest") as mock_binance_rest:
+        # Patch BinanceRest adapter circuit status and active grids
+        with patch("core.adapters.exchanges.adapters.binance_rest.BinanceRest") as mock_binance_rest, \
+             patch("safety_guard.SafetyGuard._read_active_grids", return_value={}):
             mock_binance_rest._is_adapter_circuit_open.return_value = False
             mock_binance_rest.get_throttle_stats.return_value = {}
             

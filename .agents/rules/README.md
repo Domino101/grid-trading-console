@@ -1,0 +1,73 @@
+# Project-Specific Rules for AI Agents
+
+These rules are automatically applied by the AI agent when working in this project.
+
+## rule-01-trade-safety
+- `paper_trading` MUST remain `true` unless user explicitly confirms switching to live trading
+- All trade orders MUST pass risk gates (min notional, price limits, position size) before reaching exchange adapters in `core/adapters/exchanges/`
+- Never bypass or modify risk gate logic without explicit user approval
+- Before declaring any trade-related task complete, verify position tracking, order states, and error handling
+
+## rule-02-code-structure
+- New trading services and strategies go in `core/services/` (e.g. `grid/`, `volume_maker/`, `arbitrage_monitor/`, `price_alert/`)
+- Exchange-specific adapters go in `core/adapters/exchanges/adapters/` (e.g. `binance.py`, `okx.py`, `hyperliquid.py`, `lighter.py`, `edgex.py`, `backpack.py`)
+- Web UI changes must update `web_ui/` files (`web_ui/app.py`, templates, static assets)
+- Configuration goes in `config/` or environment variables — never hardcoded credentials
+
+## rule-03-logging
+- Use `logging` module — NEVER `print()` for any runtime output in core services
+- Log level: INFO for trade events, DEBUG for scanning/orderbook, ERROR for failures
+- All log messages include: timestamp, service_name, exchange, symbol, action, result
+
+## rule-04-database
+- Database connections (SQLite `crypto_trading.db` or PostgreSQL) MUST use parameterized queries — no string concatenation
+- Schema changes require backup → dry run → execute → verify workflow
+
+## rule-05-restart-after-changes
+- After any change under `core/`, `web_ui/`, `run_*.py`, `config/`, or `requirements.txt`, ALWAYS remind the user that a service restart is required for the change to take effect — do not assume hot-reload.
+- State the exact restart command at the end of the response (e.g. `python3 run_grid_trading.py`, `bash start_web_ui.sh`, or `pm2 restart ecosystem.config.js`), and list which file(s) triggered the requirement.
+- Edits that do NOT require restart: files under `tests/`, `docs/`, `.agents/`, top-level `*.md` reports, and `tools/` one-off scripts.
+
+## rule-06-bot-audit
+- When asked to perform an audit or check if the bot is trading normally:
+  1. Inspect running processes using `pgrep -fa python` or `pm2 status` to verify `run_*.py` services and Web UI are active.
+  2. Check active exchange API connectivity and configuration in `config/` and `.env`.
+  3. Query local database / trade state for recent execution results, identifying any rejected or cancelled orders.
+  4. Check log files in `logs/` or `tmp_output.log` to trace order IDs or exchange errors.
+  5. Present findings clearly with status, active exchanges, recent trade count, and recommendations.
+
+## rule-07-ponytail (lazy senior dev mode)
+
+Before writing any code, stop at the first rung of the YAGNI ladder that holds:
+
+1. **Does this need to be built at all?** Speculative need = skip it, say so in one line.
+2. **Stdlib does it?** Use it.
+3. **Native platform feature covers it?** DB constraint over app code, CSS over JS, `input type="date"` over a picker lib.
+4. **Already-installed dependency solves it?** Use it. Never add a new dep for what a few lines can do.
+5. **Can it be one line?** One line.
+6. **Only then:** the minimum code that works.
+
+Rules:
+- No unrequested abstractions: no interface with one implementation, no factory for one product, no config for a value that never changes
+- No boilerplate or scaffolding "for later" — later can scaffold for itself
+- Deletion over addition. Boring over clever. Fewest files possible. Shortest working diff wins
+- Mark deliberate simplifications with a `ponytail:` comment naming the ceiling and upgrade path: `# ponytail: global lock, per-account locks if throughput matters`
+- Two stdlib options, same size? Take the one correct on edge cases
+
+**Ponytail does NOT override rules 01–06.** Never simplify away:
+- Trade safety (rule-01), risk engine gates, `paper_trading` protection
+- Input validation at trust boundaries, error handling that prevents data loss
+- Security measures, parameterized queries (rule-04)
+- Logging standards (rule-03)
+- Anything the user explicitly requested
+
+Non-trivial logic (a branch, a loop, a parser, a money/security path) leaves ONE runnable check behind — an `assert`-based self-check or one small `test_*.py`. No frameworks, no fixtures. Trivial one-liners need no test.
+
+## rule-08-git-branching
+- `main` branch MUST remain stable, 100% test-passing, and deploy-ready at all times.
+- NEVER develop directly on `main` for non-trivial features, refactoring, or structural audits.
+- All work MUST occur on topic branches (`arena/<topic>` or `feature/<topic>`).
+- Before merging any branch into `main`, verify unit tests pass (`python3 -m pytest`).
+- Merges to `main` SHOULD use `--no-ff` (`git merge --no-ff <branch>`) to maintain a clean release graph.
+
+

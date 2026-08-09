@@ -15,7 +15,187 @@ export interface ProcessStatus {
     config_path: string | null;
 }
 
+// ==========================================
+// Grid Interfaces
+// ==========================================
+
+export interface GridInfo {
+    grid_id: string;
+    config_path: string;
+    symbol?: string;
+    exchange?: string;
+    grid_type?: string;
+    status: string;
+    lower_price?: number;
+    upper_price?: number;
+    grid_interval?: number;
+    order_amount?: number;
+    leverage?: number;
+    created_by?: string;
+}
+
+export interface GridListResponse {
+    total: number;
+    active: number;
+    grids: GridInfo[];
+}
+
+export interface GridSummaryItem {
+    grid_id: string;
+    symbol: string;
+    realized_pnl: number;
+    unrealized_pnl: number;
+    total_pnl: number;
+    current_price: number;
+    status: string;
+    stale: boolean;
+}
+
+export interface GridSummary {
+    total_grids: number;
+    active_grids: number;
+    total_realized_pnl: number;
+    total_unrealized_pnl: number;
+    total_pnl: number;
+    grids: GridSummaryItem[];
+}
+
+export interface GridStatsPendingOrders {
+    buy: number;
+    sell: number;
+    total: number;
+}
+
+export interface GridStatsFilledOrders {
+    buy: number;
+    sell: number;
+    cycles: number;
+}
+
+export interface GridStatsProfit {
+    realized: number;
+    unrealized: number;
+    total: number;
+    fees: number;
+    net: number;
+    rate: number;
+}
+
+export interface GridStatsBalance {
+    spot: number;
+    collateral: number;
+    total: number;
+    utilization: number;
+}
+
+export interface GridStatsTime {
+    running_time: string;
+    last_trade: string | null;
+}
+
+export interface GridStats {
+    grid_id: string;
+    symbol: string;
+    status: string;
+    stale: boolean;
+    current_price: number;
+    current_position: number;
+    average_cost: number | null;
+    pending_orders: GridStatsPendingOrders | null;
+    filled_orders: GridStatsFilledOrders | null;
+    profit: GridStatsProfit | null;
+    grid_utilization: number | null;
+    balance: GridStatsBalance | null;
+    time: GridStatsTime | null;
+    last_update: number | null;
+}
+
+export interface CreateGridRequest {
+    symbol: string;
+    exchange: string;
+    grid_type: string;
+    grid_interval: number;
+    order_amount: number;
+    lower_price?: number;
+    upper_price?: number;
+    quantity_precision?: number;
+    price_decimals?: number;
+    leverage?: number;
+    margin_mode?: string;
+    limit_only?: boolean;
+    active_window_each_side?: number;
+    active_window_refresh_interval?: number;
+    order_health_check_enabled?: boolean;
+    order_health_check_interval?: number;
+    health_check_adjust_position_enabled?: boolean;
+    rest_position_query_interval?: number;
+    fee_rate?: number;
+    reverse_order_grid_distance?: number;
+    ws_only_mode?: boolean;
+    rest_backup_enabled?: boolean;
+    follow_grid_count?: number;
+    follow_timeout?: number;
+    follow_distance?: number;
+    price_offset_grids?: number;
+    scalping_enabled?: boolean;
+    scalping_trigger_percent?: number;
+    scalping_take_profit_grids?: number;
+    smart_scalping_enabled?: boolean;
+    allowed_deep_drops?: number;
+    min_drop_threshold_percent?: number;
+    capital_protection_enabled?: boolean;
+    capital_protection_trigger_percent?: number;
+    take_profit_enabled?: boolean;
+    take_profit_percentage?: number;
+    price_lock_enabled?: boolean;
+    price_lock_threshold?: number;
+    price_lock_start_at_threshold?: boolean;
+    stop_loss_protection_enabled?: boolean;
+    stop_loss_trigger_percent?: number;
+    stop_loss_escape_timeout?: number;
+    stop_loss_apr_threshold?: number;
+    martingale_increment?: number;
+    position_tolerance?: Record<string, number>;
+    auto_start?: boolean;
+    metadata?: {
+        source?: string;
+        reason?: string;
+        confidence?: number;
+    };
+}
+
+export interface GridCreateResponse {
+    grid_id: string;
+    config_path: string;
+    status: string;
+    yaml_content: string;
+    message: string;
+}
+
+export interface GridActionResponse {
+    grid_id: string;
+    action: string;
+    status: string;
+    message: string;
+}
+
+// helper to get auth token
+const getAuthHeaders = (): HeadersInit => {
+    // 假設 token 儲存在 localStorage 或可以透過環境變數傳入
+    const token = localStorage.getItem('GRID_API_TOKEN');
+    if (token) {
+        return {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        };
+    }
+    return { 'Content-Type': 'application/json' };
+};
+
 export const api = {
+    // ------------------------------------------
+    // 原有 Methods
+    // ------------------------------------------
     async getScripts(): Promise<string[]> {
         const res = await fetch(`${API_BASE}/scripts`);
         return res.json();
@@ -61,6 +241,73 @@ export const api = {
             method: 'POST',
         });
         if (!res.ok) throw new Error('Failed to stop process');
+    },
+
+    // ------------------------------------------
+    // 新增: Grid API Methods
+    // ------------------------------------------
+    async listGrids(): Promise<GridListResponse> {
+        const res = await fetch(`${API_BASE}/v1/grids`, {
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) throw new Error('Failed to list grids');
+        return res.json();
+    },
+
+    async getGridSummary(): Promise<GridSummary> {
+        const res = await fetch(`${API_BASE}/v1/grids/summary`, {
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) throw new Error('Failed to get grids summary');
+        return res.json();
+    },
+
+    async getGridStats(gridId: string): Promise<GridStats> {
+        const res = await fetch(`${API_BASE}/v1/grids/${encodeURIComponent(gridId)}/stats`, {
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) throw new Error(`Failed to get stats for grid ${gridId}`);
+        return res.json();
+    },
+
+    async createGrid(request: CreateGridRequest): Promise<GridCreateResponse> {
+        const res = await fetch(`${API_BASE}/v1/grids`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify(request),
+        });
+        if (!res.ok) {
+            const error = await res.json().catch(() => ({}));
+            throw new Error(error.detail?.message || error.detail || 'Failed to create grid');
+        }
+        return res.json();
+    },
+
+    async startGrid(gridId: string, source: string = 'dashboard'): Promise<GridActionResponse> {
+        const res = await fetch(`${API_BASE}/v1/grids/${encodeURIComponent(gridId)}/start?source=${encodeURIComponent(source)}`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) throw new Error(`Failed to start grid ${gridId}`);
+        return res.json();
+    },
+
+    async stopGrid(gridId: string, source: string = 'dashboard'): Promise<GridActionResponse> {
+        const res = await fetch(`${API_BASE}/v1/grids/${encodeURIComponent(gridId)}/stop?source=${encodeURIComponent(source)}`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) throw new Error(`Failed to stop grid ${gridId}`);
+        return res.json();
+    },
+
+    async deleteGrid(gridId: string, source: string = 'dashboard'): Promise<GridActionResponse> {
+        const res = await fetch(`${API_BASE}/v1/grids/${encodeURIComponent(gridId)}?source=${encodeURIComponent(source)}`, {
+            method: 'DELETE',
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) throw new Error(`Failed to delete grid ${gridId}`);
+        return res.json();
     }
 };
 

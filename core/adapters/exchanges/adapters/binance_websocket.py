@@ -13,6 +13,40 @@ import ssl
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Callable, Set
 from decimal import Decimal
+
+
+def _is_ws_closed(ws) -> bool:
+    """
+    跨 websockets 版本的「連線是否已關閉」檢查
+
+    背景: `websockets` 從 10.x 開始逐步棄用 `ClientConnection.closed` 屬性,
+    在 16.x(asyncio client) 中已完全移除,改用 `protocol.state` 枚舉。
+
+    為同時支援舊(`<10`)與新(`>=10`)版本,採用「try 多種介面」的策略:
+    1. 優先 `ws.closed`(legacy,bool)
+    2. 次之 `ws.protocol.state` 與 `State.CLOSED/CLOSING` 比對(new)
+    3. 兩者皆不可用時默認 False(視為仍開啟)以避免誤觸重連風暴
+    """
+    if ws is None:
+        return True
+    # 1) legacy: 直接 .closed
+    closed_attr = getattr(ws, 'closed', None)
+    if closed_attr is not None:
+        return bool(closed_attr)
+    # 2) new: protocol.state
+    state = getattr(getattr(ws, 'protocol', None), 'state', None)
+    if state is not None:
+        try:
+            from websockets.protocol import State
+            return state in (State.CLOSED, State.CLOSING)
+        except Exception:
+            # 若 State 無法 import,以字串比對 fallback
+            name = getattr(state, 'name', str(state))
+            return name in ('CLOSED', 'CLOSING')
+    # 3) 兩者皆不可用:保守視為仍開啟(False)
+    return False
+
+
 from enum import Enum
 
 from .binance_base import BinanceBase
@@ -169,7 +203,7 @@ class BinanceWebSocket(BinanceBase):
     async def _connect_market_stream(self) -> bool:
         """连接现货市场数据流"""
         try:
-            if self._websocket and not self._websocket.closed:
+            if self._websocket and not _is_ws_closed(self._websocket):
                 return True
             
             # 使用现货 WebSocket URL
@@ -203,7 +237,7 @@ class BinanceWebSocket(BinanceBase):
     async def _connect_futures_stream(self) -> bool:
         """连接期货/永续合约市场数据流"""
         try:
-            if self._futures_websocket and not self._futures_websocket.closed:
+            if self._futures_websocket and not _is_ws_closed(self._futures_websocket):
                 return True
             
             # 使用期货 WebSocket URL
@@ -1200,9 +1234,9 @@ class BinanceWebSocket(BinanceBase):
     @property
     def is_connected(self) -> bool:
         """检查市场数据流连接状态"""
-        return self._connected and self._websocket and not self._websocket.closed
-    
+        return self._connected and self._websocket and not _is_ws_closed(self._websocket)
+
     @property
     def is_user_connected(self) -> bool:
         """检查用户数据流连接状态"""
-        return self._user_connected and self._user_websocket and not self._user_websocket.closed
+        return self._user_connected and self._user_websocket and not _is_ws_closed(self._user_websocket)

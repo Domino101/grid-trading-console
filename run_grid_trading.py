@@ -51,6 +51,7 @@ import argparse
 import logging
 import os
 import hashlib
+import math
 
 # 添加项目根目录到路径
 project_root = Path(__file__).parent
@@ -392,15 +393,40 @@ async def auto_fill_precision(grid_config: GridConfig, exchange_adapter, logger=
         exchange_qty_prec = precision.get('amount')
         exchange_price_prec = precision.get('price')
 
+        def _tick_to_decimals(tick) -> int:
+            """
+            將 TICK_SIZE 模式的 tickSize (例:0.00001) 反推為小數位數 (例:5)。
+            規則：tick >= 1 視為整數 (0 位)；tick < 1 用 -log10 反推。
+            """
+            if tick is None or tick <= 0:
+                return 2
+            if tick >= 1:
+                return 0
+            return int(round(-math.log10(tick)))
+
         # 只在未手動指定時才自動填入
         # 注意：GridConfig.__post_init__ 已將 None 替換為兜底默認值（3/2），
         # 因此這裡需要在 create_grid_config 中記錄是否是手動指定的
         filled = False
         if exchange_qty_prec is not None:
-            grid_config.quantity_precision = int(exchange_qty_prec)
+            # Binance ccxt 使用 TICK_SIZE 模式：precision.amount = stepSize
+            # 例：BTC=0.001 (→ 3 位)、1000RATS=1.0 (→ 0 位)
+            # 舊版邏輯 int(stepSize) 會把 0.001 截成 0、1.0 截成 1，皆錯
+            # 條件用 0 < x <= 1：含 1.0 (整數幣)，但排除 0 和負數
+            if 0 < exchange_qty_prec <= 1:
+                grid_config.quantity_precision = _tick_to_decimals(exchange_qty_prec)
+            else:
+                # stepSize > 1 (罕見) 或 DECIMAL_PLACES 模式
+                grid_config.quantity_precision = int(exchange_qty_prec)
             filled = True
         if exchange_price_prec is not None:
-            grid_config.price_decimals = int(exchange_price_prec)
+            # 同一邏輯：precision.price = tickSize
+            # 例：BTC=0.1 (→ 1 位)、1000RATS=0.00001 (→ 5 位)
+            # 舊版 int(0.00001)=0 會讓 min_tick=1.0 USDT，把訂單全擠同價
+            if 0 < exchange_price_prec <= 1:
+                grid_config.price_decimals = _tick_to_decimals(exchange_price_prec)
+            else:
+                grid_config.price_decimals = int(exchange_price_prec)
             filled = True
 
         if filled:

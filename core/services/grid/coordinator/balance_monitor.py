@@ -63,6 +63,10 @@ class BalanceMonitor:
         # 🔥 数据来源跟踪
         self._last_data_source: str = "REST API"  # 最后一次查询的数据来源
 
+    async def check_balance_risk(self):
+        """單次更新餘額並執行風控初始化（給 coordinator 監控迴圈呼叫）"""
+        await self.update_balance()
+
     async def start_monitoring(self):
         """启动余额监控"""
         if self._running:
