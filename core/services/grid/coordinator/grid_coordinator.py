@@ -64,6 +64,9 @@ from ..models import (
     GridConfig, GridState, GridOrder, GridOrderSide,
     GridOrderStatus, GridStatus, GridStatistics, GridType
 )
+from ..capital_protection import CapitalProtectionManager
+from ..take_profit.take_profit_manager import TakeProfitManager
+from ..scalping.scalping_manager import ScalpingManager
 from .grid_reset_manager import GridResetManager
 from .position_monitor import PositionMonitor
 from .balance_monitor import BalanceMonitor
@@ -90,7 +93,10 @@ class GridCoordinator:
         self.tracker = tracker
         self.state = grid_state
         
-        self.logger = get_logger(f"GridCoordinator.{self.config.symbol}")
+        # 將 symbol 中的檔名非法字元(/、: 等)替換為底線，
+        # 避免 log 寫入時被當作路徑分隔符號造成 FileNotFoundError
+        safe_symbol = self.config.symbol.replace("/", "_").replace(":", "_")
+        self.logger = get_logger(f"GridCoordinator.{safe_symbol}")
 
         # 核心控制状态
         self._paused = False
@@ -103,11 +109,35 @@ class GridCoordinator:
         self._order_fill_lock = asyncio.Lock()  # 🔥 并发下反手单锁
 
         # 子模块实例化
-        self.reset_manager = GridResetManager(self)
-        self.position_monitor = PositionMonitor(self)
-        self.balance_monitor = BalanceMonitor(self)
-        self.scalping_ops = ScalpingOperations(self)
-        self.stop_loss_monitor = StopLossMonitor(self)
+        self.reset_manager = GridResetManager(
+            self, self.config, self.state, self.engine, self.tracker, self.strategy
+        )
+        self.position_monitor = PositionMonitor(self.engine, self.tracker, self.config, self)
+        self.balance_monitor = BalanceMonitor(self.engine, self.config, self)
+        self.stop_loss_monitor = StopLossMonitor(self.engine, self.config, self)
+
+        # 剝頭皮管理器(無條件建立,內部僅在啟用時做事)
+        # 注:grid_reset_manager 與 balance_monitor 會直接呼叫 scalping_manager.xxx()
+        #    而無 None 保護,因此必須始終存在
+        self.scalping_manager = ScalpingManager(self.config)
+
+        # 剝頭皮操作(僅在啟用時建立,scalping_ops 內部假設 scalping_manager 始終存在)
+        self.scalping_ops: Optional[ScalpingOperations] = None
+        if self.config.is_scalping_enabled():
+            self.scalping_ops = ScalpingOperations(
+                self, self.scalping_manager, self.engine, self.state,
+                self.tracker, self.strategy, self.config
+            )
+
+        # 本金保護管理器(可選,預設 None;下游已用 None 保護)
+        self.capital_protection_manager: Optional[CapitalProtectionManager] = None
+        if self.config.is_capital_protection_enabled():
+            self.capital_protection_manager = CapitalProtectionManager(self.config)
+
+        # 止盈管理器(可選,預設 None;下游已用 None 保護)
+        self.take_profit_manager: Optional[TakeProfitManager] = None
+        if self.config.take_profit_enabled:
+            self.take_profit_manager = TakeProfitManager(self.config)
 
     async def start(self):
         """启动网格系统"""
@@ -115,7 +145,7 @@ class GridCoordinator:
             self.logger.info("正在启动网格协调器...")
             
             # 1. 检查账户余额与仓位
-            await self.balance_monitor.check_initial_balance()
+            await self.balance_monitor.update_balance()
             
             # 2. 检查未完结的旧网格订单
             await self.recover_old_orders()
@@ -127,6 +157,19 @@ class GridCoordinator:
             # 4. 订阅订单更新
             self.engine.subscribe_order_updates(self._on_order_filled)
             self.logger.info("订单更新订阅完成")
+
+            # 4.5 啟動執行引擎(活躍窗口刷新 + 價格監控)
+            # 對中性網格至關重要:
+            #   預設 active_window_each_side=2(由 defaults.yaml 提供),
+            #   應在現價上下各 2 格掛單(BUY 在下方 / SELL 在上方),
+            #   等價格穿越觸發成交,再掛反手單。
+            # 此方法是 .bak 版本 line 805 遺留的呼叫,
+            # 重構時未同步補回,造成 #10:啟動後完全無活躍窗口訂單。
+            try:
+                await self.engine.start()
+                self.logger.info("执行引擎启动完成")
+            except Exception as e:
+                self.logger.warning(f"⚠️ 执行引擎启动失败(已记录,继续运行): {e}")
 
             # 5. 启动后台监控任务
             asyncio.create_task(self._run_monitoring_loop())
@@ -388,3 +431,90 @@ class GridCoordinator:
         self._paused_reason = ""
         self.state.status = GridStatus.RUNNING
         self.logger.info("▶️ 網格交易已恢復運行")
+
+    async def get_statistics(self) -> GridStatistics:
+        """
+        獲取網格統計資料(給 `run_multiple_grids.py` 週期性統計彙報使用)
+
+        職責:
+        1. 更新當前價格到 state(用 engine.get_current_price)
+        2. 以 tracker.get_statistics() 為基底(已包含訂單/成交/盈虧等本地統計)
+        3. 嘗試以 WebSocket 緩存的「真實持倉」覆蓋 tracker 估算的持倉
+        4. 附加監控模式、本金保護/止盈狀態等 UI/監控需要的欄位
+        """
+        # 1. 更新當前價格(失敗不影響統計,僅 warning)
+        current_price = Decimal('0')
+        try:
+            current_price = await self.engine.get_current_price()
+            current_grid_id = self.config.get_grid_index_by_price(current_price)
+            self.state.update_current_price(current_price, current_grid_id)
+        except Exception as e:
+            self.logger.warning(f"獲取當前價格失敗: {e}")
+
+        # 2. 取 tracker 統計(本地 side)
+        stats = self.tracker.get_statistics()
+
+        # 3. 嘗試以 WebSocket 緩存的真實持倉覆蓋(若 engine 支援)
+        try:
+            if hasattr(self.engine, 'get_real_time_position'):
+                position_data = await self.engine.get_real_time_position(self.config.symbol)
+                ws_position = position_data.get('size', Decimal('0'))
+                ws_entry_price = position_data.get('entry_price', Decimal('0'))
+                has_cache = position_data.get('has_cache', False)
+
+                if has_cache and getattr(self, '_position_ws_enabled', False):
+                    stats.current_position = ws_position
+                    stats.average_cost = ws_entry_price
+                    stats.position_data_source = "WebSocket缓存"
+                    if ws_position != 0 and current_price > 0:
+                        stats.unrealized_profit = ws_position * (
+                            current_price - ws_entry_price
+                        )
+                else:
+                    if getattr(self, '_position_ws_enabled', False):
+                        stats.position_data_source = "WebSocket回调"
+                    else:
+                        stats.position_data_source = "REST API备用"
+        except Exception as e:
+            stats.position_data_source = "PositionTracker"
+            self.logger.debug(f"獲取 WebSocket 持倉失敗,使用本地 tracker: {e}")
+
+        # 4. 監控模式(若 engine 支援)
+        if hasattr(self.engine, 'get_monitoring_mode'):
+            try:
+                stats.monitoring_mode = self.engine.get_monitoring_mode()
+            except Exception:
+                pass
+
+        # 5. 本金保護模式狀態(僅在啟用時)
+        if self.capital_protection_manager:
+            try:
+                stats.capital_protection_enabled = True
+                stats.capital_protection_active = self.capital_protection_manager.is_active()
+                stats.initial_capital = self.capital_protection_manager.get_initial_capital()
+                # 抵押品餘額在當前精簡版 coordinator 未緩存,使用 tracker 的 total_balance 作為近似
+                stats.capital_profit_loss = self.capital_protection_manager.get_profit_loss(
+                    stats.total_balance
+                )
+            except Exception as e:
+                self.logger.debug(f"讀取本金保護狀態失敗: {e}")
+
+        # 6. 止盈模式狀態(僅在啟用時)
+        if self.take_profit_manager:
+            try:
+                stats.take_profit_enabled = True
+                stats.take_profit_active = self.take_profit_manager.is_active()
+                stats.take_profit_initial_capital = self.take_profit_manager.get_initial_capital()
+                stats.take_profit_current_profit = self.take_profit_manager.get_profit_amount(
+                    stats.total_balance
+                )
+                stats.take_profit_profit_rate = self.take_profit_manager.get_profit_percentage(
+                    stats.total_balance
+                )
+                # take_profit_percentage 為小數(0.05 = 5%),GridStatistics 期望百分比數值
+                threshold = getattr(self.config, 'take_profit_percentage', Decimal('0'))
+                stats.take_profit_threshold = threshold * 100
+            except Exception as e:
+                self.logger.debug(f"讀取止盈狀態失敗: {e}")
+
+        return stats

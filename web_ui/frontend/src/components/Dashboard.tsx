@@ -1,260 +1,179 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { api, WS_BASE, type ProcessStatus } from '../services/api';
-import { 
-  Square, RefreshCcw, Activity, 
-  TrendingUp, ShieldAlert, Zap, TerminalSquare
-} from 'lucide-react';
-import { 
-  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer 
-} from 'recharts';
+import React, { useState, useEffect } from 'react';
+import { api, type GridInfo, type GridStats } from '../services/api';
+import { Activity, Play, Square, Trash2, RefreshCcw } from 'lucide-react';
 
-interface DashboardProps {
-  processes: ProcessStatus[];
-  selectedPid: number | null;
-  onSelectPid: (pid: number) => void;
-  onRefresh: () => void;
-}
+const Dashboard: React.FC = () => {
+  const [grids, setGrids] = useState<GridInfo[]>([]);
+  const [statsMap, setStatsMap] = useState<Record<string, GridStats>>({});
+  const [loading, setLoading] = useState(false);
 
-const Dashboard: React.FC<DashboardProps> = ({ processes, selectedPid, onRefresh }) => {
-  const [logs, setLogs] = useState<string[]>([]);
-  const [stats, setStats] = useState<any>(null);
-  const [chartData, setChartData] = useState<any[]>([]);
-  const wsRef = useRef<WebSocket | null>(null);
-  const logsEndRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!selectedPid) return;
-
-    setLogs([]);
-    setStats(null);
-    setChartData([]);
-
-    const ws = new WebSocket(`${WS_BASE}/${selectedPid}`);
-    wsRef.current = ws;
-
-    ws.onmessage = (event) => {
-      const text = event.data;
+  const fetchData = async () => {
+    try {
+      const res = await api.listGrids();
+      setGrids(res.grids);
       
-      // Flexible matching for [STATS_JSON] with or without trailing space
-      const statsMatch = text.match(/\[STATS_JSON\]\s*(\{.*\})/);
-      
-      if (statsMatch && statsMatch[1]) {
+      const newStatsMap: Record<string, GridStats> = {};
+      for (const grid of res.grids) {
+        // Fetch stats regardless of status to show historical PNL if available
         try {
-          const parsed = JSON.parse(statsMatch[1]);
-          setStats(parsed);
-          
-          // Add point to chart with defensive checks
-          const now = new Date();
-          const totalPnl = parsed.profit?.total ?? parsed.total_pnl ?? 0;
-          
-          setChartData(prev => {
-            const newPoint = { 
-              time: now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'}), 
-              pnl: totalPnl
-            };
-            const newData = [...prev, newPoint];
-            return newData.slice(-50); // Keep last 50 points
-          });
+          const stats = await api.getGridStats(grid.grid_id);
+          newStatsMap[grid.grid_id] = stats;
         } catch (e) {
-          console.error("Failed to parse stats JSON:", e, "Text:", text);
-        }
-      } else {
-        // Only append if it's not a heartbeat or empty line
-        if (text.trim()) {
-          setLogs(prev => [...prev.slice(-100), text]);
+          console.error(`Failed to fetch stats for grid ${grid.grid_id}`);
         }
       }
-    };
-
-    return () => {
-      ws.close();
-    };
-  }, [selectedPid]);
-
-  useEffect(() => {
-    if (logsEndRef.current) {
-      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [logs]);
-
-  const handleStop = async () => {
-    if (!selectedPid) return;
-    if (confirm('Are you sure you want to stop this bot?')) {
-      await api.stopProcess(selectedPid);
-      onRefresh();
+      setStatsMap(newStatsMap);
+    } catch (e) {
+      console.error('Failed to list grids', e);
     }
   };
 
-  const selectedProcess = processes.find(p => p.pid === selectedPid);
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
-  if (!selectedPid || !selectedProcess) {
-    return (
-      <div className="glass-panel flex justify-center items-center" style={{ height: '100%' }}>
-        <p className="text-muted">Select or start a bot to view dashboard.</p>
-      </div>
-    );
-  }
+  const handleStart = async (gridId: string) => {
+    setLoading(true);
+    try {
+      await api.startGrid(gridId);
+      await fetchData();
+    } catch (e: any) {
+      alert(e.message || 'Failed to start grid');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleStop = async (gridId: string) => {
+    if (!confirm('確定要停止此網格嗎？')) return;
+    setLoading(true);
+    try {
+      await api.stopGrid(gridId);
+      await fetchData();
+    } catch (e: any) {
+      alert(e.message || 'Failed to stop grid');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async (gridId: string) => {
+    if (!confirm('確定要刪除此網格嗎？此操作無法還原。')) return;
+    setLoading(true);
+    try {
+      await api.deleteGrid(gridId);
+      await fetchData();
+    } catch (e: any) {
+      alert(e.message || 'Failed to delete grid');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const formatMoney = (val: number | undefined) => {
     if (val === undefined || isNaN(val)) return '$0.00';
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
   };
 
-  const formatPercent = (val: number | undefined) => {
-    if (val === undefined || isNaN(val)) return '0.00%';
-    return (val > 0 ? '+' : '') + val.toFixed(2) + '%';
-  };
-
-  const pnlColor = (stats?.profit?.total || 0) >= 0 ? 'var(--status-success)' : 'var(--status-error)';
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', height: '100%', overflowY: 'auto', paddingRight: '0.5rem' }}>
-      {/* Top Header */}
       <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-2xl font-semibold flex items-center gap-3">
-            <Activity color="var(--accent-primary)" />
-            {selectedProcess.config_path?.split('/').pop()?.replace('.yaml', '') || `PID ${selectedPid}`}
-            {selectedProcess.status === 'running' && <span className="badge badge-success" style={{ marginLeft: '1rem' }}>Active</span>}
-          </h2>
-          <p className="text-sm text-muted mt-1">PID: {selectedPid} | Started: {selectedProcess.start_time ? new Date(selectedProcess.start_time).toLocaleString() : 'Unknown'}</p>
-        </div>
-        <div className="flex gap-2">
-          <button className="btn btn-outline" onClick={onRefresh}><RefreshCcw size={16} /> Refresh</button>
-          <button className="btn btn-primary" onClick={handleStop} style={{ background: 'var(--status-error)', color: '#fff' }}><Square size={16} /> Stop Bot</button>
-        </div>
+        <h2 className="text-2xl font-semibold flex items-center gap-3">
+          <Activity color="var(--accent-primary)" />
+          網格儀表板
+        </h2>
+        <button className="btn btn-outline" onClick={fetchData} disabled={loading}>
+          <RefreshCcw size={16} /> 重新整理
+        </button>
       </div>
 
-      {/* Main Stats Cards based on premium design */}
-      <div className="grid grid-cols-4 gap-4">
-        <div className="glass-panel flex flex-col gap-2">
-          <div className="text-xs text-muted flex items-center gap-2 uppercase tracking-wider font-semibold">
-            <Zap size={14} className="text-accent" /> Total Balance
-          </div>
-          <div className="text-3xl font-bold">{formatMoney(stats?.balance?.total)}</div>
-          <div className="text-sm text-success flex items-center gap-1">
-            <TrendingUp size={14} /> {(stats?.balance?.utilization || 0).toFixed(1)}% Utilized
-          </div>
+      {grids.length === 0 ? (
+        <div className="glass-panel flex justify-center items-center" style={{ flex: 1 }}>
+          <p className="text-muted">目前沒有網格策略，請先創建一個。</p>
         </div>
-        
-        <div className="glass-panel flex flex-col gap-2">
-          <div className="text-xs text-muted flex items-center gap-2 uppercase tracking-wider font-semibold">
-            <Activity size={14} className="text-accent" /> Total PnL
-          </div>
-          <div className="text-3xl font-bold" style={{ color: pnlColor }}>
-            {(stats?.profit?.total || 0) > 0 ? '+' : ''}{formatMoney(stats?.profit?.total)}
-          </div>
-          <div className="text-sm" style={{ color: pnlColor }}>
-            {formatPercent(stats?.profit?.rate)} ROI
-          </div>
-        </div>
-        
-        <div className="glass-panel flex flex-col gap-2">
-          <div className="text-xs text-muted flex items-center gap-2 uppercase tracking-wider font-semibold">
-            <TrendingUp size={14} className="text-accent" /> Realized / Unrealized
-          </div>
-          <div className="text-xl font-medium">{formatMoney(stats?.profit?.realized)}</div>
-          <div className="text-sm text-muted">
-            Unrealized: <span style={{ color: (stats?.profit?.unrealized || 0) >= 0 ? 'var(--status-success)' : 'var(--status-error)'}}>{formatMoney(stats?.profit?.unrealized)}</span>
-          </div>
-        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {grids.map(grid => {
+            const stats = statsMap[grid.grid_id];
+            const isRunning = grid.status === 'running' || grid.status === 'active';
+            const pnl = stats?.profit?.total || 0;
+            const pnlColor = pnl >= 0 ? 'var(--status-success)' : 'var(--status-error)';
+            const tradeCount = (stats?.filled_orders?.buy || 0) + (stats?.filled_orders?.sell || 0);
 
-        <div className="glass-panel flex flex-col gap-2">
-          <div className="text-xs text-muted flex items-center gap-2 uppercase tracking-wider font-semibold">
-            <Activity size={14} className="text-accent" /> Pending Orders
-          </div>
-          <div className="text-3xl font-bold">{stats?.pending_orders?.total || 0}</div>
-          <div className="text-sm text-muted">
-            Buy: <span className="text-success">{stats?.pending_orders?.buy || 0}</span> | Sell: <span className="text-error">{stats?.pending_orders?.sell || 0}</span>
-          </div>
-        </div>
-      </div>
+            return (
+              <div key={grid.grid_id} className="glass-panel flex flex-col gap-4">
+                <div className="flex justify-between items-start border-b border-gray-800 pb-2">
+                  <div>
+                    <h3 className="text-lg font-bold text-accent">{grid.symbol || 'Unknown'}</h3>
+                    <span className="text-xs text-muted">ID: {grid.grid_id.substring(0, 8)}...</span>
+                  </div>
+                  <div className={`badge ${isRunning ? 'badge-success' : 'badge-error'}`}>
+                    {grid.status}
+                  </div>
+                </div>
 
-      {/* Chart Section */}
-      <div className="glass-panel" style={{ height: '300px', display: 'flex', flexDirection: 'column' }}>
-        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-          <TrendingUp size={18} className="text-accent" /> PnL Performance
-        </h3>
-        <div style={{ flex: 1 }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chartData} margin={{ top: 5, right: 0, left: 0, bottom: 0 }}>
-              <defs>
-                <linearGradient id="colorPnl" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="var(--accent-primary)" stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor="var(--accent-primary)" stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <XAxis dataKey="time" stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
-              <YAxis stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} width={80} tickFormatter={(val) => `$${val}`} />
-              <Tooltip 
-                contentStyle={{ backgroundColor: 'var(--bg-panel)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)' }}
-                itemStyle={{ color: 'var(--accent-primary)' }}
-              />
-              <Area type="monotone" dataKey="pnl" stroke="var(--accent-primary)" strokeWidth={2} fillOpacity={1} fill="url(#colorPnl)" />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
+                <div className="flex flex-col gap-2 flex-1">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted">總利潤 (PNL)</span>
+                    <span className="font-bold text-lg" style={{ color: pnlColor }}>
+                      {pnl > 0 ? '+' : ''}{formatMoney(pnl)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted">交易次數</span>
+                    <span className="font-medium">{tradeCount}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted">價格區間</span>
+                    <span className="font-medium">
+                      {grid.lower_price} - {grid.upper_price}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted">每格大小</span>
+                    <span className="font-medium">{grid.grid_interval}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted">下單量</span>
+                    <span className="font-medium">{grid.order_amount}</span>
+                  </div>
+                </div>
 
-      {/* Detailed Stats & Logs row */}
-      <div className="grid grid-cols-2 gap-4" style={{ flex: 1, minHeight: '300px' }}>
-        {/* Additional Stats */}
-        <div className="glass-panel flex flex-col gap-4 overflow-y-auto">
-          <h3 className="text-lg font-semibold flex items-center gap-2">
-            <ShieldAlert size={18} className="text-accent" /> Grid Parameters
-          </h3>
-          {stats ? (
-            <div className="flex flex-col gap-3">
-              <div className="flex justify-between items-center border-b border-gray-800 pb-2">
-                <span className="text-muted">Current Price</span>
-                <span className="font-medium text-accent">{formatMoney(stats.current_price)}</span>
+                <div className="flex gap-2 mt-2 pt-2 border-t border-gray-800">
+                  {!isRunning ? (
+                    <button 
+                      className="btn btn-primary flex-1 flex justify-center items-center gap-1"
+                      onClick={() => handleStart(grid.grid_id)}
+                      disabled={loading}
+                    >
+                      <Play size={16} /> 啟動
+                    </button>
+                  ) : (
+                    <button 
+                      className="btn flex-1 flex justify-center items-center gap-1"
+                      style={{ background: 'var(--status-warning)', color: '#000' }}
+                      onClick={() => handleStop(grid.grid_id)}
+                      disabled={loading}
+                    >
+                      <Square size={16} /> 停止
+                    </button>
+                  )}
+                  <button 
+                    className="btn flex-1 flex justify-center items-center gap-1"
+                    style={{ background: 'var(--status-error)', color: '#fff' }}
+                    onClick={() => handleDelete(grid.grid_id)}
+                    disabled={loading}
+                  >
+                    <Trash2 size={16} /> 刪除
+                  </button>
+                </div>
               </div>
-              <div className="flex justify-between items-center border-b border-gray-800 pb-2">
-                <span className="text-muted">Current Position</span>
-                <span className="font-medium">{stats.current_position} (Avg: {formatMoney(stats.average_cost)})</span>
-              </div>
-              <div className="flex justify-between items-center border-b border-gray-800 pb-2">
-                <span className="text-muted">Grid Range</span>
-                <span className="font-medium">{formatMoney(stats.price_range?.lower)} - {formatMoney(stats.price_range?.upper)}</span>
-              </div>
-              <div className="flex justify-between items-center border-b border-gray-800 pb-2">
-                <span className="text-muted">Grid Count / Interval</span>
-                <span className="font-medium">{stats.grid_count} / {stats.grid_interval}</span>
-              </div>
-              <div className="flex justify-between items-center border-b border-gray-800 pb-2">
-                <span className="text-muted">Filled Orders (B/S)</span>
-                <span className="font-medium text-success">{stats.filled_orders?.buy} <span className="text-muted">/</span> <span className="text-error">{stats.filled_orders?.sell}</span></span>
-              </div>
-              <div className="flex justify-between items-center border-b border-gray-800 pb-2">
-                <span className="text-muted">Running Time</span>
-                <span className="font-medium">{stats.time?.running_time}</span>
-              </div>
-            </div>
-          ) : (
-             <div className="flex items-center justify-center h-full text-muted">Waiting for grid engine statistics...</div>
-          )}
+            );
+          })}
         </div>
-
-        {/* Live Logs */}
-        <div className="glass-panel flex flex-col" style={{ padding: '0', overflow: 'hidden' }}>
-          <div style={{ padding: '1rem', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <TerminalSquare size={18} className="text-accent" />
-            <h3 className="text-lg font-semibold">Live Logs</h3>
-          </div>
-          <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', background: '#000', fontFamily: 'monospace', fontSize: '0.85rem' }}>
-            {logs.length === 0 && <span className="text-muted">No logs available...</span>}
-            {logs.map((log, i) => {
-              let color = 'var(--text-primary)';
-              if (log.includes('ERROR')) color = 'var(--status-error)';
-              if (log.includes('WARN')) color = 'var(--status-warning)';
-              if (log.includes('[成交]')) color = 'var(--status-success)';
-              if (log.includes('[反手]')) color = '#3b82f6';
-              return <div key={i} style={{ color, marginBottom: '2px', wordBreak: 'break-all' }}>{log}</div>;
-            })}
-            <div ref={logsEndRef} />
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   );
 };

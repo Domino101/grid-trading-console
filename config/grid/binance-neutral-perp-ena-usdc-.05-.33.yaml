@@ -1,0 +1,11 @@
+grid_system:
+  exchange: binance
+  symbol: ENA/USDC:USDC
+  grid_type: neutral
+  price_range:
+    lower_price: 0.05555
+    upper_price: 0.33333
+  order_amount: 80
+  leverage: 50
+  margin_mode: cross
+  grid_count: 500

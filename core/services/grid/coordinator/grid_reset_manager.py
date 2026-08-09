@@ -49,6 +49,53 @@ class GridResetManager:
         # 创建订单操作实例
         self.order_ops = OrderOperations(engine, state, config, coordinator)
 
+    async def initialize_grid_orders(self):
+        """
+        初始化首批網格訂單(首次啟動用,與 _generic_reset_workflow 不同)
+
+        流程:
+        1. 初始化執行引擎(設定 engine.config 等,後續 get_current_price 需用)
+        2. 價格移動網格(若啟用):更新價格區間
+        3. 初始化網格層級(state)
+        4. 策略生成初始訂單
+        5. 引擎批次下單
+        """
+        try:
+            # 1. 初始化執行引擎(設定 self.config 等內部狀態)
+            await self.engine.initialize(self.config)
+
+            # 2. 價格移動網格:獲取當前價格並更新價格區間
+            if self.config.is_follow_mode():
+                current_price = await self.engine.get_current_price()
+                old_range = (self.config.lower_price, self.config.upper_price)
+                self.config.update_price_range_for_follow_mode(current_price)
+                self.logger.info(
+                    f"📋 價格移動網格:價格區間 "
+                    f"[${old_range[0]:,.2f}, ${old_range[1]:,.2f}] → "
+                    f"[${self.config.lower_price:,.2f}, ${self.config.upper_price:,.2f}]"
+                )
+
+            # 3. 初始化網格層級
+            self.state.initialize_grid_levels(
+                self.config.grid_count,
+                self.config.get_grid_price
+            )
+            self.logger.info(f"✅ 網格層級初始化完成,共 {self.config.grid_count} 個")
+
+            # 4. 策略生成初始訂單
+            initial_orders = self.strategy.initialize(self.config)
+            self.logger.info(f"📋 策略生成 {len(initial_orders)} 個初始訂單")
+
+            # 5. 引擎批次下單
+            placed_orders = await self.engine.place_batch_orders(initial_orders)
+            self.logger.info(
+                f"✅ 成功掛出 {len(placed_orders)}/{len(initial_orders)} 個初始訂單"
+            )
+            return placed_orders
+        except Exception as e:
+            self.logger.error(f"❌ 初始化網格訂單失敗: {e}", exc_info=True)
+            raise
+
     async def execute_capital_protection_reset(self):
         """执行本金保护重置（平仓后重置并重新初始化本金）"""
         try:

@@ -1,0 +1,11 @@
+grid_system:
+  exchange: binance
+  symbol: CHILLGUY/USDT:USDT
+  grid_type: neutral
+  price_range:
+    lower_price: 0.0101
+    upper_price: 0.015
+  order_amount: 600
+  leverage: 10
+  margin_mode: cross
+  grid_count: 50

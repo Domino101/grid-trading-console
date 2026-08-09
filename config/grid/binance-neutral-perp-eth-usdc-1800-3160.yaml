@@ -8,4 +8,4 @@ grid_system:
   order_amount: 0.014
   leverage: 100
   margin_mode: cross
-  grid_count: 170
+  grid_count: 150

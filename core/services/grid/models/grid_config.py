@@ -98,6 +98,7 @@ class GridConfig:
     order_health_check_interval: int = 300   # 订单健康检查间隔（秒，默认5分钟）
     health_check_snapshot_count: int = 3     # 健康检查快照次数（默认3次，最小2次）
     rest_position_query_interval: int = 1    # REST持仓查询间隔（秒，默认1秒）
+    monitoring_interval: int = 5             # 監控迴圈間隔（秒，coordinator 預設使用）
     fee_rate: Decimal = Decimal('0.0001')    # 手续费率（默认万分之1）
     # 健康檢查行為開關
     health_check_adjust_position_enabled: bool = True  # 是否允許健康檢查調整持倉（默認允許）

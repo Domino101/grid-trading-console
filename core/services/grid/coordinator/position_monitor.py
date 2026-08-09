@@ -107,6 +107,10 @@ class PositionMonitor:
         self._running = False
         self._monitor_task: Optional[asyncio.Task] = None
 
+    async def check_positions(self) -> bool:
+        """單次查詢並更新持倉（給 coordinator 監控迴圈呼叫）"""
+        return await self._query_and_update_position()
+
     async def start_monitoring(self):
         """启动持仓监控（纯REST API）"""
         if self._running:

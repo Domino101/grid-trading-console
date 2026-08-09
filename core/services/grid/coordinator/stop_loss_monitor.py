@@ -74,6 +74,10 @@ class StopLossMonitor:
             f"APR阈值={self._apr_threshold}%"
         )
 
+    async def check_stop_loss(self):
+        """單次檢查止損條件（給 coordinator 監控迴圈呼叫）"""
+        await self._check_stop_loss_condition()
+
     async def start_monitoring(self):
         """启动止损监控"""
         if not self._enabled:
