@@ -60,6 +60,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/healthz", include_in_schema=False)
+async def readiness_probe():
+    """Unauthenticated process/readiness probe for systemd, PM2 and load balancers.
+
+    It deliberately exposes no account, engine or connector information. Those
+    details remain behind the authenticated /api/v1/system/health endpoint.
+    """
+    try:
+        from runtime_repository import RuntimeSnapshotRepository
+        RuntimeSnapshotRepository.instance().load_all()
+        return {"status": "ok"}
+    except Exception:
+        logger.exception("Readiness probe failed")
+        raise HTTPException(status_code=503, detail="service storage unavailable")
+
 # 🆕 掛載 v1 API 路由（與現有 /api/scripts 等端點共存）
 app.include_router(system_router)
 app.include_router(grids_router)
