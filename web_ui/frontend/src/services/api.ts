@@ -161,6 +161,8 @@ export interface DashboardSnapshot {
     grids: DashboardGridItem[];
 }
 
+export interface GridEvent { grid_id: string; event_type: string; status: string; detail: string | null; occurred_at: number; }
+
 export interface GridHistoryPoint {
     recorded_at: number;
     current_price: number | null;
@@ -389,6 +391,12 @@ export const api = {
             headers: getAuthHeaders(),
         });
         if (!res.ok) throw new Error(`Failed to get commands for ${gridId}`);
+        return res.json();
+    },
+
+    async listGridEvents(gridId: string): Promise<{ grid_id: string; events: GridEvent[] }> {
+        const res = await fetch(`${API_BASE}/v1/commands/events?grid_id=${encodeURIComponent(gridId)}`, { headers: getAuthHeaders() });
+        if (!res.ok) throw new Error(`Failed to get events for ${gridId}`);
         return res.json();
     },
 

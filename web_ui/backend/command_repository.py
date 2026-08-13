@@ -57,6 +57,17 @@ class GridCommandRepository:
                 connection.execute("ALTER TABLE grid_commands ADD COLUMN idempotency_key TEXT")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_grid_commands_grid_created ON grid_commands(grid_id, created_at DESC)")
             connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_grid_commands_idempotency ON grid_commands(action, idempotency_key) WHERE idempotency_key IS NOT NULL")
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS grid_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    grid_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    detail TEXT,
+                    occurred_at REAL NOT NULL
+                )
+            """)
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_grid_events_grid_time ON grid_events(grid_id, occurred_at DESC)")
 
     def create(self, grid_id: str, config_path: str, action: str, source: str, reason: Optional[str] = None,
                idempotency_key: Optional[str] = None) -> dict[str, Any]:
@@ -117,6 +128,21 @@ class GridCommandRepository:
         with self._lock, self._connect() as connection:
             rows = connection.execute(
                 "SELECT * FROM grid_commands WHERE grid_id = ? ORDER BY created_at DESC LIMIT ?", (grid_id, limit)
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def record_event(self, grid_id: str, event_type: str, status: str, detail: Optional[str] = None) -> None:
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                "INSERT INTO grid_events(grid_id, event_type, status, detail, occurred_at) VALUES(?, ?, ?, ?, ?)",
+                (grid_id, event_type, status, detail, time.time()),
+            )
+
+    def list_events(self, grid_id: str, limit: int = 50) -> list[dict[str, Any]]:
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                "SELECT grid_id, event_type, status, detail, occurred_at FROM grid_events WHERE grid_id = ? ORDER BY occurred_at DESC LIMIT ?",
+                (grid_id, limit),
             ).fetchall()
         return [dict(row) for row in rows]
 

@@ -232,6 +232,7 @@ class ProcessManager:
             from command_repository import GridCommandRepository
             grid_id = os.path.splitext(os.path.basename(config_path))[0]
             repository = GridCommandRepository.instance()
+            repository.record_event(grid_id, "engine_lifecycle", lifecycle_status, payload.get("detail"))
             command = repository.latest_for_grid(grid_id)
             if command is None or command["status"] != "pending_engine":
                 return

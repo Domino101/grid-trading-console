@@ -256,6 +256,19 @@ class GridStatsResponse(BaseModel):
     last_update: Optional[float] = None
 
 
+class GridEvent(BaseModel):
+    grid_id: str
+    event_type: str
+    status: str
+    detail: Optional[str] = None
+    occurred_at: float
+
+
+class GridEventListResponse(BaseModel):
+    grid_id: str
+    events: List[GridEvent]
+
+
 class GridHistoryPoint(BaseModel):
     recorded_at: float
     current_price: Optional[float] = None

@@ -37,6 +37,8 @@ class GridCommandRepositoryTests(unittest.TestCase):
             repository.update_status(command["command_id"], "pending_engine")
             repository.mark_timeouts(timeout_seconds=0)
             self.assertEqual(repository.get(command["command_id"])["status"], "timed_out")
+            repository.record_event("strategy-b", "engine_lifecycle", "stopped")
+            self.assertEqual(repository.list_events("strategy-b")[0]["status"], "stopped")
 
 
 if __name__ == "__main__":
