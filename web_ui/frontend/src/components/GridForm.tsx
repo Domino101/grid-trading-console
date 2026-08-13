@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, Settings } from 'lucide-react';
-import { api, type CreateGridRequest } from '../services/api';
+import { api, type CreateGridRequest, type MarketInfo } from '../services/api';
 
 type Notice = { type: 'success' | 'error'; text: string } | null;
 
@@ -15,6 +15,8 @@ const GridForm = () => {
   const [formData, setFormData] = useState<CreateGridRequest>(initialForm);
   const [mode, setMode] = useState<'paper' | 'live'>('paper');
   const [loading, setLoading] = useState(false);
+  const [marketLoading, setMarketLoading] = useState(false);
+  const [marketInfo, setMarketInfo] = useState<MarketInfo | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
 
   const estimatedCapital = useMemo(() => {
@@ -24,6 +26,15 @@ const GridForm = () => {
   }, [formData]);
 
   const update = (name: keyof CreateGridRequest, value: string | number | boolean) => setFormData(current => ({ ...current, [name]: value }));
+  const loadMarketInfo = async () => {
+    setMarketLoading(true); setNotice(null);
+    try {
+      const info = await api.getMarketInfo(formData.symbol, formData.exchange);
+      setMarketInfo(info);
+      setFormData(current => ({ ...current, price_decimals: info.price_precision ?? current.price_decimals, quantity_precision: info.quantity_precision ?? current.quantity_precision }));
+    } catch (caught) { setMarketInfo(null); setNotice({ type: 'error', text: caught instanceof Error ? caught.message : '無法讀取市場規則' }); }
+    finally { setMarketLoading(false); }
+  };
   const canAdvance = step === 1 ? Boolean(formData.symbol && formData.exchange) : step === 2 ? Boolean(formData.lower_price && formData.upper_price && formData.grid_interval && formData.order_amount && formData.lower_price < formData.upper_price) : true;
 
   const submit = async () => {
@@ -41,7 +52,7 @@ const GridForm = () => {
     <ol className="stepper" aria-label="建立策略步驟"><li className={step >= 1 ? 'active' : ''}>1. 市場</li><li className={step >= 2 ? 'active' : ''}>2. 網格</li><li className={step >= 3 ? 'active' : ''}>3. 風控確認</li></ol>
     {notice && <div className={`notice ${notice.type === 'success' ? 'notice-success' : 'notice-error'}`} role="alert">{notice.type === 'success' ? <CheckCircle size={18} /> : <AlertTriangle size={18} />}{notice.text}</div>}
     <section className="strategy-card form-card">
-      {step === 1 && <div className="form-fields"><h3>市場與帳戶模式</h3><label>帳戶模式<div className="mode-toggle"><button className={mode === 'paper' ? 'active' : ''} onClick={() => setMode('paper')}>PAPER</button><button className={mode === 'live' ? 'active danger' : ''} onClick={() => setMode('live')}>LIVE</button></div></label><label>交易所<select value={formData.exchange} onChange={event => update('exchange', event.target.value)}><option value="binance">Binance</option><option value="lighter">Lighter</option><option value="hyperliquid">Hyperliquid</option></select></label><label>交易對<input value={formData.symbol} onChange={event => update('symbol', event.target.value.toUpperCase())} placeholder="BTC/USDT" /></label><label>網格方向<select value={formData.grid_type} onChange={event => update('grid_type', event.target.value)}><option value="neutral">中性網格</option><option value="long">做多網格</option><option value="short">做空網格</option></select></label></div>}
+      {step === 1 && <div className="form-fields"><h3>市場與帳戶模式</h3><label>帳戶模式<div className="mode-toggle"><button className={mode === 'paper' ? 'active' : ''} onClick={() => setMode('paper')}>PAPER</button><button className={mode === 'live' ? 'active danger' : ''} onClick={() => setMode('live')}>LIVE</button></div></label><label>交易所<select value={formData.exchange} onChange={event => update('exchange', event.target.value)}><option value="binance">Binance</option><option value="lighter">Lighter</option><option value="hyperliquid">Hyperliquid</option></select></label><label>交易對<input value={formData.symbol} onChange={event => update('symbol', event.target.value.toUpperCase())} placeholder="BTC/USDT" /></label><label>網格方向<select value={formData.grid_type} onChange={event => update('grid_type', event.target.value)}><option value="neutral">中性網格</option><option value="long">做多網格</option><option value="short">做空網格</option></select></label><aside className="market-rules"><div><strong>交易對規則</strong>{marketInfo ? <small>價格精度 {marketInfo.price_precision ?? '—'} · 數量精度 {marketInfo.quantity_precision ?? '—'} · 最小名義額 {marketInfo.min_notional ?? '—'}</small> : <small>建立前建議讀取交易所最小下單與精度規則。</small>}</div><button className="btn btn-outline" type="button" disabled={marketLoading || !formData.symbol} onClick={() => void loadMarketInfo()}>{marketLoading ? '讀取中…' : '讀取規則'}</button></aside></div>}
       {step === 2 && <div className="form-fields"><h3>價格區間與下單</h3><label>下限價格<input type="number" value={formData.lower_price ?? ''} onChange={event => update('lower_price', Number(event.target.value))} /></label><label>上限價格<input type="number" value={formData.upper_price ?? ''} onChange={event => update('upper_price', Number(event.target.value))} /></label><label>每格間距<input type="number" min="0" step="any" value={formData.grid_interval} onChange={event => update('grid_interval', Number(event.target.value))} /></label><label>每格下單量<input type="number" min="0" step="any" value={formData.order_amount} onChange={event => update('order_amount', Number(event.target.value))} /></label>{estimatedCapital && <aside className="capital-estimate">預估格數：<strong>{estimatedCapital.levels}</strong> 前 10 格名義資金：約 <strong>{estimatedCapital.amount.toLocaleString('en-US', { maximumFractionDigits: 2 })}</strong><small>僅為前端估算；交易所最小下單額、精度與實際資金仍以後端驗證為準。</small></aside>}</div>}
       {step === 3 && <div className="form-fields"><h3>風控與確認</h3><label>槓桿<input type="number" min="1" max="125" value={formData.leverage ?? 1} onChange={event => update('leverage', Number(event.target.value))} /></label><label>保證金模式<select value={formData.margin_mode ?? 'cross'} onChange={event => update('margin_mode', event.target.value)}><option value="cross">全倉 Cross</option><option value="isolated">逐倉 Isolated</option></select></label><label className="checkbox-label"><input type="checkbox" checked={formData.auto_start ?? false} onChange={event => update('auto_start', event.target.checked)} />建立後提交啟動意圖（仍須等待引擎確認）</label><aside className="capital-estimate">{mode === 'live' ? <strong>LIVE 警告：請確認資金、槓桿與交易所權限；本畫面不保證引擎已開始掛單。</strong> : <strong>PAPER 建議：先確認價格區間、下單精度及引擎事件後，再考慮 LIVE。</strong>}<small>{formData.symbol} · {formData.exchange} · {formData.grid_type} · {formData.lower_price} – {formData.upper_price}</small></aside></div>}
       <footer className="form-actions">{step > 1 ? <button className="btn btn-outline" onClick={() => setStep(step - 1)}><ChevronLeft size={16} />上一步</button> : <span />}{step < 3 ? <button className="btn btn-primary" disabled={!canAdvance} onClick={() => setStep(step + 1)}>下一步<ChevronRight size={16} /></button> : <button className="btn btn-primary" disabled={loading || !canAdvance} onClick={() => void submit()}>{loading ? '建立中…' : '確認建立策略'}</button>}</footer>

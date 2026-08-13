@@ -163,6 +163,17 @@ export interface DashboardSnapshot {
 
 export interface GridEvent { grid_id: string; event_type: string; status: string; detail: string | null; occurred_at: number; }
 
+export interface MarketInfo {
+    symbol: string;
+    exchange: string;
+    price_precision: number | null;
+    quantity_precision: number | null;
+    min_order_amount: number | null;
+    min_notional: number | null;
+    contract_size: number | null;
+    cached: boolean;
+}
+
 export interface GridHistoryPoint {
     recorded_at: number;
     current_price: number | null;
@@ -343,6 +354,15 @@ export const api = {
             headers: getAuthHeaders(),
         });
         if (!res.ok) throw new Error('Failed to get grids summary');
+        return res.json();
+    },
+
+    async getMarketInfo(symbol: string, exchange: string): Promise<MarketInfo> {
+        const res = await fetch(`${API_BASE}/v1/market/info/${encodeURIComponent(symbol)}?exchange=${encodeURIComponent(exchange)}`, { headers: getAuthHeaders() });
+        if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            throw new Error(body.detail || '無法讀取交易對規則');
+        }
         return res.json();
     },
 
