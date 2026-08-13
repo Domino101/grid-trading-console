@@ -77,6 +77,7 @@ class GridConfig:
     symbol: str                             # 交易对符号 (如 "BTC_USDC_PERP")
     grid_type: GridType                     # 网格类型（做多/做空）
     order_amount: Decimal                   # 每格订单数量（基础金额）
+    account_mode: str = "unknown"           # paper | live | unknown（缺省 unknown=既有實盤 YAML）
 
     # 🔥 网格密度参数（grid_count 与 grid_interval 二选一）
     # - 推荐使用 grid_count：格数固定 → API 消耗可预测

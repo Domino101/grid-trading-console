@@ -27,6 +27,7 @@ from .okx import OKXAdapter
 from .edgex import EdgeXAdapter
 from .lighter import LighterAdapter
 from .o1exchange import O1ExchangeAdapter
+from .paper import PaperExchangeAdapter, create_paper_adapter, is_paper_config
 
 __all__ = [
     'HyperliquidAdapter',
@@ -35,5 +36,8 @@ __all__ = [
     'OKXAdapter',
     'EdgeXAdapter',
     'LighterAdapter',
-    'O1ExchangeAdapter'
+    'O1ExchangeAdapter',
+    'PaperExchangeAdapter',
+    'create_paper_adapter',
+    'is_paper_config',
 ]

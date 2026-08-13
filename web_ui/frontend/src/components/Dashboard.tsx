@@ -92,15 +92,21 @@ const Dashboard = ({ onOpenGrid }: DashboardProps) => {
 
       <div className="notice notice-warning safety-banner" role="status">
         <AlertTriangle size={18} />
-        目前沒有模擬盤。PAPER 只是設定標籤；啟動未知或 LIVE 策略即對真實交易所下單。PAPER 策略已停用啟動。
+        PAPER 使用模擬盤（公開行情 + 記憶體撮合，不呼叫私有下單 API）。未標模式的既有 YAML 與 LIVE 啟動仍是實盤，且 LIVE 需要 GRID_LIVE_TRADING_ENABLED。
       </div>
       {error && <div className="notice notice-error" role="alert"><AlertTriangle size={18} />{error}</div>}
 
       <section className="kpi-grid" aria-label="網格總覽指標">
-        <article className="kpi-card"><span>淨盈虧</span><strong className={(aggregate?.net_pnl ?? 0) >= 0 ? 'positive' : 'negative'}>{aggregate ? money(aggregate.net_pnl) : '—'}</strong><small>已實現 {aggregate ? money(aggregate.realized_pnl) : '—'} / 未實現 {aggregate ? money(aggregate.unrealized_pnl) : '—'}</small></article>
+        <article className="kpi-card"><span>{snapshot?.account_mode === 'paper' ? 'PAPER 淨盈虧' : 'LIVE 淨盈虧'}</span><strong className={(aggregate?.net_pnl ?? 0) >= 0 ? 'positive' : 'negative'}>{aggregate ? money(aggregate.net_pnl) : '—'}</strong><small>已實現 {aggregate ? money(aggregate.realized_pnl) : '—'} / 未實現 {aggregate ? money(aggregate.unrealized_pnl) : '—'}</small></article>
         <article className="kpi-card"><span>累計交易量</span><strong>{aggregate ? money(aggregate.volume, 0) : '—'}</strong><small>完成網格 {aggregate ? number(aggregate.completed_cycles, 0) : '—'} 格</small></article>
         <article className="kpi-card"><span>運行狀態</span><strong>{aggregate ? `${aggregate.running_grids}/${aggregate.total_grids}` : '—'}</strong><small>{aggregate ? `${aggregate.available_grids} 已同步 · ${aggregate.stale_grids} 過期` : '載入中'}</small></article>
       </section>
+      {snapshot?.aggregate_paper && snapshot.aggregate_paper.total_grids > 0 && snapshot.account_mode !== 'paper' ? (
+        <section className="paper-band" aria-label="PAPER 帳戶">
+          <strong>PAPER 模擬盤（不計入上方 LIVE KPI）</strong>
+          <span>淨盈虧 {money(snapshot.aggregate_paper.net_pnl)} · 運行 {snapshot.aggregate_paper.running_grids}/{snapshot.aggregate_paper.total_grids}</span>
+        </section>
+      ) : null}
 
       {loading && !snapshot ? <div className="dashboard-empty">正在載入策略快照…</div> : null}
       {!loading && snapshot?.grids.length === 0 ? <div className="dashboard-empty">目前沒有網格策略，請先建立一個策略。</div> : null}

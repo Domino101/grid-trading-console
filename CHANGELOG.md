@@ -12,7 +12,8 @@
 
 ### Changed
 
-- PAPER 標籤策略禁止 start（HTTP 409）；UI 與引擎雙重拒絕，避免被誤認為模擬盤。
+- PAPER 改走 `PaperExchangeAdapter` 模擬盤，可以 start；LIVE 仍需 `GRID_LIVE_TRADING_ENABLED`。
+- Dashboard 總覽 KPI 不再把 PAPER 盈虧加進 LIVE。
 - `auto_start` 預設改為 false；若啟動被接受，回傳 `pending_engine` 而非 `created_and_started`。
 - DELETE 僅允許已停止且無 pending 命令的策略。
 - `run_multiple_grids.py` 不再預設啟動五個內建實盤 YAML；未指定 CLI 時進入熱插拔待命。
@@ -67,7 +68,8 @@
 - `tests/test_runtime_repository.py`：runtime snapshot/history persistence。
 - `tests/test_command_repository.py`：command、idempotency、timeout 與 engine event persistence。
 - `tests/test_paper_grid_lifecycle_e2e.py`：PAPER create/start/engine confirmation/restart recovery/stop/audit durable flow。
-- `tests/test_lifecycle_and_safety.py`：PAPER start 拒絕、熱插拔新 YAML、CORS、file_manager 路徑、引擎直寫 SQLite。
-- `tests/test_web_ui_http_contract.py`：health probe、authenticated command/event API、PAPER YAML contract、舊 API 認證與 PAPER start 409。
+- `tests/test_lifecycle_and_safety.py`：PAPER 可 start、LIVE/PAPER 分帳、熱插拔、CORS、file_manager、引擎直寫 SQLite。
+- `tests/test_paper_adapter.py`：模擬盤限價穿越成交、市價平倉 PnL、account_mode 讀取。
+- `tests/test_web_ui_http_contract.py`：health probe、舊 API 認證、PAPER start 回 pending_engine。
 
 > HTTP contract tests 需要先安裝 `requirements.txt` 中的 FastAPI 相依套件；最小 sandbox 環境會安全 skip，CI/release 環境必須完整執行。
