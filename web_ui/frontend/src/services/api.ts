@@ -1,10 +1,6 @@
-const getBaseUrl = () => {
-    const isDev = window.location.port === '5173'; // Vite default port
-    const host = isDev ? 'localhost:8001' : window.location.host;
-    return `http://${host}/api`;
-};
-
-const API_BASE = getBaseUrl();
+// Browser-facing requests must remain same-origin. In development Vite proxies
+// these paths to the backend; deployed builds are served by FastAPI directly.
+const API_BASE = '/api';
 
 export interface ProcessStatus {
     pid: number;
@@ -108,6 +104,59 @@ export interface GridStats {
     balance: GridStatsBalance | null;
     time: GridStatsTime | null;
     last_update: number | null;
+}
+
+export type DataStatus = 'live' | 'stale' | 'unavailable' | 'degraded';
+
+export interface DashboardAggregate {
+    total_grids: number;
+    running_grids: number;
+    available_grids: number;
+    stale_grids: number;
+    realized_pnl: number;
+    unrealized_pnl: number;
+    fees: number;
+    net_pnl: number;
+    volume: number;
+    completed_cycles: number;
+}
+
+export interface DashboardGridItem {
+    grid_id: string;
+    config_path: string;
+    symbol: string | null;
+    exchange: string | null;
+    grid_type: string | null;
+    mode: 'live' | 'paper' | 'unknown';
+    status: string;
+    data_status: DataStatus;
+    last_updated_at: number | null;
+    current_price: number | null;
+    current_position: number | null;
+    equity: number | null;
+    realized_pnl: number | null;
+    unrealized_pnl: number | null;
+    fees: number | null;
+    net_pnl: number | null;
+    pnl_rate: number | null;
+    volume: number | null;
+    completed_cycles: number | null;
+    filled_buy: number | null;
+    filled_sell: number | null;
+    pending_orders: number | null;
+    lower_price: number | null;
+    upper_price: number | null;
+    grid_interval: number | null;
+    order_amount: number | null;
+    leverage: number | null;
+    last_trade: string | null;
+}
+
+export interface DashboardSnapshot {
+    generated_at: number;
+    data_status: DataStatus;
+    aggregate: DashboardAggregate;
+    grids: DashboardGridItem[];
 }
 
 export interface CreateGridRequest {
@@ -246,6 +295,14 @@ export const api = {
     // ------------------------------------------
     // 新增: Grid API Methods
     // ------------------------------------------
+    async getDashboardSnapshot(): Promise<DashboardSnapshot> {
+        const res = await fetch(`${API_BASE}/v1/dashboard/snapshot`, {
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) throw new Error('Failed to get dashboard snapshot');
+        return res.json();
+    },
+
     async listGrids(): Promise<GridListResponse> {
         const res = await fetch(`${API_BASE}/v1/grids`, {
             headers: getAuthHeaders(),
@@ -312,10 +369,8 @@ export const api = {
 };
 
 export const getWsBase = () => {
-    const isDev = window.location.port === '5173';
-    const host = isDev ? 'localhost:8001' : window.location.host;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${protocol}//${host}/ws/logs`;
+    return `${protocol}//${window.location.host}/ws/logs`;
 };
 
 export const WS_BASE = getWsBase();

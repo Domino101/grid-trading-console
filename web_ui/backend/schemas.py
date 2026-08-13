@@ -257,6 +257,62 @@ class GridSummaryResponse(BaseModel):
     grids: List[GridSummaryItem]
 
 
+# ── Dashboard 批次快照模型 ──
+
+class DashboardAggregate(BaseModel):
+    """總覽 KPI；所有金額均只彙總已知的 runtime 資料。"""
+    total_grids: int
+    running_grids: int
+    available_grids: int
+    stale_grids: int
+    realized_pnl: float
+    unrealized_pnl: float
+    fees: float
+    net_pnl: float
+    volume: float
+    completed_cycles: int
+
+
+class DashboardGridItem(BaseModel):
+    """總覽卡片的單一網格讀模型；未知數值保留 null。"""
+    grid_id: str
+    config_path: str
+    symbol: Optional[str] = None
+    exchange: Optional[str] = None
+    grid_type: Optional[str] = None
+    mode: str = "unknown"  # live / paper / unknown
+    status: str
+    data_status: str  # live / stale / unavailable
+    last_updated_at: Optional[float] = None
+    current_price: Optional[float] = None
+    current_position: Optional[float] = None
+    equity: Optional[float] = None
+    realized_pnl: Optional[float] = None
+    unrealized_pnl: Optional[float] = None
+    fees: Optional[float] = None
+    net_pnl: Optional[float] = None
+    pnl_rate: Optional[float] = None
+    volume: Optional[float] = None
+    completed_cycles: Optional[int] = None
+    filled_buy: Optional[int] = None
+    filled_sell: Optional[int] = None
+    pending_orders: Optional[int] = None
+    lower_price: Optional[float] = None
+    upper_price: Optional[float] = None
+    grid_interval: Optional[float] = None
+    order_amount: Optional[float] = None
+    leverage: Optional[int] = None
+    last_trade: Optional[str] = None
+
+
+class DashboardSnapshotResponse(BaseModel):
+    """GET /api/v1/dashboard/snapshot 回應。"""
+    generated_at: float
+    data_status: str  # live / degraded / unavailable
+    aggregate: DashboardAggregate
+    grids: List[DashboardGridItem]
+
+
 # ── 階段三：審計日誌模型 ──
 
 class AuditLogItem(BaseModel):

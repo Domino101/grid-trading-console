@@ -31,8 +31,9 @@ const GridForm: React.FC = () => {
     try {
       await api.createGrid(formData);
       setMessage({ type: 'success', text: '網格創建成功！' });
-    } catch (error: any) {
-      setMessage({ type: 'error', text: error.message || '網格創建失敗' });
+    } catch (error: unknown) {
+      const text = error instanceof Error ? error.message : '網格創建失敗';
+      setMessage({ type: 'error', text });
     } finally {
       setLoading(false);
     }
