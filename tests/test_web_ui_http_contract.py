@@ -67,6 +67,24 @@ class WebUiHttpContractTests(unittest.TestCase):
         denied = self.client.get("/api/v1/commands?grid_id=paper-grid")
         self.assertIn(denied.status_code, (401, 403))
 
+    def test_legacy_process_and_config_routes_require_auth(self):
+        denied = self.client.get("/api/processes")
+        self.assertIn(denied.status_code, (401, 403))
+        secret = self.client.get("/api/config/config/exchanges/binance_config.yaml")
+        self.assertIn(secret.status_code, (401, 403))
+
+    def test_paper_start_is_conflict(self):
+        headers = {"Authorization": "Bearer contract-token"}
+        created = self.client.post("/api/v1/grids", headers=headers, json={
+            "symbol": "ETH/USDT", "exchange": "binance", "grid_type": "neutral",
+            "lower_price": 2000, "upper_price": 3000, "grid_interval": 50,
+            "order_amount": 0.01, "account_mode": "paper", "auto_start": False,
+        })
+        self.assertEqual(created.status_code, 201)
+        grid_id = created.json()["grid_id"]
+        started = self.client.post(f"/api/v1/grids/{grid_id}/start", headers=headers)
+        self.assertEqual(started.status_code, 409)
+
     def test_paper_create_contract_writes_mode_tagged_yaml(self):
         response = self.client.post("/api/v1/grids", headers={"Authorization": "Bearer contract-token"}, json={
             "symbol": "BTC/USDT", "exchange": "binance", "grid_type": "neutral",

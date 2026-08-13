@@ -1,6 +1,7 @@
 """Contract tests for the dashboard batch read model."""
 
 import asyncio
+import importlib.util
 import os
 import sys
 import tempfile
@@ -13,14 +14,22 @@ for path in (BACKEND_DIR, PROJECT_ROOT):
     if path not in sys.path:
         sys.path.insert(0, path)
 
+HAS_FASTAPI = importlib.util.find_spec("fastapi") is not None
 
+
+@unittest.skipUnless(HAS_FASTAPI, "FastAPI is installed from requirements.txt in CI/release environments")
 class DashboardSnapshotTests(unittest.TestCase):
     def setUp(self):
+        from command_repository import GridCommandRepository
         from grid_state_store import GridStateStore
+        from runtime_repository import RuntimeSnapshotRepository
 
+        self.temp_dir = tempfile.TemporaryDirectory()
+        database_path = os.path.join(self.temp_dir.name, "runtime.sqlite3")
+        RuntimeSnapshotRepository._instance = RuntimeSnapshotRepository(database_path)
+        GridCommandRepository._instance = GridCommandRepository(database_path)
         GridStateStore._instance = None
         self.store = GridStateStore.instance()
-        self.temp_dir = tempfile.TemporaryDirectory()
         os.makedirs(os.path.join(self.temp_dir.name, "config", "grid"))
         self.config_path = "config/grid/binance-neutral-btc-usdt.yaml"
         with open(os.path.join(self.temp_dir.name, self.config_path), "w", encoding="utf-8") as handle:

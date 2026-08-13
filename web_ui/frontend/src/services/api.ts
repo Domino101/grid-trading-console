@@ -152,6 +152,9 @@ export interface DashboardGridItem {
     order_amount: number | null;
     leverage: number | null;
     last_trade: string | null;
+    source: string | null;
+    start_blocked_reason: string | null;
+    desired_running: boolean;
 }
 
 export interface DashboardSnapshot {
@@ -337,6 +340,7 @@ export const api = {
         const res = await fetch(`${API_BASE}/v1/dashboard/snapshot`, {
             headers: getAuthHeaders(),
         });
+        if (res.status === 401 || res.status === 403) throw new Error('UNAUTHENTICATED');
         if (!res.ok) throw new Error('Failed to get dashboard snapshot');
         return res.json();
     },
@@ -426,7 +430,10 @@ export const api = {
             method: 'POST',
             headers: getAuthHeaders(idempotencyKey),
         });
-        if (!res.ok) throw new Error(`Failed to start grid ${gridId}`);
+        if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            throw new Error(body.detail?.message || body.detail || `Failed to start grid ${gridId}`);
+        }
         return res.json();
     },
 
@@ -435,7 +442,10 @@ export const api = {
             method: 'POST',
             headers: getAuthHeaders(idempotencyKey),
         });
-        if (!res.ok) throw new Error(`Failed to stop grid ${gridId}`);
+        if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            throw new Error(body.detail?.message || body.detail || `Failed to stop grid ${gridId}`);
+        }
         return res.json();
     },
 
@@ -444,7 +454,10 @@ export const api = {
             method: 'DELETE',
             headers: getAuthHeaders(),
         });
-        if (!res.ok) throw new Error(`Failed to delete grid ${gridId}`);
+        if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            throw new Error(body.detail?.message || body.detail || `Failed to delete grid ${gridId}`);
+        }
         return res.json();
     }
 };

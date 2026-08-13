@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
 import threading
 import time
 from typing import Optional
+
+from lifecycle import connect_sqlite
 
 
 class RuntimeSnapshotRepository:
@@ -34,10 +35,8 @@ class RuntimeSnapshotRepository:
                     cls._instance = cls()
         return cls._instance
 
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.database_path)
-        connection.row_factory = sqlite3.Row
-        return connection
+    def _connect(self):
+        return connect_sqlite(self.database_path)
 
     def _initialize(self) -> None:
         with self._connect() as connection:
@@ -56,7 +55,10 @@ class RuntimeSnapshotRepository:
                     recorded_at REAL NOT NULL
                 )
             """)
-            connection.execute("CREATE INDEX IF NOT EXISTS idx_runtime_history_path_time ON grid_runtime_history(config_path, recorded_at DESC)")
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_runtime_history_path_time "
+                "ON grid_runtime_history(config_path, recorded_at DESC)"
+            )
 
     def save(self, config_path: str, stats: dict, updated_at: Optional[float] = None) -> float:
         timestamp = updated_at if updated_at is not None else time.time()
@@ -72,13 +74,14 @@ class RuntimeSnapshotRepository:
                 "INSERT INTO grid_runtime_history(config_path, payload, recorded_at) VALUES(?, ?, ?)",
                 (config_path, payload, timestamp),
             )
-            # Keep a bounded local history (7 days) without needing a separate job.
             connection.execute("DELETE FROM grid_runtime_history WHERE recorded_at < ?", (timestamp - 7 * 86400,))
         return timestamp
 
     def load_all(self) -> dict[str, tuple[dict, float]]:
         with self._lock, self._connect() as connection:
-            rows = connection.execute("SELECT config_path, payload, updated_at FROM grid_runtime_snapshots").fetchall()
+            rows = connection.execute(
+                "SELECT config_path, payload, updated_at FROM grid_runtime_snapshots"
+            ).fetchall()
         snapshots: dict[str, tuple[dict, float]] = {}
         for row in rows:
             try:
@@ -100,7 +103,8 @@ class RuntimeSnapshotRepository:
         for row in rows:
             try:
                 payload = json.loads(row["payload"])
-                if isinstance(payload, dict): result.append((payload, float(row["recorded_at"])))
+                if isinstance(payload, dict):
+                    result.append((payload, float(row["recorded_at"])))
             except (TypeError, ValueError, json.JSONDecodeError):
                 continue
         return result

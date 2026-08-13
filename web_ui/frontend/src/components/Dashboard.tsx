@@ -58,7 +58,11 @@ const Dashboard = ({ onOpenGrid }: DashboardProps) => {
   }, [fetchSnapshot]);
 
   const runAction = async (grid: DashboardGridItem, action: 'start' | 'stop' | 'delete') => {
-    if (action !== 'start' && !window.confirm(`${action === 'delete' ? '刪除' : '停止'} ${grid.symbol ?? grid.grid_id}？此操作會記錄於稽核日誌。`)) return;
+    if (action === 'start' && grid.start_blocked_reason) {
+      setError(grid.start_blocked_reason);
+      return;
+    }
+    if (action !== 'start' && !window.confirm(`${action === 'delete' ? '刪除' : '停止'} ${grid.symbol ?? grid.grid_id}？停止會取消掛單，預設不平倉。`)) return;
     setActionGridId(grid.grid_id);
     try {
       if (action === 'start') await api.startGrid(grid.grid_id);
@@ -86,6 +90,10 @@ const Dashboard = ({ onOpenGrid }: DashboardProps) => {
         </button>
       </header>
 
+      <div className="notice notice-warning safety-banner" role="status">
+        <AlertTriangle size={18} />
+        目前沒有模擬盤。PAPER 只是設定標籤；啟動未知或 LIVE 策略即對真實交易所下單。PAPER 策略已停用啟動。
+      </div>
       {error && <div className="notice notice-error" role="alert"><AlertTriangle size={18} />{error}</div>}
 
       <section className="kpi-grid" aria-label="網格總覽指標">

@@ -4,6 +4,28 @@
 
 ## [Unreleased] — 2026-08-13
 
+### Security
+
+- 舊版 `/api/scripts`、`/api/configs`、`/api/config`、`/api/process*` 與 log WebSocket 現在需要 API token；`config/exchanges` 不可經 API 讀寫。
+- CORS 改由 `GRID_CORS_ORIGINS` 白名單控制；`*` 時關閉 credentials。
+- 臨時 API token 只寫入 `.grid_api_token`（0600），不再出現在 log。
+
+### Changed
+
+- PAPER 標籤策略禁止 start（HTTP 409）；UI 與引擎雙重拒絕，避免被誤認為模擬盤。
+- `auto_start` 預設改為 false；若啟動被接受，回傳 `pending_engine` 而非 `created_and_started`。
+- DELETE 僅允許已停止且無 pending 命令的策略。
+- `run_multiple_grids.py` 不再預設啟動五個內建實盤 YAML；未指定 CLI 時進入熱插拔待命。
+- 熱插拔接受 `active_grids.json` 中任何存在的 YAML，不再受啟動時 `valid_paths` 限制。
+- 引擎依交易所分 adapter 池，並把 runtime / lifecycle 直寫 SQLite。
+- `/grids`、`/stats`、`/summary`、`/system/health` 與詳情頁改用同一套 lifecycle 讀模型；未知值維持 null。
+
+### Fixed
+
+- SQLite 啟用 WAL 與 busy_timeout；冪等鍵改為 `(grid_id, action, key)`。
+- `active_grids.json` 改為原子寫入。
+
+
 ### Added
 
 - 新增批次總覽 API：`GET /api/v1/dashboard/snapshot`，以單一快照回傳全域 KPI 與策略卡片資料，移除 Dashboard 對每張卡片的 N+1 stats 輪詢模式。
@@ -45,6 +67,7 @@
 - `tests/test_runtime_repository.py`：runtime snapshot/history persistence。
 - `tests/test_command_repository.py`：command、idempotency、timeout 與 engine event persistence。
 - `tests/test_paper_grid_lifecycle_e2e.py`：PAPER create/start/engine confirmation/restart recovery/stop/audit durable flow。
-- `tests/test_web_ui_http_contract.py`：health probe、authenticated command/event API 與 PAPER YAML contract。
+- `tests/test_lifecycle_and_safety.py`：PAPER start 拒絕、熱插拔新 YAML、CORS、file_manager 路徑、引擎直寫 SQLite。
+- `tests/test_web_ui_http_contract.py`：health probe、authenticated command/event API、PAPER YAML contract、舊 API 認證與 PAPER start 409。
 
 > HTTP contract tests 需要先安裝 `requirements.txt` 中的 FastAPI 相依套件；最小 sandbox 環境會安全 skip，CI/release 環境必須完整執行。

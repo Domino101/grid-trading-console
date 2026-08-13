@@ -5,7 +5,7 @@ API Token 認證模組
 Token 來源優先順序：
   1. 環境變數 GRID_API_TOKEN
   2. 本地檔案 .grid_api_token
-  3. 生成 ephemeral 隨機 token + log 嚴重警告
+  3. 生成 ephemeral 隨機 token 並寫入 .grid_api_token（不寫入 log）
 """
 
 import os
@@ -18,64 +18,64 @@ logger = logging.getLogger("GridAPI.Auth")
 
 _security = HTTPBearer()
 
-# ────────────────────────────────────────────────────────
-# Token 解析（模組載入時執行一次）
-# ────────────────────────────────────────────────────────
+
+def _token_file_path() -> str:
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+    return os.path.join(project_root, ".grid_api_token")
+
+
+def _write_token_file(token: str) -> str:
+    path = _token_file_path()
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(token)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+    return path
+
 
 def _resolve_api_token() -> str:
-    """
-    解析 API Token，優先順序：
-      1. 環境變數 GRID_API_TOKEN
-      2. 專案根目錄 .grid_api_token 檔案
-      3. 生成 ephemeral 隨機 token（僅適用於開發環境）
-    """
-    # 1. 環境變數
     token = os.getenv("GRID_API_TOKEN")
     if token:
         logger.info("✅ [Auth] 已從環境變數 GRID_API_TOKEN 載入 API Token")
         return token
 
-    # 2. 本地檔案
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-    token_file = os.path.join(project_root, ".grid_api_token")
+    token_file = _token_file_path()
     if os.path.exists(token_file):
         try:
-            with open(token_file, "r") as f:
-                token = f.read().strip()
+            with open(token_file, "r", encoding="utf-8") as handle:
+                token = handle.read().strip()
             if token:
                 logger.info("✅ [Auth] 已從 .grid_api_token 檔案載入 API Token")
                 return token
-        except Exception as e:
-            logger.warning(f"⚠️ [Auth] 讀取 .grid_api_token 失敗: {e}")
+        except Exception as exc:
+            logger.warning("⚠️ [Auth] 讀取 .grid_api_token 失敗: %s", exc)
 
-    # 3. 生成 ephemeral token（開發用途）
     token = secrets.token_hex(32)
+    path = _write_token_file(token)
     logger.warning(
-        "⚠️ [Auth] GRID_API_TOKEN 未設定！已生成臨時 Token（僅本次有效）。"
-        "此 Token 僅限單一實例，不支援水平擴展。"
-        f"請設定環境變數 GRID_API_TOKEN 以供生產使用。"
+        "⚠️ [Auth] GRID_API_TOKEN 未設定！已生成臨時 Token 並寫入 %s（權限 0600）。"
+        "此 Token 僅限本機檔案，請設定環境變數 GRID_API_TOKEN 以供生產使用。",
+        path,
     )
-    logger.warning(f"🔑 [Auth] 臨時 Token: {token}")
     return token
 
 
 _API_TOKEN: str = _resolve_api_token()
 
 
-# ────────────────────────────────────────────────────────
-# FastAPI Dependency
-# ────────────────────────────────────────────────────────
+def token_matches(value: str) -> bool:
+    if not value:
+        return False
+    return secrets.compare_digest(value, _API_TOKEN)
+
 
 async def verify_token(
     credentials: HTTPAuthorizationCredentials = Depends(_security),
 ) -> str:
-    """
-    驗證 Bearer Token。
-
-    使用 secrets.compare_digest() 做常數時間比較，防止 timing attack。
-    回傳已驗證的 token 字串（可用於審計日誌）。
-    """
-    if not secrets.compare_digest(credentials.credentials, _API_TOKEN):
+    if not token_matches(credentials.credentials):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API token",

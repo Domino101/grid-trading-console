@@ -13,6 +13,7 @@ import os
 import sys
 import json
 import logging
+import sqlite3
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Optional
@@ -42,6 +43,15 @@ from safety_guard import SafetyGuard
 from grid_state_store import GridStateStore
 from command_repository import GridCommandRepository
 from runtime_repository import RuntimeSnapshotRepository
+from lifecycle import (
+    account_mode_from_yaml,
+    build_grid_read_model,
+    delete_rejection,
+    finite_number,
+    live_trading_enabled,
+    start_rejection,
+    write_json_atomic,
+)
 
 logger = logging.getLogger("GridAPI.Grids")
 
@@ -131,27 +141,26 @@ def _build_grid_info(config_path: str, active_grids: dict) -> GridInfo:
     grid_id = GridYAMLGenerator.grid_id_from_path(config_path)
     is_active = active_grids.get(config_path, False)
 
+    model = _grid_read_model(config_path, active_grids)
     info = GridInfo(
         grid_id=grid_id,
         config_path=config_path,
-        status="running" if is_active else "stopped",
+        status=model["status"],
+        mode=model["mode"],
+        data_status=model["data_status"],
+        command_id=model["command_id"],
+        command_status=model["command_status"],
     )
-
-    # 嘗試讀取 YAML 擴充資訊
-    yaml_data = _read_yaml_config(config_path)
-    if yaml_data:
-        gs = yaml_data.get("grid_system", {})
-        info.symbol = gs.get("symbol")
-        info.exchange = gs.get("exchange")
-        info.grid_type = gs.get("grid_type")
-        info.grid_interval = gs.get("grid_interval")
-        info.order_amount = gs.get("order_amount")
-        info.leverage = gs.get("leverage")
-        pr = gs.get("price_range", {})
-        if pr:
-            info.lower_price = pr.get("lower_price")
-            info.upper_price = pr.get("upper_price")
-
+    info.symbol = model["symbol"]
+    info.exchange = model["exchange"]
+    info.grid_type = model["grid_type"]
+    info.grid_interval = model["grid_interval"]
+    info.order_amount = model["order_amount"]
+    info.leverage = model["leverage"]
+    info.lower_price = model["lower_price"]
+    info.upper_price = model["upper_price"]
+    # is_active is desired state only; status already comes from the read model.
+    _ = is_active
     return info
 
 
@@ -263,38 +272,53 @@ async def get_grid_stats(grid_id: str, _token: str = Depends(verify_token)):
         )
 
     active_grids = _read_active_grids()
-    is_active = active_grids.get(config_path, False)
-    
-    store = GridStateStore.instance()
-    stats = store.get(config_path)
-    
-    if not stats:
-        # 如果 state store 裡還沒有數據，回傳一個空結構，並標記 stale: True
-        # 讀取 YAML 獲得 symbol
-        yaml_data = _read_yaml_config(config_path)
-        symbol = "unknown"
-        if yaml_data:
-            symbol = yaml_data.get("grid_system", {}).get("symbol", "unknown")
-            
-        return GridStatsResponse(
-            grid_id=grid_id,
-            symbol=symbol,
-            status="running" if is_active else "stopped",
-            stale=True,
-            current_price=0.0,
-            current_position=0.0,
-            average_cost=None,
-            pending_orders={"buy": 0, "sell": 0, "total": 0},
-            filled_orders={"buy": 0, "sell": 0, "cycles": 0},
-            profit={"realized": 0.0, "unrealized": 0.0, "total": 0.0, "fees": 0.0, "net": 0.0, "rate": 0.0},
-            grid_utilization=0.0,
-            balance={"spot": 0.0, "collateral": 0.0, "total": 0.0, "utilization": 0.0},
-            time={"running_time": "0s", "last_trade": None},
-            last_update=None,
-        )
-        
-    stats["status"] = "running" if is_active else "stopped"
-    return stats
+    model = _grid_read_model(config_path, active_grids)
+    runtime = GridStateStore.instance().get(config_path) or {}
+    pending = runtime.get("pending_orders") or {}
+    filled = runtime.get("filled_orders") or {}
+    profit = runtime.get("profit") or {}
+    balance = runtime.get("balance") or {}
+    time_info = runtime.get("time") or {}
+    return GridStatsResponse(
+        grid_id=grid_id,
+        symbol=model["symbol"] or "unknown",
+        status=model["status"],
+        data_status=model["data_status"],
+        stale=model["data_status"] != "live",
+        current_price=model["current_price"],
+        current_position=model["current_position"],
+        average_cost=finite_number(runtime.get("average_cost")),
+        pending_orders={
+            "buy": pending.get("buy") if isinstance(pending.get("buy"), int) else None,
+            "sell": pending.get("sell") if isinstance(pending.get("sell"), int) else None,
+            "total": pending.get("total") if isinstance(pending.get("total"), int) else None,
+        } if runtime else None,
+        filled_orders={
+            "buy": filled.get("buy") if isinstance(filled.get("buy"), int) else None,
+            "sell": filled.get("sell") if isinstance(filled.get("sell"), int) else None,
+            "cycles": filled.get("cycles") if isinstance(filled.get("cycles"), int) else None,
+        } if runtime else None,
+        profit={
+            "realized": finite_number(profit.get("realized")),
+            "unrealized": finite_number(profit.get("unrealized")),
+            "total": finite_number(profit.get("total")),
+            "fees": finite_number(profit.get("fees")),
+            "net": finite_number(profit.get("net")),
+            "rate": finite_number(profit.get("rate")),
+        } if runtime else None,
+        grid_utilization=finite_number(runtime.get("grid_utilization")),
+        balance={
+            "spot": finite_number(balance.get("spot")),
+            "collateral": finite_number(balance.get("collateral")),
+            "total": finite_number(balance.get("total")),
+            "utilization": finite_number(balance.get("utilization")),
+        } if runtime else None,
+        time={
+            "running_time": time_info.get("running_time") or "",
+            "last_trade": time_info.get("last_trade"),
+        } if runtime else None,
+        last_update=model["last_updated_at"],
+    )
 
 
 # ────────────────────────────────────────────────────────
@@ -436,8 +460,12 @@ async def create_grid(
             audit_logger.log(source=source, action="create_grid", grid_id=None, params=params, result="rejected", reason=reason, error_msg=f"市場規則驗證失敗: {market_errors}")
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"message": "市場規則驗證失敗", "errors": market_errors})
 
-    # 2. 安全護欄
-    can_create, err_msg = guard.check_can_create_grid()
+    # 2. 安全護欄。僅寫入 YAML 時不要求引擎存活；auto_start 才走完整啟動檢查。
+    wants_start = bool(params.get("auto_start", False))
+    if wants_start:
+        can_create, err_msg = guard.check_can_create_grid()
+    else:
+        can_create, err_msg = guard.check_config_dir_writable()
     if not can_create:
         audit_logger.log(
             source=source,
@@ -448,7 +476,6 @@ async def create_grid(
             reason=reason,
             error_msg=err_msg,
         )
-        # 根據錯誤類型回傳不同 HTTP 狀態碼
         if "熔斷" in (err_msg or ""):
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=err_msg)
         elif "最大" in (err_msg or ""):
@@ -532,24 +559,34 @@ async def create_grid(
             detail=f"寫入 YAML 配置檔失敗: {e}",
         )
 
-    # 5. auto_start → 寫入 active_grids.json
     grid_status = "created"
-    if params.get("auto_start", True):
+    command_id = None
+    start_block = start_rejection(params.get("account_mode", "paper"), live_trading_enabled())
+    if wants_start and start_block:
+        logger.info("建立後未啟動 %s：%s", grid_id, start_block)
+    elif wants_start:
+        command = GridCommandRepository.instance().create(
+            grid_id=grid_id,
+            config_path=config_path,
+            action="start",
+            source=source,
+            reason=reason or "auto_start after create",
+        )
+        command_id = command["command_id"]
         try:
             active_grids = _read_active_grids()
             active_grids[config_path] = True
             _write_active_grids(active_grids)
-            grid_status = "created_and_started"
-            logger.info(f"▶️ 已將 {config_path} 加入 active_grids.json 並啟用")
-        except Exception as e:
-            # YAML 已寫入但 active_grids 更新失敗
-            logger.error(f"⚠️ 更新 active_grids.json 失敗: {e}")
+            GridCommandRepository.instance().update_status(command_id, "pending_engine")
+            grid_status = "pending_engine"
+            logger.info("已接受建立後啟動命令: %s command=%s", grid_id, command_id)
+        except Exception as exc:
+            GridCommandRepository.instance().update_status(command_id, "failed", str(exc))
+            logger.error("更新 active_grids.json 失敗: %s", exc)
             grid_status = "created"
+            command_id = command_id
 
-    # 記錄寫操作時間戳到 RateLimiter
     guard.record_action(source)
-
-    # 成功記錄審計日誌
     audit_logger.log(
         source=source,
         action="create_grid",
@@ -561,20 +598,27 @@ async def create_grid(
 
     if metadata:
         logger.info(
-            f"📝 [Hermes] 建立網格 {grid_id} | "
-            f"source={source} | "
-            f"reason={reason or 'N/A'} | "
-            f"confidence={metadata.get('confidence', 'N/A')}"
+            "📝 [Hermes] 建立網格 %s | source=%s | reason=%s | confidence=%s",
+            grid_id,
+            source,
+            reason or "N/A",
+            metadata.get("confidence", "N/A"),
         )
+
+    if grid_status == "pending_engine":
+        message = f"網格 {grid_id} 已建立，啟動命令已接受，等待引擎 heartbeat 確認"
+    elif wants_start and start_block:
+        message = f"網格 {grid_id} 已建立為設定檔。{start_block}"
+    else:
+        message = f"網格 {grid_id} 已成功建立"
 
     return GridCreateResponse(
         grid_id=grid_id,
         config_path=config_path,
         status=grid_status,
         yaml_content=yaml_content,
-        message=f"網格 {grid_id} 已成功建立" + (
-            "，引擎將在 ~5 秒內自動啟動" if grid_status == "created_and_started" else ""
-        ),
+        message=message,
+        command_id=command_id,
     )
 
 
@@ -672,10 +716,19 @@ async def start_grid(
             message=f"網格 {grid_id} 已在運行中",
         )
 
-    command = GridCommandRepository.instance().create(
-        grid_id=grid_id, config_path=config_path, action="start", source=source, reason=reason,
-        idempotency_key=idempotency_key,
-    )
+    try:
+        command = GridCommandRepository.instance().create(
+            grid_id=grid_id, config_path=config_path, action="start", source=source, reason=reason,
+            idempotency_key=idempotency_key,
+        )
+    except sqlite3.IntegrityError:
+        existing = command_repo.get_by_idempotency_key("start", idempotency_key or "", grid_id=grid_id)
+        if existing:
+            return GridActionResponse(
+                grid_id=existing["grid_id"], action="start", status=existing["status"],
+                command_id=existing["command_id"], message="重複請求已回傳原始命令",
+            )
+        raise
     try:
         active_grids[config_path] = True
         _write_active_grids(active_grids)
@@ -778,7 +831,7 @@ async def stop_grid(
 
     command_repo = GridCommandRepository.instance()
     if idempotency_key:
-        existing = command_repo.get_by_idempotency_key("stop", idempotency_key)
+        existing = command_repo.get_by_idempotency_key("stop", idempotency_key, grid_id=grid_id)
         if existing:
             return GridActionResponse(
                 grid_id=existing["grid_id"], action="stop", status=existing["status"],
@@ -898,8 +951,22 @@ async def delete_grid(
         )
 
     try:
-        # 1. 停止（若正在運行）
         active_grids = _read_active_grids()
+        model = _grid_read_model(config_path, active_grids)
+        blocked = delete_rejection(model["status"], model.get("command_status"))
+        if blocked:
+            audit_logger.log(
+                source=source,
+                action="delete",
+                grid_id=grid_id,
+                params={"grid_id": grid_id, "status": model["status"]},
+                result="rejected",
+                reason=reason,
+                error_msg=blocked,
+            )
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=blocked)
+
+        # 1. 停止（若仍標記為 desired running — 理論上已被守門擋下）
         was_running = active_grids.get(config_path, False)
         if was_running:
             active_grids[config_path] = False
@@ -955,6 +1022,8 @@ async def delete_grid(
             status="deleted",
             message=f"網格 {grid_id} 已{'停止並' if was_running else ''}刪除（YAML 已歸檔）",
         )
+    except HTTPException:
+        raise
     except Exception as e:
         audit_logger.log(
             source=source,

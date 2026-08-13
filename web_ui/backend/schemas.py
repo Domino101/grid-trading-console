@@ -92,7 +92,7 @@ class CreateGridRequest(BaseModel):
     position_tolerance: Optional[Dict[str, float]] = None
 
     # 控制
-    auto_start: bool = Field(default=True, description="建立後自動啟動")
+    auto_start: bool = Field(default=False, description="建立後提交啟動意圖；PAPER 會被拒絕")
 
     # 元資料
     metadata: Optional[GridMetadata] = None
@@ -109,7 +109,11 @@ class GridInfo(BaseModel):
     symbol: Optional[str] = None
     exchange: Optional[str] = None
     grid_type: Optional[str] = None
-    status: str = "unknown"  # running / stopped / unknown
+    status: str = "unknown"  # starting / running / stopping / stopped / unknown
+    mode: Optional[str] = None
+    data_status: Optional[str] = None
+    command_id: Optional[str] = None
+    command_status: Optional[str] = None
     lower_price: Optional[float] = None
     upper_price: Optional[float] = None
     grid_interval: Optional[float] = None
@@ -129,9 +133,10 @@ class GridCreateResponse(BaseModel):
     """POST /api/v1/grids 回應"""
     grid_id: str
     config_path: str
-    status: str  # created / created_and_started
+    status: str  # created / pending_engine
     yaml_content: str
     message: str
+    command_id: Optional[str] = None
 
 
 class GridActionResponse(BaseModel):
@@ -207,31 +212,31 @@ class MarketInfoResponse(BaseModel):
 # ── 階段二：統計與摘要模型 ──
 
 class GridStatsPendingOrders(BaseModel):
-    buy: int = Field(default=0, description="買單數量")
-    sell: int = Field(default=0, description="賣單數量")
-    total: int = Field(default=0, description="總掛單數")
+    buy: Optional[int] = Field(default=None, description="買單數量")
+    sell: Optional[int] = Field(default=None, description="賣單數量")
+    total: Optional[int] = Field(default=None, description="總掛單數")
 
 
 class GridStatsFilledOrders(BaseModel):
-    buy: int = Field(default=0, description="買單成交次數")
-    sell: int = Field(default=0, description="賣單成交次數")
-    cycles: int = Field(default=0, description="網格循環完成次數")
+    buy: Optional[int] = Field(default=None, description="買單成交次數")
+    sell: Optional[int] = Field(default=None, description="賣單成交次數")
+    cycles: Optional[int] = Field(default=None, description="網格循環完成次數")
 
 
 class GridStatsProfit(BaseModel):
-    realized: float = Field(default=0.0, description="已實現盈虧")
-    unrealized: float = Field(default=0.0, description="未實現盈虧")
-    total: float = Field(default=0.0, description="總盈虧")
-    fees: float = Field(default=0.0, description="手續費支出")
-    net: float = Field(default=0.0, description="淨盈虧（扣除手續費）")
-    rate: float = Field(default=0.0, description="盈虧率 %")
+    realized: Optional[float] = Field(default=None, description="已實現盈虧")
+    unrealized: Optional[float] = Field(default=None, description="未實現盈虧")
+    total: Optional[float] = Field(default=None, description="總盈虧")
+    fees: Optional[float] = Field(default=None, description="手續費支出")
+    net: Optional[float] = Field(default=None, description="淨盈虧（扣除手續費）")
+    rate: Optional[float] = Field(default=None, description="盈虧率 %")
 
 
 class GridStatsBalance(BaseModel):
-    spot: float = Field(default=0.0, description="現貨餘額")
-    collateral: float = Field(default=0.0, description="合約保證金/抵押品")
-    total: float = Field(default=0.0, description="帳戶總資產估值")
-    utilization: float = Field(default=0.0, description="資金利用率 %")
+    spot: Optional[float] = Field(default=None, description="現貨餘額")
+    collateral: Optional[float] = Field(default=None, description="合約保證金/抵押品")
+    total: Optional[float] = Field(default=None, description="帳戶總資產估值")
+    utilization: Optional[float] = Field(default=None, description="資金利用率 %")
 
 
 class GridStatsTime(BaseModel):
@@ -243,10 +248,11 @@ class GridStatsResponse(BaseModel):
     """GET /api/v1/grids/{grid_id}/stats 回應"""
     grid_id: str
     symbol: str
-    status: str = Field(default="running", description="網格狀態: running / stopped / stale")
-    stale: bool = Field(default=False, description="資料是否過期（超過 180 秒未更新）")
-    current_price: float = Field(default=0.0, description="當前市價")
-    current_position: float = Field(default=0.0, description="當前網格持倉數量")
+    status: str = Field(default="stopped", description="網格狀態: starting / running / stopping / stopped")
+    data_status: str = Field(default="unavailable", description="live / stale / unavailable")
+    stale: bool = Field(default=True, description="資料是否過期或尚未同步")
+    current_price: Optional[float] = Field(default=None, description="當前市價；未知為 null")
+    current_position: Optional[float] = Field(default=None, description="當前網格持倉數量；未知為 null")
     average_cost: Optional[float] = Field(default=None, description="持倉均價")
     pending_orders: Optional[GridStatsPendingOrders] = None
     filled_orders: Optional[GridStatsFilledOrders] = None
@@ -288,13 +294,14 @@ class GridHistoryResponse(BaseModel):
 class GridSummaryItem(BaseModel):
     """全局摘要中的單一網格狀態項目"""
     grid_id: str
-    symbol: str
-    realized_pnl: float = 0.0
-    unrealized_pnl: float = 0.0
-    total_pnl: float = 0.0
-    current_price: float = 0.0
-    status: str = "running"
-    stale: bool = False
+    symbol: Optional[str] = None
+    realized_pnl: Optional[float] = None
+    unrealized_pnl: Optional[float] = None
+    total_pnl: Optional[float] = None
+    current_price: Optional[float] = None
+    status: str = "stopped"
+    stale: bool = True
+    data_status: str = "unavailable"
 
 
 class GridSummaryResponse(BaseModel):
@@ -355,6 +362,9 @@ class DashboardGridItem(BaseModel):
     order_amount: Optional[float] = None
     leverage: Optional[int] = None
     last_trade: Optional[str] = None
+    source: Optional[str] = None
+    start_blocked_reason: Optional[str] = None
+    desired_running: bool = False
 
 
 class DashboardSnapshotResponse(BaseModel):

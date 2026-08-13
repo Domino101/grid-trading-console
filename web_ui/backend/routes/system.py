@@ -23,6 +23,8 @@ from auth import verify_token
 from schemas import SystemHealthResponse, CircuitBreakerInfo, ApiThrottleInfo, EngineInfo, AuditLogListResponse
 from safety_guard import SafetyGuard, MAX_CONCURRENT_GRIDS
 from audit import AuditLogger
+from grid_state_store import GridStateStore
+from lifecycle import data_status_from_runtime
 
 logger = logging.getLogger("GridAPI.System")
 
@@ -79,12 +81,17 @@ async def get_system_health(_token: str = Depends(verify_token)):
         pid=engine_pid,
     )
 
-    # ── 運行中網格 ──
+    # Desired state is not evidence the engine is running.
     active_grids = guard._read_active_grids()
-    running_configs = [path for path, enabled in active_grids.items() if enabled]
+    desired_configs = [path for path, enabled in active_grids.items() if enabled]
+    store = GridStateStore.instance()
+    running_configs = [
+        path for path in desired_configs
+        if data_status_from_runtime(store.get(path)) == "live"
+    ]
     running_count = len(running_configs)
+    desired_count = len(desired_configs)
 
-    # ── 綜合狀態判定 ──
     if circuit_breaker.is_open:
         overall_status = "unhealthy"
     elif not engine.process_running:
@@ -104,6 +111,7 @@ async def get_system_health(_token: str = Depends(verify_token)):
         api_throttle=api_throttle,
         engine=engine,
         running_grids=running_count,
+        desired_running_grids=desired_count,
         running_grid_configs=running_configs,
         max_recommended_grids=MAX_CONCURRENT_GRIDS,
         can_accept_new_grid=can_accept,
