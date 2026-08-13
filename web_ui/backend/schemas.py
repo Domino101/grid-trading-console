@@ -37,6 +37,7 @@ class CreateGridRequest(BaseModel):
     price_decimals: int = Field(default=2, ge=0, le=10, description="價格精度（小數位數）")
     leverage: int = Field(default=10, ge=1, le=125, description="槓桿倍數")
     margin_mode: str = Field(default="cross", description="保證金模式: cross / isolated")
+    account_mode: str = Field(default="paper", pattern="^(paper|live)$", description="帳戶模式: paper / live")
 
     # 速率保護（Binance 會自動填入安全預設值）
     limit_only: Optional[bool] = None
