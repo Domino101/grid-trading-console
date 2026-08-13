@@ -74,6 +74,9 @@ async def get_dashboard_snapshot(_token: str = Depends(verify_token)):
     return DashboardSnapshotResponse(
         generated_at=time.time(),
         data_status=rolled["data_status"],
+        account_mode=rolled["account_mode"],
         aggregate=DashboardAggregate(**rolled["aggregate"]),
+        aggregate_live=DashboardAggregate(**rolled["aggregate_live"]),
+        aggregate_paper=DashboardAggregate(**rolled["aggregate_paper"]),
         grids=items,
     )

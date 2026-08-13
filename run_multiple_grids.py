@@ -207,10 +207,12 @@ class ExchangeAdapterPool:
         exchange = str((data.get("grid_system") or {}).get("exchange") or "").lower()
         if not exchange:
             raise ValueError(f"{config_path} 缺少 grid_system.exchange")
+        mode = account_mode_from_yaml(data)
+        key = f"paper:{config_path}" if mode == "paper" else f"live:{exchange}"
         async with self._lock:
-            if exchange not in self._adapters:
-                self._adapters[exchange] = await create_exchange_adapter(data)
-            return self._adapters[exchange]
+            if key not in self._adapters:
+                self._adapters[key] = await create_exchange_adapter(data)
+            return self._adapters[key]
 
     async def disconnect_all(self):
         async with self._lock:

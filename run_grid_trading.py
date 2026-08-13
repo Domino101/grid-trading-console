@@ -196,10 +196,12 @@ def create_grid_config(config_data: dict) -> GridConfig:
         return code_fallback
 
     # 基础参数
+    raw_mode = str(get('account_mode') or grid_config.get('trading_mode') or 'unknown').lower()
     params = {
         'exchange': grid_config['exchange'],
         'symbol': grid_config['symbol'],
         'grid_type': grid_type,
+        'account_mode': raw_mode if raw_mode in ('paper', 'live') else 'unknown',
         'order_amount': Decimal(str(grid_config['order_amount'])),
         'max_position': Decimal(str(grid_config.get('max_position'))) if grid_config.get('max_position') else None,
         'enable_notifications': get('enable_notifications', False),
@@ -512,6 +514,13 @@ async def create_exchange_adapter(config_data: dict):
     grid_config = config_data['grid_system']
     exchange_name = grid_config['exchange'].lower()
     symbol = grid_config['symbol']
+
+    from core.adapters.exchanges.adapters.paper import create_paper_adapter, is_paper_config
+    if is_paper_config(config_data):
+        print("   - 帳戶模式: PAPER（模擬盤，不呼叫私有下單 API）")
+        adapter = create_paper_adapter(config_data)
+        await adapter.connect()
+        return adapter
 
     # 🔥 自动检测市场类型（现货 vs 永续合约）
     market_type = detect_market_type(symbol, exchange_name)

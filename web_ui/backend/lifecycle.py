@@ -55,9 +55,7 @@ def optional_int(value: Any) -> Optional[int]:
 
 
 def start_rejection(account_mode: str, live_enabled: bool) -> Optional[str]:
-    """PAPER is a label until a simulator exists. LIVE needs an explicit flag."""
-    if account_mode == "paper":
-        return "PAPER 策略目前沒有模擬盤，拒絕啟動以免誤觸實盤"
+    """PAPER uses the in-process simulator. LIVE still needs an explicit flag."""
     if account_mode == "live" and not live_enabled:
         return "LIVE 啟動需要 GRID_LIVE_TRADING_ENABLED=true"
     return None
@@ -224,10 +222,9 @@ def build_grid_read_model(
     }
 
 
-def aggregate_read_models(items: list[dict[str, Any]]) -> dict[str, Any]:
+def _roll_aggregate(items: list[dict[str, Any]]) -> dict[str, Any]:
     realized = unrealized = fees = volume = 0.0
-    cycles = 0
-    available = stale = 0
+    cycles = available = stale = 0
     for item in items:
         if item.get("data_status") == "live":
             available += 1
@@ -240,23 +237,38 @@ def aggregate_read_models(items: list[dict[str, Any]]) -> dict[str, Any]:
         fees += item.get("fees") or 0.0
         volume += item.get("volume") or 0.0
         cycles += item.get("completed_cycles") or 0
+    return {
+        "total_grids": len(items),
+        "running_grids": sum(1 for item in items if item.get("status") == "running"),
+        "available_grids": available,
+        "stale_grids": stale,
+        "realized_pnl": realized,
+        "unrealized_pnl": unrealized,
+        "fees": fees,
+        "net_pnl": realized + unrealized - fees,
+        "volume": volume,
+        "completed_cycles": cycles,
+    }
+
+
+def aggregate_read_models(items: list[dict[str, Any]]) -> dict[str, Any]:
+    live_items = [item for item in items if item.get("mode") == "live"]
+    paper_items = [item for item in items if item.get("mode") == "paper"]
+    # Headline KPI is LIVE-only when any LIVE strategy exists, so paper PNL
+    # cannot be mistaken for real account profit.
+    headline_items = live_items if live_items else [item for item in items if item.get("mode") != "paper"]
+    if not headline_items and paper_items:
+        headline_items = paper_items
+    headline = _roll_aggregate(headline_items)
     overall = "degraded"
     if not items:
         overall = "unavailable"
-    elif stale == 0 and available == len(items):
+    elif headline["stale_grids"] == 0 and headline["available_grids"] == headline["total_grids"] and headline["total_grids"]:
         overall = "live"
     return {
         "data_status": overall,
-        "aggregate": {
-            "total_grids": len(items),
-            "running_grids": sum(1 for item in items if item.get("status") == "running"),
-            "available_grids": available,
-            "stale_grids": stale,
-            "realized_pnl": realized,
-            "unrealized_pnl": unrealized,
-            "fees": fees,
-            "net_pnl": realized + unrealized - fees,
-            "volume": volume,
-            "completed_cycles": cycles,
-        },
+        "aggregate": headline,
+        "aggregate_live": _roll_aggregate(live_items),
+        "aggregate_paper": _roll_aggregate(paper_items),
+        "account_mode": "mixed" if live_items and paper_items else ("live" if live_items else ("paper" if paper_items else "unknown")),
     }

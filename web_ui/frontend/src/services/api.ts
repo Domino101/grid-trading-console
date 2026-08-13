@@ -160,7 +160,10 @@ export interface DashboardGridItem {
 export interface DashboardSnapshot {
     generated_at: number;
     data_status: DataStatus;
+    account_mode?: 'live' | 'paper' | 'mixed' | 'unknown';
     aggregate: DashboardAggregate;
+    aggregate_live?: DashboardAggregate;
+    aggregate_paper?: DashboardAggregate;
     grids: DashboardGridItem[];
 }
 

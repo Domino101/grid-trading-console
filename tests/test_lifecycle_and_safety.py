@@ -12,11 +12,11 @@ if BACKEND_DIR not in sys.path:
 
 
 class LifecyclePolicyTests(unittest.TestCase):
-    def test_paper_start_is_always_rejected(self):
+    def test_paper_start_is_allowed(self):
         from lifecycle import start_rejection
 
-        self.assertIsNotNone(start_rejection("paper", False))
-        self.assertIsNotNone(start_rejection("paper", True))
+        self.assertIsNone(start_rejection("paper", False))
+        self.assertIsNone(start_rejection("paper", True))
 
     def test_live_requires_flag_unknown_is_legacy_allowed(self):
         from lifecycle import start_rejection
@@ -54,7 +54,7 @@ class LifecyclePolicyTests(unittest.TestCase):
         self.assertEqual(model["data_status"], "unavailable")
         self.assertIsNone(model["net_pnl"])
         self.assertIsNone(model["equity"])
-        self.assertIsNotNone(model["start_blocked_reason"])
+        self.assertIsNone(model["start_blocked_reason"])
 
     def test_heartbeat_not_desired_state_makes_running(self):
         from lifecycle import build_grid_read_model
@@ -93,7 +93,19 @@ class LifecyclePolicyTests(unittest.TestCase):
             lambda path: "paper" if "paper" in path else "unknown",
             live_enabled=False,
         )
-        self.assertEqual(starts, ["config/grid/new.yaml"])
+        self.assertEqual(starts, ["config/grid/new.yaml", "config/grid/paper.yaml"])
+
+    def test_live_and_paper_aggregates_are_not_mixed(self):
+        from lifecycle import aggregate_read_models
+
+        rolled = aggregate_read_models([
+            {"mode": "live", "status": "running", "data_status": "live", "source": "engine_runtime", "realized_pnl": 10, "unrealized_pnl": 0, "fees": 1, "volume": 100, "completed_cycles": 1},
+            {"mode": "paper", "status": "running", "data_status": "live", "source": "engine_runtime", "realized_pnl": 999, "unrealized_pnl": 0, "fees": 0, "volume": 1, "completed_cycles": 4},
+        ])
+        self.assertEqual(rolled["account_mode"], "mixed")
+        self.assertEqual(rolled["aggregate"]["realized_pnl"], 10)
+        self.assertEqual(rolled["aggregate_paper"]["realized_pnl"], 999)
+        self.assertEqual(rolled["aggregate_live"]["net_pnl"], 9)
 
     def test_atomic_json_replace(self):
         from lifecycle import write_json_atomic

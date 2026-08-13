@@ -92,7 +92,7 @@ class CreateGridRequest(BaseModel):
     position_tolerance: Optional[Dict[str, float]] = None
 
     # 控制
-    auto_start: bool = Field(default=False, description="建立後提交啟動意圖；PAPER 會被拒絕")
+    auto_start: bool = Field(default=False, description="建立後提交啟動意圖；PAPER 走模擬盤，LIVE 需 feature flag")
 
     # 元資料
     metadata: Optional[GridMetadata] = None
@@ -192,6 +192,7 @@ class SystemHealthResponse(BaseModel):
     api_throttle: ApiThrottleInfo
     engine: EngineInfo
     running_grids: int
+    desired_running_grids: int = 0
     running_grid_configs: List[str]
     max_recommended_grids: int
     can_accept_new_grid: bool
@@ -371,7 +372,10 @@ class DashboardSnapshotResponse(BaseModel):
     """GET /api/v1/dashboard/snapshot 回應。"""
     generated_at: float
     data_status: str  # live / degraded / unavailable
+    account_mode: str = "unknown"  # live / paper / mixed / unknown
     aggregate: DashboardAggregate
+    aggregate_live: Optional[DashboardAggregate] = None
+    aggregate_paper: Optional[DashboardAggregate] = None
     grids: List[DashboardGridItem]
 
 
