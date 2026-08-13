@@ -298,6 +298,8 @@ class DashboardGridItem(BaseModel):
     grid_type: Optional[str] = None
     mode: str = "unknown"  # live / paper / unknown
     status: str
+    command_id: Optional[str] = None
+    command_status: Optional[str] = None
     data_status: str  # live / stale / unavailable
     last_updated_at: Optional[float] = None
     current_price: Optional[float] = None

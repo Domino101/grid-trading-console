@@ -129,6 +129,8 @@ export interface DashboardGridItem {
     grid_type: string | null;
     mode: 'live' | 'paper' | 'unknown';
     status: string;
+    command_id: string | null;
+    command_status: string | null;
     data_status: DataStatus;
     last_updated_at: number | null;
     current_price: number | null;

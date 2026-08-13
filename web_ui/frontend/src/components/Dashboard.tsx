@@ -97,6 +97,7 @@ const Dashboard = () => {
         {snapshot?.grids.map((grid) => {
           const isRunning = grid.status === 'running';
           const isStarting = grid.status === 'starting';
+          const isStopping = grid.status === 'stopping';
           const isBusy = actionGridId === grid.grid_id;
           const netPnl = grid.net_pnl;
           return <article className="strategy-card" key={grid.grid_id}>
@@ -112,8 +113,8 @@ const Dashboard = () => {
             </dl>
             <p className={`freshness freshness-${grid.data_status}`}>{freshnessText(grid)}</p>
             <footer className="strategy-actions">
-              {isStarting ? <button className="btn btn-outline" disabled><RefreshCcw size={15} />等待引擎確認</button> : isRunning ? <button className="btn btn-warning" disabled={isBusy} onClick={() => void runAction(grid, 'stop')}><Square size={15} />{isBusy ? '處理中…' : '停止'}</button> : <button className="btn btn-primary" disabled={isBusy} onClick={() => void runAction(grid, 'start')}><Play size={15} />{isBusy ? '處理中…' : '啟動'}</button>}
-              <button className="btn btn-danger" disabled={isBusy || isRunning || isStarting} title={isRunning || isStarting ? '請先等待策略停止後再刪除' : undefined} onClick={() => void runAction(grid, 'delete')}><Trash2 size={15} />刪除</button>
+              {isStarting || isStopping ? <button className="btn btn-outline" disabled><RefreshCcw size={15} />{isStopping ? '等待停止確認' : '等待引擎確認'}</button> : isRunning ? <button className="btn btn-warning" disabled={isBusy} onClick={() => void runAction(grid, 'stop')}><Square size={15} />{isBusy ? '處理中…' : '停止'}</button> : <button className="btn btn-primary" disabled={isBusy} onClick={() => void runAction(grid, 'start')}><Play size={15} />{isBusy ? '處理中…' : '啟動'}</button>}
+              <button className="btn btn-danger" disabled={isBusy || isRunning || isStarting || isStopping} title={isRunning || isStarting || isStopping ? '請先等待策略停止後再刪除' : undefined} onClick={() => void runAction(grid, 'delete')}><Trash2 size={15} />刪除</button>
             </footer>
           </article>;
         })}

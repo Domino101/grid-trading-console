@@ -218,6 +218,29 @@ class ProcessManager:
                 
             GridStateStore.instance().update(config_path, stats)
 
+    def _parse_lifecycle_line(self, line: str):
+        """Consume explicit grid engine acknowledgements from stdout/PM2 logs."""
+        marker = "[GRID_LIFECYCLE]"
+        if marker not in line:
+            return
+        try:
+            payload = json.loads(line.split(marker, 1)[1].strip())
+            config_path = payload.get("config_path")
+            lifecycle_status = payload.get("status")
+            if not config_path or lifecycle_status not in {"running", "stopped", "failed"}:
+                return
+            from command_repository import GridCommandRepository
+            grid_id = os.path.splitext(os.path.basename(config_path))[0]
+            repository = GridCommandRepository.instance()
+            command = repository.latest_for_grid(grid_id)
+            if command is None or command["status"] != "pending_engine":
+                return
+            expected_action = "start" if lifecycle_status == "running" else "stop"
+            if lifecycle_status == "failed" or command["action"] == expected_action:
+                repository.update_status(command["command_id"], lifecycle_status, payload.get("detail"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            logger.warning("Ignored malformed GRID_LIFECYCLE record")
+
     def add_log_listener(self, pid: int, listener: Callable[[str], None]):
         if pid in self.processes:
             with self.log_lock:
@@ -240,8 +263,9 @@ class ProcessManager:
                                 for line in iter(stream.readline, ''):
                                     if not line: break
                                     
-                                    # 攔截 [STATS_JSON]
+                                    # 攔截引擎統計與明確生命週期確認
                                     self._parse_stats_line(line, conf_path_val)
+                                    self._parse_lifecycle_line(line)
                                     
                                     with self.log_lock:
                                         # Get a copy of the listeners to avoid modification during iteration
@@ -478,8 +502,9 @@ class ProcessManager:
                 if not line:
                     break
                 
-                # 攔截 [STATS_JSON]
+                # 攔截引擎統計與明確生命週期確認
                 self._parse_stats_line(line, config_path)
+                self._parse_lifecycle_line(line)
                 
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 formatted_line = f"[{timestamp}] {line.rstrip()}"
