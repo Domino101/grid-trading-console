@@ -24,14 +24,32 @@ class WebUiHttpContractTests(unittest.TestCase):
     def setUp(self):
         from fastapi.testclient import TestClient
         import auth
+        from audit import AuditLogger
         from command_repository import GridCommandRepository
         from runtime_repository import RuntimeSnapshotRepository
+        import routes.grids as grids_route
 
         self.temp_dir = tempfile.TemporaryDirectory()
+        os.makedirs(os.path.join(self.temp_dir.name, "config", "grid"))
         database_path = os.path.join(self.temp_dir.name, "runtime.sqlite3")
         RuntimeSnapshotRepository._instance = RuntimeSnapshotRepository(database_path)
         GridCommandRepository._instance = GridCommandRepository(database_path)
+        AuditLogger._instance = AuditLogger(self.temp_dir.name)
         auth._API_TOKEN = "contract-token"
+
+        class PaperSafetyGuard:
+            def __init__(self, _project_root): pass
+            def check_rate_limit(self, _source): return True, None
+            def check_can_create_grid(self): return True, None
+            def check_min_investment(self, _params): return True, None
+            def check_duplicate_symbol(self, _symbol): return True, None
+            def check_config_not_exists(self, _path): return True, None
+            def record_action(self, _source): pass
+
+        # This contract test deliberately isolates filesystem/engine guards;
+        # their production behavior is covered by safety-guard unit tests.
+        grids_route._get_project_root = lambda: self.temp_dir.name
+        grids_route.SafetyGuard = PaperSafetyGuard
 
         # Import after dependency singletons have been isolated for this test.
         import main
@@ -48,6 +66,17 @@ class WebUiHttpContractTests(unittest.TestCase):
 
         denied = self.client.get("/api/v1/commands?grid_id=paper-grid")
         self.assertIn(denied.status_code, (401, 403))
+
+    def test_paper_create_contract_writes_mode_tagged_yaml(self):
+        response = self.client.post("/api/v1/grids", headers={"Authorization": "Bearer contract-token"}, json={
+            "symbol": "BTC/USDT", "exchange": "binance", "grid_type": "neutral",
+            "lower_price": 60000, "upper_price": 70000, "grid_interval": 100,
+            "order_amount": 0.001, "account_mode": "paper", "auto_start": False,
+        })
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        with open(os.path.join(self.temp_dir.name, payload["config_path"]), encoding="utf-8") as handle:
+            self.assertIn("account_mode: paper", handle.read())
 
     def test_command_lookup_and_event_timeline_contract(self):
         command = self.repository.create("paper-grid", "config/grid/paper-grid.yaml", "start", "dashboard")

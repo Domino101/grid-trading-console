@@ -13,7 +13,7 @@
 - [ ] 審閱 `config/grid/*.yaml`：確認每筆策略 `account_mode` 與目標交易所一致。
 - [ ] 執行 `npm run lint`、`npm run build`、pytest/PAPER E2E，保存結果。
 - [ ] 最低本地持久化流程測試：`python -m unittest tests.test_paper_grid_lifecycle_e2e`。
-- [ ] CI/release venv HTTP contract：`python -m unittest tests.test_web_ui_http_contract`（需先安裝 `requirements.txt`）。
+- [ ] CI/release venv HTTP contract：`python -m unittest tests.test_web_ui_http_contract`（需先安裝 `requirements.txt`）；包含 authenticated command/event API 與 PAPER YAML account mode 寫入。
 
 ## 2. 安裝與啟動 systemd
 
