@@ -34,3 +34,4 @@
 @media (max-width: 640px) { .form-fields { grid-template-columns: 1fr; }.stepper { font-size: .72rem; } }
 .market-rules { align-items: center; background: rgba(59,130,246,.08); border: 1px solid rgba(59,130,246,.25); border-radius: var(--radius-sm); display: flex; gap: 1rem; justify-content: space-between; padding: .75rem; }.market-rules div { display: flex; flex-direction: column; gap: .25rem; }.market-rules strong { color: #bfdbfe; font-size: .85rem; }
 @media (max-width: 640px) { .market-rules { align-items: flex-start; flex-direction: column; } }
+.live-confirmation { background: rgba(239,68,68,.09); border: 1px solid rgba(239,68,68,.3); border-radius: var(--radius-sm); color: #fecaca !important; padding: .8rem; }.validation-error { color: #fca5a5 !important; font-weight: 600; }
