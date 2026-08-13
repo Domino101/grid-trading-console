@@ -4,6 +4,10 @@
 
 ## [Unreleased] — 2026-08-13
 
+### Changed
+
+- 專案顯示名稱改為 `grid-trading-console`。新 private 庫請用本機 `gh auth login` 後執行 `scripts/publish_private_repo.sh`（Arena token 無法建立新 GitHub 庫）。
+
 ### Added
 
 - Token 登入頁；401 / 403 會退出到登入，與「尚未同步」分開。

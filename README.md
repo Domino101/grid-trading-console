@@ -1,6 +1,15 @@
-# crypto-trading-open
+# grid-trading-console
 
-多交易所網格交易引擎與 Web 總控台。這個倉庫是原始碼專案，**不是**可下載的桌面安裝包。舊的假下載說明已移到 [`docs/archive/README_fake_download_page.md`](docs/archive/README_fake_download_page.md)。
+多交易所網格交易引擎與 Web 總控台。顯示名稱已從舊庫 `crypto-trading-open` 獨立出來；這個倉庫是原始碼專案，**不是**可下載的桌面安裝包。舊的假下載說明已移到 [`docs/archive/README_fake_download_page.md`](docs/archive/README_fake_download_page.md)。
+
+若要開一個**乾淨歷史**的新 private 庫，在你自己的 GitHub 帳號執行：
+
+```bash
+gh auth login   # 必須是 Domino101，不是 Arena bot
+./scripts/publish_private_repo.sh
+```
+
+預設會建立 `Domino101/grid-trading-console`，不含 `.git` 舊歷史、不含 `config/exchanges` 金鑰、不含 `data/` 與 token 檔。
 
 ## 帳戶模式
 

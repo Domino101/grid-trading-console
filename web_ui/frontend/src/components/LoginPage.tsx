@@ -18,7 +18,7 @@ const LoginPage = ({ error, onSubmit }: LoginPageProps) => {
   return (
     <main className="token-gate">
       <form className="strategy-card token-card" onSubmit={saveToken}>
-        <p className="eyebrow">Grid Engine</p>
+        <p className="eyebrow">grid-trading-console</p>
         <h2>登入總控台</h2>
         <p className="muted">輸入伺服器上的 GRID_API_TOKEN 或 .grid_api_token。瀏覽器只把 token 存在本機，不要貼交易所 API 金鑰。</p>
         {error && <div className="notice notice-error" role="alert">{error}</div>}
