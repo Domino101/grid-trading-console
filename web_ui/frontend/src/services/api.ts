@@ -161,6 +161,17 @@ export interface DashboardSnapshot {
     grids: DashboardGridItem[];
 }
 
+export interface GridHistoryPoint {
+    recorded_at: number;
+    current_price: number | null;
+    net_pnl: number | null;
+    realized_pnl: number | null;
+    unrealized_pnl: number | null;
+    equity: number | null;
+}
+
+export interface GridHistory { grid_id: string; range_hours: number; points: GridHistoryPoint[]; }
+
 export interface CreateGridRequest {
     symbol: string;
     exchange: string;
@@ -335,6 +346,12 @@ export const api = {
     async getGrid(gridId: string): Promise<GridInfo> {
         const res = await fetch(`${API_BASE}/v1/grids/${encodeURIComponent(gridId)}`, { headers: getAuthHeaders() });
         if (!res.ok) throw new Error(`Failed to get grid ${gridId}`);
+        return res.json();
+    },
+
+    async getGridHistory(gridId: string, hours = 24): Promise<GridHistory> {
+        const res = await fetch(`${API_BASE}/v1/grids/${encodeURIComponent(gridId)}/history?hours=${hours}`, { headers: getAuthHeaders() });
+        if (!res.ok) throw new Error(`Failed to get history for ${gridId}`);
         return res.json();
     },
 

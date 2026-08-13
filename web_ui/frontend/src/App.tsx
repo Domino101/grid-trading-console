@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { lazy, Suspense, useState } from 'react';
 import { Activity, Settings, BarChart2 } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import GridForm from './components/GridForm';
-import GridDetail from './components/GridDetail';
+
+const GridDetail = lazy(() => import('./components/GridDetail'));
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'configs' | 'detail'>('dashboard');
@@ -42,7 +43,7 @@ const App: React.FC = () => {
       <div style={{ flex: 1, padding: '1rem 1rem 1rem 0', display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
         {activeTab === 'dashboard' && <Dashboard onOpenGrid={(gridId) => { setSelectedGridId(gridId); setActiveTab('detail'); }} />}
         {activeTab === 'configs' && <GridForm />}
-        {activeTab === 'detail' && selectedGridId && <GridDetail gridId={selectedGridId} onBack={() => setActiveTab('dashboard')} />}
+        {activeTab === 'detail' && selectedGridId && <Suspense fallback={<div className="dashboard-empty">載入策略工作台…</div>}><GridDetail gridId={selectedGridId} onBack={() => setActiveTab('dashboard')} /></Suspense>}
       </div>
     </div>
   );
