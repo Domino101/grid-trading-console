@@ -159,6 +159,8 @@ class GridYAMLGenerator:
         grid_system["price_decimals"] = params.get("price_decimals", 2)
         grid_system["leverage"] = params.get("leverage", 10)
         grid_system["margin_mode"] = params.get("margin_mode", "cross")
+        # Explicit mode prevents PAPER results from being mistaken for LIVE.
+        grid_system["account_mode"] = params.get("account_mode", "paper")
 
         # 4. Binance 安全預設值（允許顯式覆蓋）
         if params.get("exchange", "").lower() == "binance":

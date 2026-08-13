@@ -1,148 +1,52 @@
-import React, { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, Settings } from 'lucide-react';
 import { api, type CreateGridRequest } from '../services/api';
-import { Settings, CheckCircle, AlertTriangle } from 'lucide-react';
 
-const GridForm: React.FC = () => {
-  const [formData, setFormData] = useState<CreateGridRequest>({
-    symbol: 'BTC/USDT',
-    exchange: 'binance',
-    grid_type: 'spot',
-    lower_price: 50000,
-    upper_price: 100000,
-    grid_interval: 1000,
-    order_amount: 0.001,
-  });
+type Notice = { type: 'success' | 'error'; text: string } | null;
 
+const initialForm: CreateGridRequest = {
+  symbol: 'BTC/USDT', exchange: 'binance', grid_type: 'neutral',
+  lower_price: 60000, upper_price: 70000, grid_interval: 100, order_amount: 0.001,
+  leverage: 1, margin_mode: 'cross', account_mode: 'paper', auto_start: false,
+};
+
+const GridForm = () => {
+  const [step, setStep] = useState(1);
+  const [formData, setFormData] = useState<CreateGridRequest>(initialForm);
+  const [mode, setMode] = useState<'paper' | 'live'>('paper');
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
+  const [notice, setNotice] = useState<Notice>(null);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value, type } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'number' ? Number(value) : value
-    }));
-  };
+  const estimatedCapital = useMemo(() => {
+    if (!formData.lower_price || !formData.upper_price || !formData.grid_interval || !formData.order_amount) return null;
+    const levels = Math.max(1, Math.ceil((formData.upper_price - formData.lower_price) / formData.grid_interval));
+    return { levels, amount: ((formData.lower_price + formData.upper_price) / 2) * formData.order_amount * Math.min(levels, 10) };
+  }, [formData]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setMessage(null);
+  const update = (name: keyof CreateGridRequest, value: string | number | boolean) => setFormData(current => ({ ...current, [name]: value }));
+  const canAdvance = step === 1 ? Boolean(formData.symbol && formData.exchange) : step === 2 ? Boolean(formData.lower_price && formData.upper_price && formData.grid_interval && formData.order_amount && formData.lower_price < formData.upper_price) : true;
+
+  const submit = async () => {
+    setLoading(true); setNotice(null);
     try {
-      await api.createGrid(formData);
-      setMessage({ type: 'success', text: '網格創建成功！' });
-    } catch (error: unknown) {
-      const text = error instanceof Error ? error.message : '網格創建失敗';
-      setMessage({ type: 'error', text });
-    } finally {
-      setLoading(false);
-    }
+      await api.createGrid({ ...formData, account_mode: mode, metadata: { source: 'dashboard', reason: `${mode} strategy created from guided form` } });
+      setNotice({ type: 'success', text: `策略已建立為 ${mode.toUpperCase()} 設定；請在總覽確認引擎 heartbeat 後再視為運行。` });
+      setStep(3);
+    } catch (caught) { setNotice({ type: 'error', text: caught instanceof Error ? caught.message : '網格創建失敗' }); }
+    finally { setLoading(false); }
   };
 
-  return (
-    <div className="glass-panel" style={{ flex: 1, padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '600px', margin: '0 auto' }}>
-      <h2 className="text-2xl font-semibold flex items-center gap-2">
-        <Settings size={24} className="text-accent" />
-        創建網格策略
-      </h2>
-      
-      {message && (
-        <div className={`p-4 rounded flex items-center gap-2 ${message.type === 'success' ? 'bg-green-900/30 text-green-400 border border-green-800' : 'bg-red-900/30 text-red-400 border border-red-800'}`}>
-          {message.type === 'success' ? <CheckCircle size={18} /> : <AlertTriangle size={18} />}
-          {message.text}
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          <label className="text-sm font-medium text-muted">交易對 (Symbol)</label>
-          <input 
-            type="text" 
-            name="symbol" 
-            value={formData.symbol} 
-            onChange={handleChange} 
-            className="form-input bg-black/30 border border-gray-800 rounded p-2 text-white" 
-            required 
-          />
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          <label className="text-sm font-medium text-muted">交易所 (Exchange)</label>
-          <input 
-            type="text" 
-            name="exchange" 
-            value={formData.exchange} 
-            onChange={handleChange} 
-            className="form-input bg-black/30 border border-gray-800 rounded p-2 text-white" 
-            required 
-          />
-        </div>
-
-        <div style={{ display: 'flex', gap: '1rem' }}>
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            <label className="text-sm font-medium text-muted">下限價格 (Lower Price)</label>
-            <input 
-              type="number" 
-              name="lower_price" 
-              value={formData.lower_price || ''} 
-              onChange={handleChange} 
-              className="form-input bg-black/30 border border-gray-800 rounded p-2 text-white" 
-              required 
-              step="any"
-            />
-          </div>
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            <label className="text-sm font-medium text-muted">上限價格 (Upper Price)</label>
-            <input 
-              type="number" 
-              name="upper_price" 
-              value={formData.upper_price || ''} 
-              onChange={handleChange} 
-              className="form-input bg-black/30 border border-gray-800 rounded p-2 text-white" 
-              required 
-              step="any"
-            />
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', gap: '1rem' }}>
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            <label className="text-sm font-medium text-muted">每格大小 (Grid Interval)</label>
-            <input 
-              type="number" 
-              name="grid_interval" 
-              value={formData.grid_interval || ''} 
-              onChange={handleChange} 
-              className="form-input bg-black/30 border border-gray-800 rounded p-2 text-white" 
-              required 
-              step="any"
-            />
-          </div>
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            <label className="text-sm font-medium text-muted">每格下單量 (Order Amount)</label>
-            <input 
-              type="number" 
-              name="order_amount" 
-              value={formData.order_amount || ''} 
-              onChange={handleChange} 
-              className="form-input bg-black/30 border border-gray-800 rounded p-2 text-white" 
-              required 
-              step="any"
-            />
-          </div>
-        </div>
-
-        <button 
-          type="submit" 
-          disabled={loading}
-          className="btn btn-primary mt-4 py-2 px-4 rounded font-medium flex justify-center items-center gap-2 disabled:opacity-50"
-          style={{ background: 'var(--accent-primary)', color: '#000' }}
-        >
-          {loading ? '創建中...' : '創建網格'}
-        </button>
-      </form>
-    </div>
-  );
+  return <main className="grid-form-page">
+    <header className="form-header"><div><p className="eyebrow">策略建立精靈</p><h2><Settings size={24} />建立網格策略</h2><p className="muted">先以 PAPER 驗證；LIVE 需要在部署設定中明確開啟。</p></div></header>
+    <ol className="stepper" aria-label="建立策略步驟"><li className={step >= 1 ? 'active' : ''}>1. 市場</li><li className={step >= 2 ? 'active' : ''}>2. 網格</li><li className={step >= 3 ? 'active' : ''}>3. 風控確認</li></ol>
+    {notice && <div className={`notice ${notice.type === 'success' ? 'notice-success' : 'notice-error'}`} role="alert">{notice.type === 'success' ? <CheckCircle size={18} /> : <AlertTriangle size={18} />}{notice.text}</div>}
+    <section className="strategy-card form-card">
+      {step === 1 && <div className="form-fields"><h3>市場與帳戶模式</h3><label>帳戶模式<div className="mode-toggle"><button className={mode === 'paper' ? 'active' : ''} onClick={() => setMode('paper')}>PAPER</button><button className={mode === 'live' ? 'active danger' : ''} onClick={() => setMode('live')}>LIVE</button></div></label><label>交易所<select value={formData.exchange} onChange={event => update('exchange', event.target.value)}><option value="binance">Binance</option><option value="lighter">Lighter</option><option value="hyperliquid">Hyperliquid</option></select></label><label>交易對<input value={formData.symbol} onChange={event => update('symbol', event.target.value.toUpperCase())} placeholder="BTC/USDT" /></label><label>網格方向<select value={formData.grid_type} onChange={event => update('grid_type', event.target.value)}><option value="neutral">中性網格</option><option value="long">做多網格</option><option value="short">做空網格</option></select></label></div>}
+      {step === 2 && <div className="form-fields"><h3>價格區間與下單</h3><label>下限價格<input type="number" value={formData.lower_price ?? ''} onChange={event => update('lower_price', Number(event.target.value))} /></label><label>上限價格<input type="number" value={formData.upper_price ?? ''} onChange={event => update('upper_price', Number(event.target.value))} /></label><label>每格間距<input type="number" min="0" step="any" value={formData.grid_interval} onChange={event => update('grid_interval', Number(event.target.value))} /></label><label>每格下單量<input type="number" min="0" step="any" value={formData.order_amount} onChange={event => update('order_amount', Number(event.target.value))} /></label>{estimatedCapital && <aside className="capital-estimate">預估格數：<strong>{estimatedCapital.levels}</strong> 前 10 格名義資金：約 <strong>{estimatedCapital.amount.toLocaleString('en-US', { maximumFractionDigits: 2 })}</strong><small>僅為前端估算；交易所最小下單額、精度與實際資金仍以後端驗證為準。</small></aside>}</div>}
+      {step === 3 && <div className="form-fields"><h3>風控與確認</h3><label>槓桿<input type="number" min="1" max="125" value={formData.leverage ?? 1} onChange={event => update('leverage', Number(event.target.value))} /></label><label>保證金模式<select value={formData.margin_mode ?? 'cross'} onChange={event => update('margin_mode', event.target.value)}><option value="cross">全倉 Cross</option><option value="isolated">逐倉 Isolated</option></select></label><label className="checkbox-label"><input type="checkbox" checked={formData.auto_start ?? false} onChange={event => update('auto_start', event.target.checked)} />建立後提交啟動意圖（仍須等待引擎確認）</label><aside className="capital-estimate">{mode === 'live' ? <strong>LIVE 警告：請確認資金、槓桿與交易所權限；本畫面不保證引擎已開始掛單。</strong> : <strong>PAPER 建議：先確認價格區間、下單精度及引擎事件後，再考慮 LIVE。</strong>}<small>{formData.symbol} · {formData.exchange} · {formData.grid_type} · {formData.lower_price} – {formData.upper_price}</small></aside></div>}
+      <footer className="form-actions">{step > 1 ? <button className="btn btn-outline" onClick={() => setStep(step - 1)}><ChevronLeft size={16} />上一步</button> : <span />}{step < 3 ? <button className="btn btn-primary" disabled={!canAdvance} onClick={() => setStep(step + 1)}>下一步<ChevronRight size={16} /></button> : <button className="btn btn-primary" disabled={loading || !canAdvance} onClick={() => void submit()}>{loading ? '建立中…' : '確認建立策略'}</button>}</footer>
+    </section>
+  </main>;
 };
 
 export default GridForm;

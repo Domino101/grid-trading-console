@@ -186,6 +186,7 @@ export interface CreateGridRequest {
     price_decimals?: number;
     leverage?: number;
     margin_mode?: string;
+    account_mode?: 'paper' | 'live';
     limit_only?: boolean;
     active_window_each_side?: number;
     active_window_refresh_interval?: number;
