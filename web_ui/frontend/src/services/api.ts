@@ -236,7 +236,7 @@ export interface GridCommand {
     grid_id: string;
     config_path: string;
     action: string;
-    status: 'accepted' | 'pending_engine' | 'running' | 'stopped' | 'failed';
+    status: 'accepted' | 'pending_engine' | 'running' | 'stopped' | 'failed' | 'timed_out';
     source: string;
     reason: string | null;
     detail: string | null;
@@ -332,6 +332,12 @@ export const api = {
         return res.json();
     },
 
+    async getGrid(gridId: string): Promise<GridInfo> {
+        const res = await fetch(`${API_BASE}/v1/grids/${encodeURIComponent(gridId)}`, { headers: getAuthHeaders() });
+        if (!res.ok) throw new Error(`Failed to get grid ${gridId}`);
+        return res.json();
+    },
+
     async getGridStats(gridId: string): Promise<GridStats> {
         const res = await fetch(`${API_BASE}/v1/grids/${encodeURIComponent(gridId)}/stats`, {
             headers: getAuthHeaders(),
@@ -358,6 +364,14 @@ export const api = {
             headers: getAuthHeaders(),
         });
         if (!res.ok) throw new Error(`Failed to get command ${commandId}`);
+        return res.json();
+    },
+
+    async listGridCommands(gridId: string): Promise<{ grid_id: string; commands: GridCommand[] }> {
+        const res = await fetch(`${API_BASE}/v1/commands?grid_id=${encodeURIComponent(gridId)}`, {
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) throw new Error(`Failed to get commands for ${gridId}`);
         return res.json();
     },
 

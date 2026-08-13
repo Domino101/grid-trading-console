@@ -19,7 +19,11 @@ const freshnessText = (item: DashboardGridItem) => {
   return `同步於 ${new Date(item.last_updated_at * 1000).toLocaleTimeString('zh-TW')}`;
 };
 
-const Dashboard = () => {
+interface DashboardProps {
+  onOpenGrid: (gridId: string) => void;
+}
+
+const Dashboard = ({ onOpenGrid }: DashboardProps) => {
   const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -112,7 +116,9 @@ const Dashboard = () => {
               <div><dt>價格區間</dt><dd>{grid.lower_price === null || grid.upper_price === null ? '—' : `${number(grid.lower_price)} – ${number(grid.upper_price)}`}</dd></div><div><dt>每格大小</dt><dd>{number(grid.grid_interval)}</dd></div>
             </dl>
             <p className={`freshness freshness-${grid.data_status}`}>{freshnessText(grid)}</p>
+            {(grid.command_status === 'failed' || grid.command_status === 'timed_out') && <p className="command-alert" role="alert">命令 {grid.command_status === 'timed_out' ? '確認逾時' : '失敗'}：請進入詳情查看稽核紀錄。</p>}
             <footer className="strategy-actions">
+              <button className="btn btn-outline" onClick={() => onOpenGrid(grid.grid_id)}>詳情</button>
               {isStarting || isStopping ? <button className="btn btn-outline" disabled><RefreshCcw size={15} />{isStopping ? '等待停止確認' : '等待引擎確認'}</button> : isRunning ? <button className="btn btn-warning" disabled={isBusy} onClick={() => void runAction(grid, 'stop')}><Square size={15} />{isBusy ? '處理中…' : '停止'}</button> : <button className="btn btn-primary" disabled={isBusy} onClick={() => void runAction(grid, 'start')}><Play size={15} />{isBusy ? '處理中…' : '啟動'}</button>}
               <button className="btn btn-danger" disabled={isBusy || isRunning || isStarting || isStopping} title={isRunning || isStarting || isStopping ? '請先等待策略停止後再刪除' : undefined} onClick={() => void runAction(grid, 'delete')}><Trash2 size={15} />刪除</button>
             </footer>
