@@ -48,6 +48,15 @@ class RuntimeSnapshotRepository:
                     updated_at REAL NOT NULL
                 )
             """)
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS grid_runtime_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    config_path TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    recorded_at REAL NOT NULL
+                )
+            """)
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_runtime_history_path_time ON grid_runtime_history(config_path, recorded_at DESC)")
 
     def save(self, config_path: str, stats: dict, updated_at: Optional[float] = None) -> float:
         timestamp = updated_at if updated_at is not None else time.time()
@@ -59,6 +68,12 @@ class RuntimeSnapshotRepository:
                    ON CONFLICT(config_path) DO UPDATE SET payload=excluded.payload, updated_at=excluded.updated_at""",
                 (config_path, payload, timestamp),
             )
+            connection.execute(
+                "INSERT INTO grid_runtime_history(config_path, payload, recorded_at) VALUES(?, ?, ?)",
+                (config_path, payload, timestamp),
+            )
+            # Keep a bounded local history (7 days) without needing a separate job.
+            connection.execute("DELETE FROM grid_runtime_history WHERE recorded_at < ?", (timestamp - 7 * 86400,))
         return timestamp
 
     def load_all(self) -> dict[str, tuple[dict, float]]:
@@ -74,6 +89,23 @@ class RuntimeSnapshotRepository:
                 continue
         return snapshots
 
+    def history(self, config_path: str, since: float, limit: int = 1000) -> list[tuple[dict, float]]:
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                """SELECT payload, recorded_at FROM grid_runtime_history
+                   WHERE config_path = ? AND recorded_at >= ? ORDER BY recorded_at ASC LIMIT ?""",
+                (config_path, since, limit),
+            ).fetchall()
+        result: list[tuple[dict, float]] = []
+        for row in rows:
+            try:
+                payload = json.loads(row["payload"])
+                if isinstance(payload, dict): result.append((payload, float(row["recorded_at"])))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+        return result
+
     def remove(self, config_path: str) -> None:
         with self._lock, self._connect() as connection:
             connection.execute("DELETE FROM grid_runtime_snapshots WHERE config_path = ?", (config_path,))
+            connection.execute("DELETE FROM grid_runtime_history WHERE config_path = ?", (config_path,))

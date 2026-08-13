@@ -23,8 +23,14 @@ class RuntimeSnapshotRepositoryTests(unittest.TestCase):
             restored = reader.load_all()
             self.assertEqual(restored["config/grid/test.yaml"], ({"profit": {"net": 12.5}}, 123.0))
 
+            reader.save("config/grid/test.yaml", {"current_price": 100.0}, updated_at=124.0)
+            history = reader.history("config/grid/test.yaml", since=100.0)
+            self.assertEqual(len(history), 2)
+            self.assertEqual(history[-1], ({"current_price": 100.0}, 124.0))
+
             reader.remove("config/grid/test.yaml")
             self.assertEqual(reader.load_all(), {})
+            self.assertEqual(reader.history("config/grid/test.yaml", since=0), [])
 
 
 if __name__ == "__main__":

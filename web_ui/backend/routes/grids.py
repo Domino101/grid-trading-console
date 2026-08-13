@@ -33,12 +33,14 @@ from schemas import (
     GridInfo,
     GridListResponse,
     GridStatsResponse,
+    GridHistoryResponse,
     GridSummaryResponse,
 )
 from yaml_generator import GridYAMLGenerator
 from safety_guard import SafetyGuard
 from grid_state_store import GridStateStore
 from command_repository import GridCommandRepository
+from runtime_repository import RuntimeSnapshotRepository
 
 logger = logging.getLogger("GridAPI.Grids")
 
@@ -265,6 +267,36 @@ async def get_grid_stats(grid_id: str, _token: str = Depends(verify_token)):
         
     stats["status"] = "running" if is_active else "stopped"
     return stats
+
+
+# ────────────────────────────────────────────────────────
+# GET /api/v1/grids/{grid_id}/history — 可繪製的本地快照歷史
+# ────────────────────────────────────────────────────────
+
+@router.get("/{grid_id}/history", response_model=GridHistoryResponse)
+async def get_grid_history(
+    grid_id: str,
+    hours: int = Query(default=24, ge=1, le=168, description="查詢區間（小時，最長 7 天）"),
+    _token: str = Depends(verify_token),
+):
+    config_path = GridYAMLGenerator.path_from_grid_id(grid_id)
+    if not os.path.exists(os.path.join(_get_project_root(), config_path)):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"網格 {grid_id} 不存在")
+    import time
+    history = RuntimeSnapshotRepository.instance().history(config_path, time.time() - hours * 3600)
+    points = []
+    for payload, recorded_at in history:
+        profit = payload.get("profit") or {}
+        balance = payload.get("balance") or {}
+        points.append({
+            "recorded_at": recorded_at,
+            "current_price": payload.get("current_price"),
+            "net_pnl": profit.get("net"),
+            "realized_pnl": profit.get("realized"),
+            "unrealized_pnl": profit.get("unrealized"),
+            "equity": balance.get("total"),
+        })
+    return {"grid_id": grid_id, "range_hours": hours, "points": points}
 
 
 # ────────────────────────────────────────────────────────

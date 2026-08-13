@@ -256,6 +256,21 @@ class GridStatsResponse(BaseModel):
     last_update: Optional[float] = None
 
 
+class GridHistoryPoint(BaseModel):
+    recorded_at: float
+    current_price: Optional[float] = None
+    net_pnl: Optional[float] = None
+    realized_pnl: Optional[float] = None
+    unrealized_pnl: Optional[float] = None
+    equity: Optional[float] = None
+
+
+class GridHistoryResponse(BaseModel):
+    grid_id: str
+    range_hours: int
+    points: List[GridHistoryPoint]
+
+
 class GridSummaryItem(BaseModel):
     """全局摘要中的單一網格狀態項目"""
     grid_id: str
