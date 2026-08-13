@@ -12,6 +12,13 @@ class GridStateStore:
     def __init__(self):
         self._states: Dict[str, dict] = {}
         self._updated_at: Dict[str, float] = {}
+        # Retain the last engine snapshots across a FastAPI restart. Runtime
+        # freshness is still calculated from the original engine timestamp.
+        from runtime_repository import RuntimeSnapshotRepository
+        self._repository = RuntimeSnapshotRepository.instance()
+        for config_path, (stats, updated_at) in self._repository.load_all().items():
+            self._states[config_path] = stats
+            self._updated_at[config_path] = updated_at
 
     @classmethod
     def instance(cls) -> "GridStateStore":
@@ -22,9 +29,11 @@ class GridStateStore:
         return cls._instance
 
     def update(self, config_path: str, stats: dict):
+        updated_at = time.time()
         with self._lock:
             self._states[config_path] = stats
-            self._updated_at[config_path] = time.time()
+            self._updated_at[config_path] = updated_at
+        self._repository.save(config_path, stats, updated_at)
 
     def get(self, config_path: str) -> Optional[dict]:
         with self._lock:
@@ -70,6 +79,7 @@ class GridStateStore:
         with self._lock:
             self._states.pop(config_path, None)
             self._updated_at.pop(config_path, None)
+        self._repository.remove(config_path)
 
     def get_summary(self) -> dict:
         with self._lock:

@@ -77,7 +77,7 @@ async def get_dashboard_snapshot(_token: str = Depends(verify_token)):
     for config_path in sorted(known_paths):
         info = _build_grid_info(config_path, active_grids)
         runtime = store.get(config_path)
-        is_running = info.status == "running"
+        desired_running = info.status == "running"
 
         if runtime is None:
             data_status = "unavailable"
@@ -87,6 +87,12 @@ async def get_dashboard_snapshot(_token: str = Depends(verify_token)):
         else:
             data_status = "live"
             available_count += 1
+
+        # active_grids.json expresses desired state only. A strategy becomes
+        # running only after an engine runtime heartbeat is observed.
+        lifecycle_status = "running" if desired_running and data_status == "live" else (
+            "starting" if desired_running else "stopped"
+        )
 
         profit = runtime.get("profit", {}) if runtime else {}
         filled = runtime.get("filled_orders", {}) if runtime else {}
@@ -113,7 +119,7 @@ async def get_dashboard_snapshot(_token: str = Depends(verify_token)):
             exchange=info.exchange,
             grid_type=info.grid_type,
             mode=_grid_mode(config_path),
-            status=info.status,
+            status=lifecycle_status,
             data_status=data_status,
             last_updated_at=runtime.get("last_update") if runtime else None,
             current_price=_number(runtime.get("current_price")) if runtime else None,
