@@ -25,6 +25,19 @@ class GridCommandRepositoryTests(unittest.TestCase):
             self.assertEqual(restored["status"], "pending_engine")
             self.assertEqual(repository.latest_for_grid("strategy-a")["command_id"], command["command_id"])
 
+    def test_idempotency_key_and_timeout_are_durable(self):
+        from command_repository import GridCommandRepository
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repository = GridCommandRepository(os.path.join(temp_dir, "runtime.sqlite3"))
+            command = repository.create(
+                "strategy-b", "config/grid/strategy-b.yaml", "stop", "dashboard", idempotency_key="request-1"
+            )
+            self.assertEqual(repository.get_by_idempotency_key("stop", "request-1")["command_id"], command["command_id"])
+            repository.update_status(command["command_id"], "pending_engine")
+            repository.mark_timeouts(timeout_seconds=0)
+            self.assertEqual(repository.get(command["command_id"])["status"], "timed_out")
+
 
 if __name__ == "__main__":
     unittest.main()
