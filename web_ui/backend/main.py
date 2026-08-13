@@ -24,6 +24,7 @@ from models import ProcessStatus, StartProcessRequest
 # 🆕 Hermes Grid API v1 路由
 from routes.system import router as system_router
 from routes.grids import router as grids_router
+from routes.dashboard import router as dashboard_router
 from routes.market import router as market_router
 
 # Configure logging
@@ -61,6 +62,7 @@ app.add_middleware(
 # 🆕 掛載 v1 API 路由（與現有 /api/scripts 等端點共存）
 app.include_router(system_router)
 app.include_router(grids_router)
+app.include_router(dashboard_router)
 app.include_router(market_router)
 
 async def monitor_processes():
