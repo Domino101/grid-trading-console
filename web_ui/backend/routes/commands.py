@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from auth import verify_token
 from command_repository import GridCommandRepository
-from schemas import GridCommandListResponse, GridCommandResponse
+from schemas import GridCommandListResponse, GridCommandResponse, GridEventListResponse
 
 router = APIRouter(prefix="/api/v1/commands", tags=["commands"])
 
@@ -16,6 +16,15 @@ async def list_grid_commands(
     _token: str = Depends(verify_token),
 ):
     return {"grid_id": grid_id, "commands": GridCommandRepository.instance().list_for_grid(grid_id, limit)}
+
+
+@router.get("/events", response_model=GridEventListResponse)
+async def list_grid_events(
+    grid_id: str = Query(..., min_length=1),
+    limit: int = Query(default=50, ge=1, le=200),
+    _token: str = Depends(verify_token),
+):
+    return {"grid_id": grid_id, "events": GridCommandRepository.instance().list_events(grid_id, limit)}
 
 
 @router.get("/{command_id}", response_model=GridCommandResponse)
