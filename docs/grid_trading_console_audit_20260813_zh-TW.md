@@ -21,6 +21,8 @@
 
 **本輪不得開啟 `GRID_LIVE_TRADING_ENABLED`，也不得把 PAPER 當成隔離資金的沙盒。**
 
+> 實作狀態（同日）：Phase A + B 已落地。PAPER start 409、舊 API 需認證、引擎直寫 SQLite、熱插拔接受新 YAML、DELETE 守門。Phase C（真模擬盤）尚未開始。
+
 ---
 
 ## 2. 本輪實際交付（通過項）

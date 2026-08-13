@@ -6,10 +6,11 @@
 
 import os
 import json
-import sqlite3
 import logging
 from datetime import datetime
 from typing import Optional, List, Dict, Any
+
+from lifecycle import connect_sqlite
 
 logger = logging.getLogger("GridAPI.Audit")
 
@@ -39,9 +40,8 @@ class AuditLogger:
             cls._instance = cls(project_root)
         return cls._instance
 
-    def _get_connection(self) -> sqlite3.Connection:
-        """取得資料庫連線"""
-        return sqlite3.connect(self.db_path)
+    def _get_connection(self):
+        return connect_sqlite(self.db_path)
 
     def _init_db(self) -> None:
         """初始化審計資料庫"""
@@ -143,7 +143,6 @@ class AuditLogger:
         """
         try:
             with self._get_connection() as conn:
-                conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
 
                 if source:

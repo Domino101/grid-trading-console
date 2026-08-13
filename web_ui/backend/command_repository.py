@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import sqlite3
 import threading
 import time
 import uuid
 from typing import Any, Optional
 
+from lifecycle import connect_sqlite
 from runtime_repository import RuntimeSnapshotRepository
 
 
@@ -29,10 +29,8 @@ class GridCommandRepository:
                     cls._instance = cls()
         return cls._instance
 
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.database_path)
-        connection.row_factory = sqlite3.Row
-        return connection
+    def _connect(self):
+        return connect_sqlite(self.database_path)
 
     def _initialize(self) -> None:
         with self._connect() as connection:
@@ -51,12 +49,19 @@ class GridCommandRepository:
                     updated_at REAL NOT NULL
                 )
             """)
-            # Existing Phase 1 databases are migrated in place.
             columns = {row["name"] for row in connection.execute("PRAGMA table_info(grid_commands)")}
             if "idempotency_key" not in columns:
                 connection.execute("ALTER TABLE grid_commands ADD COLUMN idempotency_key TEXT")
-            connection.execute("CREATE INDEX IF NOT EXISTS idx_grid_commands_grid_created ON grid_commands(grid_id, created_at DESC)")
-            connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_grid_commands_idempotency ON grid_commands(action, idempotency_key) WHERE idempotency_key IS NOT NULL")
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_grid_commands_grid_created "
+                "ON grid_commands(grid_id, created_at DESC)"
+            )
+            connection.execute("DROP INDEX IF EXISTS idx_grid_commands_idempotency")
+            connection.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_grid_commands_idempotency "
+                "ON grid_commands(grid_id, action, idempotency_key) "
+                "WHERE idempotency_key IS NOT NULL"
+            )
             connection.execute("""
                 CREATE TABLE IF NOT EXISTS grid_events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,21 +72,44 @@ class GridCommandRepository:
                     occurred_at REAL NOT NULL
                 )
             """)
-            connection.execute("CREATE INDEX IF NOT EXISTS idx_grid_events_grid_time ON grid_events(grid_id, occurred_at DESC)")
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_grid_events_grid_time "
+                "ON grid_events(grid_id, occurred_at DESC)"
+            )
 
-    def create(self, grid_id: str, config_path: str, action: str, source: str, reason: Optional[str] = None,
-               idempotency_key: Optional[str] = None) -> dict[str, Any]:
+    def create(
+        self,
+        grid_id: str,
+        config_path: str,
+        action: str,
+        source: str,
+        reason: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> dict[str, Any]:
         command_id = str(uuid.uuid4())
         now = time.time()
         command = {
-            "command_id": command_id, "grid_id": grid_id, "config_path": config_path,
-            "action": action, "status": "accepted", "source": source, "reason": reason,
-            "detail": None, "idempotency_key": idempotency_key, "created_at": now, "updated_at": now,
+            "command_id": command_id,
+            "grid_id": grid_id,
+            "config_path": config_path,
+            "action": action,
+            "status": "accepted",
+            "source": source,
+            "reason": reason,
+            "detail": None,
+            "idempotency_key": idempotency_key,
+            "created_at": now,
+            "updated_at": now,
         }
         with self._lock, self._connect() as connection:
             connection.execute(
-                """INSERT INTO grid_commands(command_id, grid_id, config_path, action, status, source, reason, detail, idempotency_key, created_at, updated_at)
-                   VALUES(:command_id, :grid_id, :config_path, :action, :status, :source, :reason, :detail, :idempotency_key, :created_at, :updated_at)""",
+                """INSERT INTO grid_commands(
+                       command_id, grid_id, config_path, action, status, source, reason,
+                       detail, idempotency_key, created_at, updated_at
+                   ) VALUES(
+                       :command_id, :grid_id, :config_path, :action, :status, :source, :reason,
+                       :detail, :idempotency_key, :created_at, :updated_at
+                   )""",
                 command,
             )
         return command
@@ -96,18 +124,26 @@ class GridCommandRepository:
     def get(self, command_id: str) -> Optional[dict[str, Any]]:
         self.mark_timeouts()
         with self._lock, self._connect() as connection:
-            row = connection.execute("SELECT * FROM grid_commands WHERE command_id = ?", (command_id,)).fetchone()
-        return self._row_to_dict(row)
-
-    def get_by_idempotency_key(self, action: str, key: str) -> Optional[dict[str, Any]]:
-        with self._lock, self._connect() as connection:
             row = connection.execute(
-                "SELECT * FROM grid_commands WHERE action = ? AND idempotency_key = ?", (action, key)
+                "SELECT * FROM grid_commands WHERE command_id = ?", (command_id,)
             ).fetchone()
         return self._row_to_dict(row)
 
+    def get_by_idempotency_key(self, action: str, key: str, grid_id: Optional[str] = None) -> Optional[dict[str, Any]]:
+        with self._lock, self._connect() as connection:
+            if grid_id:
+                row = connection.execute(
+                    "SELECT * FROM grid_commands WHERE grid_id = ? AND action = ? AND idempotency_key = ?",
+                    (grid_id, action, key),
+                ).fetchone()
+            else:
+                row = connection.execute(
+                    "SELECT * FROM grid_commands WHERE action = ? AND idempotency_key = ?",
+                    (action, key),
+                ).fetchone()
+        return self._row_to_dict(row)
+
     def mark_timeouts(self, timeout_seconds: int = 90) -> None:
-        """Do not claim an engine operation succeeded when no acknowledgement arrives."""
         deadline = time.time() - timeout_seconds
         with self._lock, self._connect() as connection:
             connection.execute(
@@ -120,14 +156,18 @@ class GridCommandRepository:
     def latest_for_grid(self, grid_id: str) -> Optional[dict[str, Any]]:
         self.mark_timeouts()
         with self._lock, self._connect() as connection:
-            row = connection.execute("SELECT * FROM grid_commands WHERE grid_id = ? ORDER BY created_at DESC LIMIT 1", (grid_id,)).fetchone()
+            row = connection.execute(
+                "SELECT * FROM grid_commands WHERE grid_id = ? ORDER BY created_at DESC LIMIT 1",
+                (grid_id,),
+            ).fetchone()
         return self._row_to_dict(row)
 
     def list_for_grid(self, grid_id: str, limit: int = 20) -> list[dict[str, Any]]:
         self.mark_timeouts()
         with self._lock, self._connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM grid_commands WHERE grid_id = ? ORDER BY created_at DESC LIMIT ?", (grid_id, limit)
+                "SELECT * FROM grid_commands WHERE grid_id = ? ORDER BY created_at DESC LIMIT ?",
+                (grid_id, limit),
             ).fetchall()
         return [dict(row) for row in rows]
 
@@ -141,7 +181,8 @@ class GridCommandRepository:
     def list_events(self, grid_id: str, limit: int = 50) -> list[dict[str, Any]]:
         with self._lock, self._connect() as connection:
             rows = connection.execute(
-                "SELECT grid_id, event_type, status, detail, occurred_at FROM grid_events WHERE grid_id = ? ORDER BY occurred_at DESC LIMIT ?",
+                """SELECT grid_id, event_type, status, detail, occurred_at
+                   FROM grid_events WHERE grid_id = ? ORDER BY occurred_at DESC LIMIT ?""",
                 (grid_id, limit),
             ).fetchall()
         return [dict(row) for row in rows]

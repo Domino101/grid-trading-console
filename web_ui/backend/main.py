@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Body
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Body, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
@@ -20,6 +20,8 @@ load_dotenv(os.path.join(_project_root, ".env"))
 from process_manager import process_manager
 from file_manager import file_manager
 from models import ProcessStatus, StartProcessRequest
+from auth import token_matches, verify_token
+from lifecycle import cors_settings
 
 # 🆕 Hermes Grid API v1 路由
 from routes.system import router as system_router
@@ -51,11 +53,11 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS — TODO(security): 階段三應收緊 allow_origins 白名單
+_cors_origins, _cors_credentials = cors_settings(os.getenv("GRID_CORS_ORIGINS"))
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=_cors_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -100,35 +102,38 @@ async def monitor_processes():
 # API Routes
 
 @app.get("/api/scripts")
-async def get_scripts():
+async def get_scripts(_token: str = Depends(verify_token)):
     return file_manager.get_scripts()
 
 @app.get("/api/configs")
-async def get_configs():
+async def get_configs(_token: str = Depends(verify_token)):
     return file_manager.get_configs()
 
 @app.get("/api/config/{path:path}")
-async def get_config(path: str):
+async def get_config(path: str, _token: str = Depends(verify_token)):
     try:
         return file_manager.read_config(path)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="File not found")
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid path")
 
 @app.put("/api/config/{path:path}")
-async def update_config(path: str, content: str = Body(..., media_type="text/plain")):
+async def update_config(path: str, content: str = Body(..., media_type="text/plain"), _token: str = Depends(verify_token)):
     success, message = file_manager.save_config(path, content)
     if not success:
-        raise HTTPException(status_code=400, detail=message)
+        code = 403 if "credentials" in message else 400
+        raise HTTPException(status_code=code, detail=message)
     return {"message": message}
 
 @app.get("/api/processes", response_model=List[ProcessStatus])
-async def get_processes():
+async def get_processes(_token: str = Depends(verify_token)):
     return process_manager.get_all_processes()
 
 @app.post("/api/process/start")
-async def start_process(request: StartProcessRequest):
+async def start_process(request: StartProcessRequest, _token: str = Depends(verify_token)):
     try:
         pid = process_manager.start_process(request.script, request.config_path)
         return {"pid": pid, "status": "started"}
@@ -138,14 +143,17 @@ async def start_process(request: StartProcessRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/process/stop/{pid}")
-async def stop_process(pid: int):
+async def stop_process(pid: int, _token: str = Depends(verify_token)):
     success = process_manager.stop_process(pid)
     if not success:
         raise HTTPException(status_code=400, detail="Failed to stop process or process not found")
     return {"message": "Process stopped"}
 
 @app.websocket("/ws/logs/{pid}")
-async def websocket_endpoint(websocket: WebSocket, pid: int):
+async def websocket_endpoint(websocket: WebSocket, pid: int, token: str = ""):
+    if not token_matches(token):
+        await websocket.close(code=4401, reason="Invalid or missing API token")
+        return
     await websocket.accept()
     
     info = process_manager.get_process_info(pid)

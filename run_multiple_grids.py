@@ -48,6 +48,12 @@ from core.logging import get_system_logger
 # 導入單網格啟動腳本中的配置解析和適配器創建函數
 from run_grid_trading import create_grid_config, detect_market_type, create_exchange_adapter, auto_fill_precision
 
+_backend_dir = str(project_root / "web_ui" / "backend")
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
+from control_plane import publish_lifecycle, publish_runtime
+from lifecycle import account_mode_from_yaml, iter_hotplug_starts, live_trading_enabled, start_rejection
+
 # 優化的日誌系統
 setup_optimized_logging(use_colored=True)
 
@@ -171,16 +177,81 @@ def acquire_multi_lock() -> str:
         f.write(str(os.getpid()))
     return lock_file
 
-async def run_single_grid_task(config_path: str, shared_adapter, logger, running_grids_ref):
+
+def _abs_config(path: str) -> Path:
+    candidate = Path(path)
+    return candidate if candidate.is_absolute() else project_root / path
+
+
+def _load_grid_yaml(path: str) -> dict:
+    with open(_abs_config(path), "r", encoding="utf-8") as handle:
+        return yaml.safe_load(handle) or {}
+
+
+def _config_account_mode(path: str) -> str:
+    try:
+        return account_mode_from_yaml(_load_grid_yaml(path))
+    except Exception:
+        return "unknown"
+
+
+class ExchangeAdapterPool:
+    """One connected adapter per exchange. Different venues must not share a client."""
+
+    def __init__(self):
+        self._adapters = {}
+        self._lock = asyncio.Lock()
+
+    async def get(self, config_path: str):
+        data = _load_grid_yaml(config_path)
+        exchange = str((data.get("grid_system") or {}).get("exchange") or "").lower()
+        if not exchange:
+            raise ValueError(f"{config_path} 缺少 grid_system.exchange")
+        async with self._lock:
+            if exchange not in self._adapters:
+                self._adapters[exchange] = await create_exchange_adapter(data)
+            return self._adapters[exchange]
+
+    async def disconnect_all(self):
+        async with self._lock:
+            adapters = list(self._adapters.values())
+            self._adapters.clear()
+        for adapter in adapters:
+            try:
+                await adapter.disconnect()
+            except Exception:
+                pass
+
+
+def _emit_lifecycle(config_path: str, status: str, detail=None, symbol=None):
+    payload = {"event": "grid_lifecycle", "config_path": config_path, "status": status}
+    if detail:
+        payload["detail"] = detail
+    if symbol:
+        payload["symbol"] = symbol
+    print("[GRID_LIFECYCLE] " + json.dumps(payload, ensure_ascii=False, separators=(",", ":")), flush=True)
+    try:
+        publish_lifecycle(config_path, status, detail)
+    except Exception as exc:
+        logging.getLogger("system").warning("寫入 lifecycle journal 失敗: %s", exc)
+
+
+async def run_single_grid_task(config_path: str, adapter_pool, logger, running_grids_ref):
     """
     併發啟動並運行單個網格任務
     """
     logger.info(f"🟢 [初始化] 正在讀取配置檔案: {config_path}")
     try:
+        blocked = start_rejection(_config_account_mode(config_path), live_trading_enabled())
+        if blocked:
+            logger.error(f"❌ [{config_path}] {blocked}")
+            _emit_lifecycle(config_path, "failed", blocked)
+            return
+
         # 1. 載入並解析配置
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config_data = yaml.safe_load(f)
+        config_data = _load_grid_yaml(config_path)
         grid_config = create_grid_config(config_data)
+        shared_adapter = await adapter_pool.get(config_path)
 
         # 🔥 自動獲取精度信息（若 YAML 中省略了 quantity_precision / price_decimals）
         await auto_fill_precision(grid_config, shared_adapter, logger)
@@ -188,7 +259,7 @@ async def run_single_grid_task(config_path: str, shared_adapter, logger, running
         # 2. 建立該網格專有的網格組件，注入共享適配器
         strategy = GridStrategyImpl()
         
-        # 關鍵點：傳入同一個 shared_adapter，引擎會複用這個適配器的緩存、限速器和訂閱管理器
+        # 關鍵點：同一交易所共用 adapter，不同交易所分池，避免串單。
         engine = GridEngineImpl(shared_adapter)
         
         grid_state = GridState()
@@ -247,10 +318,7 @@ async def run_single_grid_task(config_path: str, shared_adapter, logger, running
         logger.info(f"✨ [{grid_config.symbol}] 網格系統完全就位！開始監聽交易對...")
         # Machine-readable acknowledgement consumed by the control API. The
         # config path, rather than a symbol, is used as the lifecycle identity.
-        print("[GRID_LIFECYCLE] " + json.dumps({
-            "event": "grid_lifecycle", "config_path": config_path,
-            "status": "running", "symbol": grid_config.symbol,
-        }, ensure_ascii=False, separators=(",", ":")), flush=True)
+        _emit_lifecycle(config_path, "running", symbol=grid_config.symbol)
 
         # 6. 週期性統計日誌彙報
         import decimal
@@ -276,8 +344,27 @@ async def run_single_grid_task(config_path: str, shared_adapter, logger, running
                     )
                 else:
                     stats = await coordinator.get_statistics()
-                    stats_dict = stats.to_display_dict()
+                    try:
+                        stats_dict = stats.to_display_dict()
+                    except Exception:
+                        stats_dict = {
+                            "current_price": float(stats.current_price),
+                            "current_position": float(stats.current_position),
+                            "profit": {
+                                "realized": float(stats.realized_profit),
+                                "unrealized": float(stats.unrealized_profit),
+                                "fees": float(stats.total_fees),
+                                "net": float(stats.net_profit),
+                                "rate": float(stats.profit_rate),
+                            },
+                        }
+                    stats_dict["symbol"] = grid_config.symbol
+                    stats_dict["source"] = "engine_runtime"
                     print(f"[STATS_JSON][{grid_config.symbol}] {json.dumps(stats_dict, cls=JSONEncoder)}")
+                    try:
+                        publish_runtime(config_path, stats_dict)
+                    except Exception as persist_err:
+                        logger.warning(f"寫入 runtime snapshot 失敗: {persist_err}")
                     logger.info(
                         f"📊 [{grid_config.symbol}] 當前價格: {stats.current_price} | "
                         f"持倉: {stats.current_position} | "
@@ -305,15 +392,11 @@ async def run_single_grid_task(config_path: str, shared_adapter, logger, running
 
     except asyncio.CancelledError:
         logger.info(f"🛑 [{grid_config.symbol if 'grid_config' in locals() else config_path}] 網格任務已被取消/停用。")
-        print("[GRID_LIFECYCLE] " + json.dumps({
-            "event": "grid_lifecycle", "config_path": config_path, "status": "stopped",
-        }, ensure_ascii=False, separators=(",", ":")), flush=True)
+        _emit_lifecycle(config_path, "stopped")
         raise
     except Exception as e:
         logger.error(f"💥 運行網格任務時發生崩潰 [{config_path}]: {e}", exc_info=True)
-        print("[GRID_LIFECYCLE] " + json.dumps({
-            "event": "grid_lifecycle", "config_path": config_path, "status": "failed", "detail": str(e),
-        }, ensure_ascii=False, separators=(",", ":")), flush=True)
+        _emit_lifecycle(config_path, "failed", str(e))
     finally:
         if config_path in running_grids_ref:
             del running_grids_ref[config_path]
@@ -335,74 +418,58 @@ async def main():
 
     logger.info("🎬 多網格併發啟動器運行中...")
 
-    # 獲取要運行的配置檔案列表
-    config_paths = args.configs
-    if not config_paths:
-        # 如果未指定，則運行預設的 5 個幣種網格
-        config_paths = [
-            "config/grid/binance-neutral-perp-sol-usdc-100-160.yaml",
-            "config/grid/binance-long-perp-sol-usdc.yaml",
-            "config/grid/binance-long-perp-doge-usdc.yaml",
-            "config/grid/binance-neutral-perp-tradoor-usdt.yaml",
-            "config/grid/binance-neutral-perp-paxg-usdt.yaml"
-        ]
-
-    # 過濾掉不存在的配置檔案
+    # CLI 明確指定的配置才加入 desired state。未指定時進入熱插拔待命，
+    # 不再偷偷啟動內建的五個實盤 YAML。
+    config_paths = list(args.configs)
     valid_paths = []
     for cp in config_paths:
-        if Path(cp).exists():
+        if _abs_config(cp).exists():
             valid_paths.append(cp)
         else:
             logger.warning(f"⚠️ 找不到配置檔案: {cp}，跳過此網格。")
 
-    if not valid_paths:
-        logger.error("❌ 沒有可執行的有效網格配置檔案！程序退出。")
-        sys.exit(1)
-
-    logger.info(f"📋 共加載了 {len(valid_paths)} 個網格配置任務，準備共享同一個交易所適配器。")
-
-    # 鎖文件註冊
     lock_file = acquire_multi_lock()
+    adapter_pool = ExchangeAdapterPool()
 
-    # 1. 創建全域唯一的共享交易所適配器
-    logger.info(f"🔗 正在基於首個配置初始化全域共享適配器...")
-    try:
-        with open(valid_paths[0], 'r', encoding='utf-8') as f:
-            first_config_data = yaml.safe_load(f)
-        shared_adapter = await create_exchange_adapter(first_config_data)
-        logger.info("🔌 全域共享交易所適配器已成功連接並快取！")
-    except Exception as init_err:
-        logger.error(f"❌ 初始化共享交易所適配器失敗: {init_err}")
-        if os.path.exists(lock_file):
-            os.remove(lock_file)
-        sys.exit(1)
-
-    # 2. 初始化 active_grids.json 控制檔
     control_file = project_root / "config" / "active_grids.json"
     control_file.parent.mkdir(parents=True, exist_ok=True)
-    
+
     active_status = {}
     if control_file.exists():
         try:
-            with open(control_file, 'r', encoding='utf-8') as cf:
-                active_status = json.load(cf)
+            with open(control_file, "r", encoding="utf-8") as cf:
+                loaded = json.load(cf)
+            if isinstance(loaded, dict):
+                active_status = loaded
         except Exception as e:
             logger.warning(f"⚠️ 讀取 active_grids.json 失敗: {e}，將重建控制檔。")
-    
-    # 確保所有 valid_paths 在 active_status 中都有初始記錄
+
     modified = False
     for path in valid_paths:
         if path not in active_status:
             active_status[path] = True
             modified = True
-            
+
     if modified or not control_file.exists():
         try:
-            with open(control_file, 'w', encoding='utf-8') as cf:
+            tmp = control_file.with_suffix(".json.tmp")
+            with open(tmp, "w", encoding="utf-8") as cf:
                 json.dump(active_status, cf, indent=4, ensure_ascii=False)
+                cf.flush()
+                os.fsync(cf.fileno())
+            os.replace(tmp, control_file)
             logger.info(f"📝 已建立/更新網格控制檔: {control_file}")
         except Exception as e:
             logger.error(f"❌ 寫入 active_grids.json 失敗: {e}")
+
+    enabled_existing = [
+        path for path, enabled in active_status.items()
+        if enabled and _abs_config(path).exists()
+    ]
+    if enabled_existing:
+        logger.info(f"📋 控制檔中有 {len(enabled_existing)} 個啟用中的網格；適配器將按交易所分池建立。")
+    else:
+        logger.info("📋 沒有待啟動的網格，進入熱插拔待命。UI 新建的 YAML 將在啟用後被接手。")
 
     # 🔥 啟動前檢查：若 IP 仍在 BAN 中，等待解封後再啟動網格任務
     if BinanceRest._is_adapter_circuit_open():
@@ -455,36 +522,42 @@ async def main():
             except Exception:
                 continue
 
-            for path in list(current_status.keys()):
-                is_enabled = current_status[path]
-                
-                # 情況 1：控制檔設為 false，且該網格正處於運行狀態 -> 停止它
+            for path, is_enabled in list(current_status.items()):
                 if not is_enabled and path in running_grids_ref:
                     logger.info(f"🛑 [動態控制] 檢測到 {path} 被設為停用，正在優雅取消所有掛單並停用任務...")
                     grid_info = running_grids_ref.get(path)
                     if grid_info:
                         try:
-                            # 1. 呼叫 stop() 優雅取消 Binance 掛單與清場
                             await grid_info["coordinator"].stop()
                         except Exception as stop_err:
                             logger.error(f"⚠️ [動態控制] 停止 {path} 失敗: {stop_err}")
-                        # 2. 取消協程
                         grid_info["task"].cancel()
                     logger.info(f"✅ [動態控制] {path} 已成功停止並清空掛單。")
-                    
-                # 情況 2：控制檔設為 true，且該網格目前未在運行狀態 -> 啟動 it
-                elif is_enabled and path not in running_grids_ref and path in valid_paths:
-                    logger.info(f"▶️ [動態控制] 檢測到 {path} 被設為啟用，正在異步啟動網格...")
-                    asyncio.create_task(run_single_grid_task(path, shared_adapter, logger, running_grids_ref))
 
-    # 🔥 併發運行所有初始啟用的網格（錯開 2 秒避免 API burst）
-    stagger_delay = 5  # 秒（🔥 Fix #5: 從2秒加大至5秒，避免5個網格啟動時 API burst）
-    for idx, path in enumerate(valid_paths):
-        if active_status.get(path, True):
-            if idx > 0:
-                logger.info(f"⏳ 等待 {stagger_delay} 秒後啟動下一個網格...")
-                await asyncio.sleep(stagger_delay)
-            asyncio.create_task(run_single_grid_task(path, shared_adapter, logger, running_grids_ref))
+            def _exists(path: str) -> bool:
+                return _abs_config(path).exists()
+
+            for path in iter_hotplug_starts(
+                current_status,
+                running_grids_ref.keys(),
+                _exists,
+                _config_account_mode,
+                live_trading_enabled(),
+            ):
+                logger.info(f"▶️ [動態控制] 檢測到 {path} 被設為啟用，正在異步啟動網格...")
+                asyncio.create_task(run_single_grid_task(path, adapter_pool, logger, running_grids_ref))
+
+    stagger_delay = 5
+    initial_paths = [
+        path for path, enabled in active_status.items()
+        if enabled and _abs_config(path).exists()
+        and not start_rejection(_config_account_mode(path), live_trading_enabled())
+    ]
+    for idx, path in enumerate(initial_paths):
+        if idx > 0:
+            logger.info(f"⏳ 等待 {stagger_delay} 秒後啟動下一個網格...")
+            await asyncio.sleep(stagger_delay)
+        asyncio.create_task(run_single_grid_task(path, adapter_pool, logger, running_grids_ref))
 
     # 啟動監控協程
     monitor_task = asyncio.create_task(active_grids_monitor())
@@ -508,10 +581,9 @@ async def main():
             except Exception as close_err:
                 logger.error(f"⚠️ 清理 {path} 時出錯: {close_err}")
         
-        # 斷開適配器連接並清理鎖檔案
-        logger.info("🔌 正在斷開全域共享適配器連接並清理鎖檔案...")
+        logger.info("🔌 正在斷開交易所適配器連接並清理鎖檔案...")
         try:
-            await shared_adapter.disconnect()
+            await adapter_pool.disconnect_all()
         except Exception as close_err:
             logger.error(f"⚠️ 斷開適配器時出錯: {close_err}")
         if os.path.exists(lock_file):

@@ -1,24 +1,24 @@
+import os
 import threading
 import time
 from typing import Optional, Dict
 
+
 class GridStateStore:
-    """進程內共享的網格狀態儲存（零 DB 開銷）"""
+    """In-process cache over the durable runtime repository."""
 
     _instance = None
     _lock = threading.Lock()
-    STALE_THRESHOLD = 180  # 秒
+    STALE_THRESHOLD = 180
+    REFRESH_TTL = 0.5
 
     def __init__(self):
         self._states: Dict[str, dict] = {}
         self._updated_at: Dict[str, float] = {}
-        # Retain the last engine snapshots across a FastAPI restart. Runtime
-        # freshness is still calculated from the original engine timestamp.
+        self._last_refresh = 0.0
         from runtime_repository import RuntimeSnapshotRepository
         self._repository = RuntimeSnapshotRepository.instance()
-        for config_path, (stats, updated_at) in self._repository.load_all().items():
-            self._states[config_path] = stats
-            self._updated_at[config_path] = updated_at
+        self._refresh_from_repository(force=True)
 
     @classmethod
     def instance(cls) -> "GridStateStore":
@@ -28,64 +28,58 @@ class GridStateStore:
                     cls._instance = cls()
         return cls._instance
 
+    def _refresh_from_repository(self, force: bool = False) -> None:
+        now = time.time()
+        if not force and (now - self._last_refresh) < self.REFRESH_TTL:
+            return
+        for config_path, (stats, updated_at) in self._repository.load_all().items():
+            current = self._updated_at.get(config_path, 0)
+            if updated_at >= current:
+                self._states[config_path] = stats
+                self._updated_at[config_path] = updated_at
+        self._last_refresh = now
+
     def update(self, config_path: str, stats: dict):
         updated_at = time.time()
         with self._lock:
             self._states[config_path] = stats
             self._updated_at[config_path] = updated_at
         self._repository.save(config_path, stats, updated_at)
-        # A fresh engine statistic is the acknowledgement required to promote a
-        # start command from desired state to genuinely running.
         try:
             from command_repository import GridCommandRepository
-            import os
             grid_id = os.path.splitext(os.path.basename(config_path))[0]
             command = GridCommandRepository.instance().latest_for_grid(grid_id)
             if command and command["action"] == "start" and command["status"] == "pending_engine":
                 GridCommandRepository.instance().update_status(command["command_id"], "running")
         except Exception:
-            # Observability must never interrupt runtime state ingestion.
             pass
+
+    def _decorate(self, config_path: str, stats: dict, updated: float) -> dict:
+        grid_id = stats.get("grid_id")
+        if not grid_id:
+            grid_id = os.path.splitext(os.path.basename(config_path))[0]
+        return {
+            **stats,
+            "grid_id": grid_id,
+            "last_update": updated,
+            "stale": (time.time() - updated) > self.STALE_THRESHOLD,
+        }
 
     def get(self, config_path: str) -> Optional[dict]:
         with self._lock:
+            self._refresh_from_repository()
             stats = self._states.get(config_path)
             if stats is None:
                 return None
-            updated = self._updated_at.get(config_path, 0)
-            
-            # 動態補上 grid_id
-            import os
-            grid_id = stats.get("grid_id")
-            if not grid_id:
-                base = os.path.basename(config_path)
-                grid_id = os.path.splitext(base)[0]
-                
-            return {
-                **stats,
-                "grid_id": grid_id,
-                "last_update": updated,
-                "stale": (time.time() - updated) > self.STALE_THRESHOLD,
-            }
+            return self._decorate(config_path, stats, self._updated_at.get(config_path, 0))
 
     def get_all(self) -> dict:
         with self._lock:
-            now = time.time()
-            import os
-            ret = {}
-            for path, stats in self._states.items():
-                updated = self._updated_at.get(path, 0)
-                grid_id = stats.get("grid_id")
-                if not grid_id:
-                    base = os.path.basename(path)
-                    grid_id = os.path.splitext(base)[0]
-                ret[path] = {
-                    **stats,
-                    "grid_id": grid_id,
-                    "last_update": updated,
-                    "stale": (now - updated) > self.STALE_THRESHOLD,
-                }
-            return ret
+            self._refresh_from_repository()
+            return {
+                path: self._decorate(path, stats, self._updated_at.get(path, 0))
+                for path, stats in self._states.items()
+            }
 
     def remove(self, config_path: str):
         with self._lock:
@@ -94,42 +88,39 @@ class GridStateStore:
         self._repository.remove(config_path)
 
     def get_summary(self) -> dict:
-        with self._lock:
-            total_realized = 0.0
-            total_unrealized = 0.0
-            grids = []
-            for path, stats in self._states.items():
-                profit = stats.get("profit", {})
-                realized = profit.get("realized", 0.0)
-                unrealized = profit.get("unrealized", 0.0)
-                total_realized += realized
-                total_unrealized += unrealized
-                
-                # grid_id 可以從 path 推導，也可以從 stats 取出
-                # 為了避免沒有 grid_id，這裡嘗試推導
-                grid_id = stats.get("grid_id")
-                if not grid_id:
-                    # config/grid/binance-neutral-sol-usdc.yaml -> binance-neutral-sol-usdc
-                    import os
-                    base = os.path.basename(path)
-                    grid_id = os.path.splitext(base)[0]
-
-                grids.append({
-                    "grid_id": grid_id,
-                    "config_path": path,
-                    "symbol": stats.get("symbol", "unknown"),
-                    "realized_pnl": realized,
-                    "unrealized_pnl": unrealized,
-                    "total_pnl": realized + unrealized,
-                    "current_price": stats.get("current_price", 0.0),
-                    "current_position": stats.get("current_position", 0.0),
-                    "status": stats.get("status", "running"),
-                    "stale": (time.time() - self._updated_at.get(path, 0)) > self.STALE_THRESHOLD,
-                })
-            return {
-                "total_grids": len(self._states),
-                "total_realized_pnl": total_realized,
-                "total_unrealized_pnl": total_unrealized,
-                "total_pnl": total_realized + total_unrealized,
-                "grids": grids,
-            }
+        all_stats = self.get_all()
+        total_realized = 0.0
+        total_unrealized = 0.0
+        grids = []
+        for path, stats in all_stats.items():
+            profit = stats.get("profit") or {}
+            realized = profit.get("realized")
+            unrealized = profit.get("unrealized")
+            if isinstance(realized, (int, float)) and not isinstance(realized, bool):
+                total_realized += float(realized)
+            if isinstance(unrealized, (int, float)) and not isinstance(unrealized, bool):
+                total_unrealized += float(unrealized)
+            grids.append({
+                "grid_id": stats.get("grid_id"),
+                "config_path": path,
+                "symbol": stats.get("symbol"),
+                "realized_pnl": realized if isinstance(realized, (int, float)) else None,
+                "unrealized_pnl": unrealized if isinstance(unrealized, (int, float)) else None,
+                "total_pnl": (
+                    (float(realized) if isinstance(realized, (int, float)) else 0.0)
+                    + (float(unrealized) if isinstance(unrealized, (int, float)) else 0.0)
+                    if isinstance(realized, (int, float)) or isinstance(unrealized, (int, float))
+                    else None
+                ),
+                "current_price": stats.get("current_price"),
+                "current_position": stats.get("current_position"),
+                "status": stats.get("status"),
+                "stale": stats.get("stale", False),
+            })
+        return {
+            "total_grids": len(all_stats),
+            "total_realized_pnl": total_realized,
+            "total_unrealized_pnl": total_unrealized,
+            "total_pnl": total_realized + total_unrealized,
+            "grids": grids,
+        }
