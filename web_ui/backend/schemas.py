@@ -134,11 +134,26 @@ class GridCreateResponse(BaseModel):
 
 
 class GridActionResponse(BaseModel):
-    """Start/Stop/Delete 操作回應"""
+    """Start/Stop/Delete 操作回應；accepted 表示已記錄，非引擎已確認。"""
     grid_id: str
     action: str
     status: str
     message: str
+    command_id: Optional[str] = None
+
+
+class GridCommandResponse(BaseModel):
+    """可稽核的策略生命週期命令。"""
+    command_id: str
+    grid_id: str
+    config_path: str
+    action: str
+    status: str  # accepted / pending_engine / running / stopped / failed
+    source: str
+    reason: Optional[str] = None
+    detail: Optional[str] = None
+    created_at: float
+    updated_at: float
 
 
 class CircuitBreakerInfo(BaseModel):

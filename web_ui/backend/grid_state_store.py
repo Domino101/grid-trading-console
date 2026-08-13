@@ -34,6 +34,18 @@ class GridStateStore:
             self._states[config_path] = stats
             self._updated_at[config_path] = updated_at
         self._repository.save(config_path, stats, updated_at)
+        # A fresh engine statistic is the acknowledgement required to promote a
+        # start command from desired state to genuinely running.
+        try:
+            from command_repository import GridCommandRepository
+            import os
+            grid_id = os.path.splitext(os.path.basename(config_path))[0]
+            command = GridCommandRepository.instance().latest_for_grid(grid_id)
+            if command and command["action"] == "start" and command["status"] == "pending_engine":
+                GridCommandRepository.instance().update_status(command["command_id"], "running")
+        except Exception:
+            # Observability must never interrupt runtime state ingestion.
+            pass
 
     def get(self, config_path: str) -> Optional[dict]:
         with self._lock:

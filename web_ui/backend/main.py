@@ -25,6 +25,7 @@ from models import ProcessStatus, StartProcessRequest
 from routes.system import router as system_router
 from routes.grids import router as grids_router
 from routes.dashboard import router as dashboard_router
+from routes.commands import router as commands_router
 from routes.market import router as market_router
 
 # Configure logging
@@ -63,6 +64,7 @@ app.add_middleware(
 app.include_router(system_router)
 app.include_router(grids_router)
 app.include_router(dashboard_router)
+app.include_router(commands_router)
 app.include_router(market_router)
 
 async def monitor_processes():
