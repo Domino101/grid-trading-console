@@ -12,6 +12,7 @@
 - [ ] LIVE 發布需要明確風險核准後才設定 `GRID_LIVE_TRADING_ENABLED=true`。
 - [ ] 審閱 `config/grid/*.yaml`：確認每筆策略 `account_mode` 與目標交易所一致。
 - [ ] 執行 `npm run lint`、`npm run build`、pytest/PAPER E2E，保存結果。
+- [ ] 最低本地持久化流程測試：`python -m unittest tests.test_paper_grid_lifecycle_e2e`。
 
 ## 2. 安裝與啟動 systemd
 
