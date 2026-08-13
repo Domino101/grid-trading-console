@@ -7,7 +7,6 @@ unknown runtime values remain ``null`` instead of being represented as zero.
 
 from __future__ import annotations
 
-import os
 import time
 
 from fastapi import APIRouter, Depends
@@ -20,9 +19,10 @@ from lifecycle import (
     aggregate_read_models,
     build_grid_read_model,
     live_trading_enabled,
+    registered_config_paths,
 )
 from schemas import DashboardAggregate, DashboardGridItem, DashboardSnapshotResponse
-from routes.grids import _build_grid_info, _get_project_root, _read_active_grids, _read_yaml_config
+from routes.grids import _build_grid_info, _read_active_grids, _read_yaml_config
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
@@ -31,14 +31,7 @@ router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 async def get_dashboard_snapshot(_token: str = Depends(verify_token)):
     """Return all overview data from one coherent, local read pass."""
     active_grids = _read_active_grids()
-    config_dir = os.path.join(_get_project_root(), "config", "grid")
-    known_paths = set(active_grids)
-    if os.path.isdir(config_dir):
-        known_paths.update(
-            f"config/grid/{name}"
-            for name in os.listdir(config_dir)
-            if name.endswith(".yaml") and not name.startswith("README")
-        )
+    known_paths = registered_config_paths(active_grids)
 
     store = GridStateStore.instance()
     command_repository = GridCommandRepository.instance()
@@ -46,7 +39,7 @@ async def get_dashboard_snapshot(_token: str = Depends(verify_token)):
     live_enabled = live_trading_enabled()
     items: list[DashboardGridItem] = []
 
-    for config_path in sorted(known_paths):
+    for config_path in known_paths:
         info = _build_grid_info(config_path, active_grids)
         yaml_data = _read_yaml_config(config_path)
         runtime = store.get(config_path)

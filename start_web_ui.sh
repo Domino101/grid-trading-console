@@ -9,6 +9,9 @@ NC='\033[0m'
 echo -e "${GREEN}═══════════════════════════════════════${NC}"
 echo -e "${GREEN}  網格交易 Web UI 啟動腳本${NC}"
 echo -e "${GREEN}═══════════════════════════════════════${NC}"
+echo -e "${YELLOW}⚠️  非正式部署：此腳本用 nohup 拉起後端，沒有 systemd 重啟、健康檢查或日誌輪替。${NC}"
+echo -e "${YELLOW}   正式環境請安裝 scripts/deployment/crypto-webui.service，並依 docs/web_ui_deployment_and_release_checklist_zh-TW.md 驗收。${NC}"
+echo -e "${YELLOW}   引擎請另外執行 python run_multiple_grids.py（未指定 YAML 時為熱插拔待命）。${NC}"
 
 # 獲取腳本所在目錄的絕對路徑
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"

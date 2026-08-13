@@ -41,7 +41,7 @@ class DashboardSnapshotTests(unittest.TestCase):
     def _snapshot(self, active=True):
         from routes.dashboard import get_dashboard_snapshot
 
-        with patch("routes.dashboard._get_project_root", return_value=self.temp_dir.name), patch(
+        with patch(
             "routes.dashboard._read_active_grids", return_value={self.config_path: active}
         ), patch("routes.grids._get_project_root", return_value=self.temp_dir.name):
             return asyncio.run(get_dashboard_snapshot("test-token"))
@@ -75,6 +75,17 @@ class DashboardSnapshotTests(unittest.TestCase):
         self.assertEqual(snapshot.aggregate.volume, 2500.0)
         self.assertEqual(snapshot.grids[0].data_status, "live")
         self.assertEqual(snapshot.grids[0].completed_cycles, 2)
+
+    def test_unregistered_and_archived_yaml_are_hidden(self):
+        extra = os.path.join(self.temp_dir.name, "config", "grid", "orphan.yaml")
+        archived_dir = os.path.join(self.temp_dir.name, "config", "grid", "archived")
+        os.makedirs(archived_dir, exist_ok=True)
+        with open(extra, "w", encoding="utf-8") as handle:
+            handle.write("grid_system:\n  symbol: ETH/USDT\n  exchange: binance\n")
+        with open(os.path.join(archived_dir, "old.yaml"), "w", encoding="utf-8") as handle:
+            handle.write("grid_system:\n  symbol: OLD/USDT\n  exchange: binance\n")
+        snapshot = self._snapshot()
+        self.assertEqual([item.grid_id for item in snapshot.grids], ["binance-neutral-btc-usdt"])
 
 
 if __name__ == "__main__":

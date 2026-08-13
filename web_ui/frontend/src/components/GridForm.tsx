@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, Settings } from 'lucide-react';
 import { api, type CreateGridRequest, type MarketInfo } from '../services/api';
+import { canAdvanceCreateStep } from '../utils/format';
 
 type Notice = { type: 'success' | 'error'; text: string } | null;
 
@@ -39,7 +40,7 @@ const GridForm = () => {
   };
   const perGridNotional = formData.lower_price && formData.upper_price ? ((formData.lower_price + formData.upper_price) / 2) * formData.order_amount : null;
   const minNotionalError = marketInfo?.min_notional && perGridNotional !== null && perGridNotional < marketInfo.min_notional;
-  const canAdvance = step === 1 ? Boolean(formData.symbol && formData.exchange) : step === 2 ? Boolean(formData.lower_price && formData.upper_price && formData.grid_interval && formData.order_amount && formData.lower_price < formData.upper_price && !minNotionalError) : mode !== 'live' || liveConfirmation === 'CONFIRM LIVE';
+  const canAdvance = canAdvanceCreateStep(step, formData, mode, liveConfirmation, Boolean(minNotionalError));
 
   const submit = async () => {
     setLoading(true); setNotice(null);

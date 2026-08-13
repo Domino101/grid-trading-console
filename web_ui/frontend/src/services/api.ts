@@ -1,6 +1,10 @@
+import { ApiError, detailMessage, getStoredToken } from '../utils/auth';
+
 // Browser-facing requests must remain same-origin. In development Vite proxies
 // these paths to the backend; deployed builds are served by FastAPI directly.
 const API_BASE = '/api';
+
+export { ApiError } from '../utils/auth';
 
 export interface ProcessStatus {
     pid: number;
@@ -11,10 +15,6 @@ export interface ProcessStatus {
     config_path: string | null;
 }
 
-// ==========================================
-// Grid Interfaces
-// ==========================================
-
 export interface GridInfo {
     grid_id: string;
     config_path: string;
@@ -22,6 +22,10 @@ export interface GridInfo {
     exchange?: string;
     grid_type?: string;
     status: string;
+    mode?: string;
+    data_status?: string;
+    command_id?: string | null;
+    command_status?: string | null;
     lower_price?: number;
     upper_price?: number;
     grid_interval?: number;
@@ -39,12 +43,13 @@ export interface GridListResponse {
 export interface GridSummaryItem {
     grid_id: string;
     symbol: string;
-    realized_pnl: number;
-    unrealized_pnl: number;
-    total_pnl: number;
-    current_price: number;
+    realized_pnl: number | null;
+    unrealized_pnl: number | null;
+    total_pnl: number | null;
+    current_price: number | null;
     status: string;
     stale: boolean;
+    data_status?: string;
 }
 
 export interface GridSummary {
@@ -57,31 +62,31 @@ export interface GridSummary {
 }
 
 export interface GridStatsPendingOrders {
-    buy: number;
-    sell: number;
-    total: number;
+    buy: number | null;
+    sell: number | null;
+    total: number | null;
 }
 
 export interface GridStatsFilledOrders {
-    buy: number;
-    sell: number;
-    cycles: number;
+    buy: number | null;
+    sell: number | null;
+    cycles: number | null;
 }
 
 export interface GridStatsProfit {
-    realized: number;
-    unrealized: number;
-    total: number;
-    fees: number;
-    net: number;
-    rate: number;
+    realized: number | null;
+    unrealized: number | null;
+    total: number | null;
+    fees: number | null;
+    net: number | null;
+    rate: number | null;
 }
 
 export interface GridStatsBalance {
-    spot: number;
-    collateral: number;
-    total: number;
-    utilization: number;
+    spot: number | null;
+    collateral: number | null;
+    total: number | null;
+    utilization: number | null;
 }
 
 export interface GridStatsTime {
@@ -94,8 +99,8 @@ export interface GridStats {
     symbol: string;
     status: string;
     stale: boolean;
-    current_price: number;
-    current_position: number;
+    current_price: number | null;
+    current_position: number | null;
     average_cost: number | null;
     pending_orders: GridStatsPendingOrders | null;
     filled_orders: GridStatsFilledOrders | null;
@@ -167,6 +172,18 @@ export interface DashboardSnapshot {
     grids: DashboardGridItem[];
 }
 
+export interface SystemHealth {
+    status: string;
+    circuit_breaker: { is_open: boolean; error_code?: string | null; until?: string | null };
+    api_throttle: { total_calls: number; window_current: number; window_max: number };
+    engine: { process_running: boolean; pid: number | null };
+    running_grids: number;
+    desired_running_grids: number;
+    running_grid_configs: string[];
+    max_recommended_grids: number;
+    can_accept_new_grid: boolean;
+}
+
 export interface GridEvent { grid_id: string; event_type: string; status: string; detail: string | null; occurred_at: number; }
 
 export interface MarketInfo {
@@ -190,6 +207,36 @@ export interface GridHistoryPoint {
 }
 
 export interface GridHistory { grid_id: string; range_hours: number; points: GridHistoryPoint[]; }
+
+export interface GridOrderRow {
+    side?: string;
+    price?: number | null;
+    amount?: number | null;
+    grid_id?: string | number | null;
+    status?: string;
+}
+
+export interface GridOrdersResponse {
+    grid_id: string;
+    available: boolean;
+    orders: GridOrderRow[];
+    message: string | null;
+}
+
+export interface GridFillRow {
+    side?: string;
+    price?: number | null;
+    amount?: number | null;
+    fee?: number | null;
+    time?: string | number | null;
+}
+
+export interface GridFillsResponse {
+    grid_id: string;
+    available: boolean;
+    fills: GridFillRow[];
+    message: string | null;
+}
 
 export interface CreateGridRequest {
     symbol: string;
@@ -275,194 +322,193 @@ export interface GridCommand {
     updated_at: number;
 }
 
-// helper to get auth token
-const getAuthHeaders = (idempotencyKey?: string): HeadersInit => {
-    // 假設 token 儲存在 localStorage 或可以透過環境變數傳入
-    const token = localStorage.getItem('GRID_API_TOKEN');
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (token) headers.Authorization = `Bearer ${token}`;
-    if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
+const authHeaders = (idempotencyKey?: string): Headers => {
+    const headers = new Headers();
+    headers.set('Content-Type', 'application/json');
+    const token = getStoredToken();
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    if (idempotencyKey) headers.set('Idempotency-Key', idempotencyKey);
     return headers;
 };
 
+const parseBody = async (res: Response): Promise<unknown> => {
+    const text = await res.text();
+    if (!text) return {};
+    try {
+        return JSON.parse(text);
+    } catch {
+        return {};
+    }
+};
+
+const requestJson = async <T>(path: string, init: RequestInit = {}, fallback: string): Promise<T> => {
+    const headers = new Headers(init.headers);
+    const token = getStoredToken();
+    if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`);
+    const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
+    const body = await parseBody(res);
+    if (res.status === 401 || res.status === 403) {
+        throw new ApiError(detailMessage(body, '未授權'), res.status);
+    }
+    if (!res.ok) {
+        throw new ApiError(detailMessage(body, fallback), res.status);
+    }
+    return body as T;
+};
+
 export const api = {
-    // ------------------------------------------
-    // 原有 Methods
-    // ------------------------------------------
     async getScripts(): Promise<string[]> {
-        const res = await fetch(`${API_BASE}/scripts`);
-        return res.json();
+        return requestJson('/scripts', {}, 'Failed to list scripts');
     },
 
     async getConfigs(): Promise<string[]> {
-        const res = await fetch(`${API_BASE}/configs`);
-        return res.json();
+        return requestJson('/configs', {}, 'Failed to list configs');
     },
 
     async getConfig(path: string): Promise<string> {
-        const res = await fetch(`${API_BASE}/config/${encodeURIComponent(path)}`);
-        if (!res.ok) throw new Error('Failed to load config');
+        const res = await fetch(`${API_BASE}/config/${encodeURIComponent(path)}`, { headers: authHeaders() });
+        if (res.status === 401 || res.status === 403) throw new ApiError('未授權', res.status);
+        if (!res.ok) throw new ApiError('Failed to load config', res.status);
         return res.text();
     },
 
     async updateConfig(path: string, content: string): Promise<void> {
         const res = await fetch(`${API_BASE}/config/${encodeURIComponent(path)}`, {
             method: 'PUT',
-            headers: { 'Content-Type': 'text/plain' },
+            headers: { ...Object.fromEntries(authHeaders().entries()), 'Content-Type': 'text/plain' },
             body: content,
         });
-        if (!res.ok) throw new Error('Failed to save config');
+        if (res.status === 401 || res.status === 403) throw new ApiError('未授權', res.status);
+        if (!res.ok) throw new ApiError('Failed to save config', res.status);
     },
 
     async getProcesses(): Promise<ProcessStatus[]> {
-        const res = await fetch(`${API_BASE}/processes`);
-        return res.json();
+        return requestJson('/processes', {}, 'Failed to list processes');
     },
 
     async startProcess(script: string, configPath: string): Promise<{pid: number, status: string}> {
-        const res = await fetch(`${API_BASE}/process/start`, {
+        return requestJson('/process/start', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: authHeaders(),
             body: JSON.stringify({ script, config_path: configPath }),
-        });
-        if (!res.ok) throw new Error('Failed to start process');
-        return res.json();
+        }, 'Failed to start process');
     },
 
     async stopProcess(pid: number): Promise<void> {
-        const res = await fetch(`${API_BASE}/process/stop/${pid}`, {
-            method: 'POST',
-        });
-        if (!res.ok) throw new Error('Failed to stop process');
+        await requestJson(`/process/stop/${pid}`, { method: 'POST', headers: authHeaders() }, 'Failed to stop process');
     },
 
-    // ------------------------------------------
-    // 新增: Grid API Methods
-    // ------------------------------------------
-    async getDashboardSnapshot(): Promise<DashboardSnapshot> {
-        const res = await fetch(`${API_BASE}/v1/dashboard/snapshot`, {
-            headers: getAuthHeaders(),
-        });
-        if (res.status === 401 || res.status === 403) throw new Error('UNAUTHENTICATED');
-        if (!res.ok) throw new Error('Failed to get dashboard snapshot');
-        return res.json();
+    async getDashboardSnapshot(signal?: AbortSignal): Promise<DashboardSnapshot> {
+        return requestJson('/v1/dashboard/snapshot', { headers: authHeaders(), signal }, '無法讀取網格總覽');
+    },
+
+    async getSystemHealth(signal?: AbortSignal): Promise<SystemHealth> {
+        return requestJson('/v1/system/health', { headers: authHeaders(), signal }, '無法讀取系統健康狀態');
     },
 
     async listGrids(): Promise<GridListResponse> {
-        const res = await fetch(`${API_BASE}/v1/grids`, {
-            headers: getAuthHeaders(),
-        });
-        if (!res.ok) throw new Error('Failed to list grids');
-        return res.json();
+        return requestJson('/v1/grids', { headers: authHeaders() }, 'Failed to list grids');
     },
 
     async getGridSummary(): Promise<GridSummary> {
-        const res = await fetch(`${API_BASE}/v1/grids/summary`, {
-            headers: getAuthHeaders(),
-        });
-        if (!res.ok) throw new Error('Failed to get grids summary');
-        return res.json();
+        return requestJson('/v1/grids/summary', { headers: authHeaders() }, 'Failed to get grids summary');
     },
 
     async getMarketInfo(symbol: string, exchange: string): Promise<MarketInfo> {
-        const res = await fetch(`${API_BASE}/v1/market/info/${encodeURIComponent(symbol)}?exchange=${encodeURIComponent(exchange)}`, { headers: getAuthHeaders() });
-        if (!res.ok) {
-            const body = await res.json().catch(() => ({}));
-            throw new Error(body.detail || '無法讀取交易對規則');
-        }
-        return res.json();
+        return requestJson(
+            `/v1/market/info/${encodeURIComponent(symbol)}?exchange=${encodeURIComponent(exchange)}`,
+            { headers: authHeaders() },
+            '無法讀取交易對規則',
+        );
     },
 
-    async getGrid(gridId: string): Promise<GridInfo> {
-        const res = await fetch(`${API_BASE}/v1/grids/${encodeURIComponent(gridId)}`, { headers: getAuthHeaders() });
-        if (!res.ok) throw new Error(`Failed to get grid ${gridId}`);
-        return res.json();
+    async getGrid(gridId: string, signal?: AbortSignal): Promise<GridInfo> {
+        return requestJson(`/v1/grids/${encodeURIComponent(gridId)}`, { headers: authHeaders(), signal }, `Failed to get grid ${gridId}`);
     },
 
-    async getGridHistory(gridId: string, hours = 24): Promise<GridHistory> {
-        const res = await fetch(`${API_BASE}/v1/grids/${encodeURIComponent(gridId)}/history?hours=${hours}`, { headers: getAuthHeaders() });
-        if (!res.ok) throw new Error(`Failed to get history for ${gridId}`);
-        return res.json();
+    async getGridHistory(gridId: string, hours = 24, signal?: AbortSignal): Promise<GridHistory> {
+        return requestJson(
+            `/v1/grids/${encodeURIComponent(gridId)}/history?hours=${hours}`,
+            { headers: authHeaders(), signal },
+            `Failed to get history for ${gridId}`,
+        );
     },
 
-    async getGridStats(gridId: string): Promise<GridStats> {
-        const res = await fetch(`${API_BASE}/v1/grids/${encodeURIComponent(gridId)}/stats`, {
-            headers: getAuthHeaders(),
-        });
-        if (!res.ok) throw new Error(`Failed to get stats for grid ${gridId}`);
-        return res.json();
+    async getGridOrders(gridId: string, signal?: AbortSignal): Promise<GridOrdersResponse> {
+        return requestJson(
+            `/v1/grids/${encodeURIComponent(gridId)}/orders`,
+            { headers: authHeaders(), signal },
+            `Failed to get orders for ${gridId}`,
+        );
+    },
+
+    async getGridFills(gridId: string, signal?: AbortSignal): Promise<GridFillsResponse> {
+        return requestJson(
+            `/v1/grids/${encodeURIComponent(gridId)}/fills`,
+            { headers: authHeaders(), signal },
+            `Failed to get fills for ${gridId}`,
+        );
+    },
+
+    async getGridStats(gridId: string, signal?: AbortSignal): Promise<GridStats> {
+        return requestJson(
+            `/v1/grids/${encodeURIComponent(gridId)}/stats`,
+            { headers: authHeaders(), signal },
+            `Failed to get stats for grid ${gridId}`,
+        );
     },
 
     async createGrid(request: CreateGridRequest): Promise<GridCreateResponse> {
-        const res = await fetch(`${API_BASE}/v1/grids`, {
+        return requestJson('/v1/grids', {
             method: 'POST',
-            headers: getAuthHeaders(),
+            headers: authHeaders(),
             body: JSON.stringify(request),
-        });
-        if (!res.ok) {
-            const error = await res.json().catch(() => ({}));
-            throw new Error(error.detail?.message || error.detail || 'Failed to create grid');
-        }
-        return res.json();
+        }, 'Failed to create grid');
     },
 
     async getCommand(commandId: string): Promise<GridCommand> {
-        const res = await fetch(`${API_BASE}/v1/commands/${encodeURIComponent(commandId)}`, {
-            headers: getAuthHeaders(),
-        });
-        if (!res.ok) throw new Error(`Failed to get command ${commandId}`);
-        return res.json();
+        return requestJson(`/v1/commands/${encodeURIComponent(commandId)}`, { headers: authHeaders() }, `Failed to get command ${commandId}`);
     },
 
-    async listGridCommands(gridId: string): Promise<{ grid_id: string; commands: GridCommand[] }> {
-        const res = await fetch(`${API_BASE}/v1/commands?grid_id=${encodeURIComponent(gridId)}`, {
-            headers: getAuthHeaders(),
-        });
-        if (!res.ok) throw new Error(`Failed to get commands for ${gridId}`);
-        return res.json();
+    async listGridCommands(gridId: string, signal?: AbortSignal): Promise<{ grid_id: string; commands: GridCommand[] }> {
+        return requestJson(
+            `/v1/commands?grid_id=${encodeURIComponent(gridId)}`,
+            { headers: authHeaders(), signal },
+            `Failed to get commands for ${gridId}`,
+        );
     },
 
-    async listGridEvents(gridId: string): Promise<{ grid_id: string; events: GridEvent[] }> {
-        const res = await fetch(`${API_BASE}/v1/commands/events?grid_id=${encodeURIComponent(gridId)}`, { headers: getAuthHeaders() });
-        if (!res.ok) throw new Error(`Failed to get events for ${gridId}`);
-        return res.json();
+    async listGridEvents(gridId: string, signal?: AbortSignal): Promise<{ grid_id: string; events: GridEvent[] }> {
+        return requestJson(
+            `/v1/commands/events?grid_id=${encodeURIComponent(gridId)}`,
+            { headers: authHeaders(), signal },
+            `Failed to get events for ${gridId}`,
+        );
     },
 
     async startGrid(gridId: string, source: string = 'dashboard', idempotencyKey = crypto.randomUUID()): Promise<GridActionResponse> {
-        const res = await fetch(`${API_BASE}/v1/grids/${encodeURIComponent(gridId)}/start?source=${encodeURIComponent(source)}`, {
-            method: 'POST',
-            headers: getAuthHeaders(idempotencyKey),
-        });
-        if (!res.ok) {
-            const body = await res.json().catch(() => ({}));
-            throw new Error(body.detail?.message || body.detail || `Failed to start grid ${gridId}`);
-        }
-        return res.json();
+        return requestJson(
+            `/v1/grids/${encodeURIComponent(gridId)}/start?source=${encodeURIComponent(source)}`,
+            { method: 'POST', headers: authHeaders(idempotencyKey) },
+            `Failed to start grid ${gridId}`,
+        );
     },
 
     async stopGrid(gridId: string, source: string = 'dashboard', idempotencyKey = crypto.randomUUID()): Promise<GridActionResponse> {
-        const res = await fetch(`${API_BASE}/v1/grids/${encodeURIComponent(gridId)}/stop?source=${encodeURIComponent(source)}`, {
-            method: 'POST',
-            headers: getAuthHeaders(idempotencyKey),
-        });
-        if (!res.ok) {
-            const body = await res.json().catch(() => ({}));
-            throw new Error(body.detail?.message || body.detail || `Failed to stop grid ${gridId}`);
-        }
-        return res.json();
+        return requestJson(
+            `/v1/grids/${encodeURIComponent(gridId)}/stop?source=${encodeURIComponent(source)}`,
+            { method: 'POST', headers: authHeaders(idempotencyKey) },
+            `Failed to stop grid ${gridId}`,
+        );
     },
 
     async deleteGrid(gridId: string, source: string = 'dashboard'): Promise<GridActionResponse> {
-        const res = await fetch(`${API_BASE}/v1/grids/${encodeURIComponent(gridId)}?source=${encodeURIComponent(source)}`, {
-            method: 'DELETE',
-            headers: getAuthHeaders(),
-        });
-        if (!res.ok) {
-            const body = await res.json().catch(() => ({}));
-            throw new Error(body.detail?.message || body.detail || `Failed to delete grid ${gridId}`);
-        }
-        return res.json();
-    }
+        return requestJson(
+            `/v1/grids/${encodeURIComponent(gridId)}?source=${encodeURIComponent(source)}`,
+            { method: 'DELETE', headers: authHeaders() },
+            `Failed to delete grid ${gridId}`,
+        );
+    },
 };
 
 export const getWsBase = () => {
@@ -470,4 +516,4 @@ export const getWsBase = () => {
     return `${protocol}//${window.location.host}/ws/logs`;
 };
 
-export const WS_BASE = getWsBase();
+export const WS_BASE = typeof window === 'undefined' ? '/ws/logs' : getWsBase();

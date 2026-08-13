@@ -1,59 +1,88 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Play, RefreshCcw, Square, Trash2 } from 'lucide-react';
-import { api, type DashboardGridItem, type DashboardSnapshot } from '../services/api';
+import { AlertTriangle } from 'lucide-react';
+import { api, type DashboardGridItem, type DashboardSnapshot, type SystemHealth } from '../services/api';
+import { ApiError } from '../utils/auth';
+import { money, nextPollDelay, number } from '../utils/format';
+import ConfirmDialog from './ConfirmDialog';
+import GridCard from './GridCard';
+import KpiCard from './KpiCard';
+import TopBar from './TopBar';
 
 const REFRESH_MS = 15_000;
 
-const money = (value: number | null, maximumFractionDigits = 2) => value === null
-  ? '—'
-  : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits }).format(value);
-
-const number = (value: number | null, digits = 2) => value === null
-  ? '—'
-  : new Intl.NumberFormat('en-US', { maximumFractionDigits: digits }).format(value);
-
-const freshnessText = (item: DashboardGridItem) => {
-  if (item.data_status === 'unavailable') return '尚未同步';
-  if (item.data_status === 'stale') return '資料過期';
-  if (!item.last_updated_at) return '已同步';
-  return `同步於 ${new Date(item.last_updated_at * 1000).toLocaleTimeString('zh-TW')}`;
-};
-
 interface DashboardProps {
   onOpenGrid: (gridId: string) => void;
+  onUnauthorized: () => void;
 }
 
-const Dashboard = ({ onOpenGrid }: DashboardProps) => {
+const Dashboard = ({ onOpenGrid, onUnauthorized }: DashboardProps) => {
   const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
+  const [health, setHealth] = useState<SystemHealth | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionGridId, setActionGridId] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<{ grid: DashboardGridItem; action: 'stop' | 'delete' } | null>(null);
   const inFlight = useRef(false);
+  const failures = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   const fetchSnapshot = useCallback(async () => {
     if (inFlight.current) return;
     inFlight.current = true;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
-      const result = await api.getDashboardSnapshot();
+      const [result, nextHealth] = await Promise.all([
+        api.getDashboardSnapshot(controller.signal),
+        api.getSystemHealth(controller.signal).catch(() => null),
+      ]);
       setSnapshot(result);
+      if (nextHealth) setHealth(nextHealth);
       setError(null);
+      failures.current = 0;
     } catch (caught) {
+      if (caught instanceof ApiError && caught.isUnauthorized) {
+        onUnauthorized();
+        return;
+      }
+      if (caught instanceof DOMException && caught.name === 'AbortError') return;
+      failures.current += 1;
       setError(caught instanceof Error ? caught.message : '無法讀取網格總覽');
     } finally {
       setLoading(false);
       inFlight.current = false;
     }
-  }, []);
+  }, [onUnauthorized]);
 
   useEffect(() => {
-    // Defer the initial request so the effect only subscribes to external work.
-    const initialRequest = window.setTimeout(() => void fetchSnapshot(), 0);
-    const timer = window.setInterval(() => {
-      if (!document.hidden) void fetchSnapshot();
-    }, REFRESH_MS);
+    let cancelled = false;
+    let timer: number | undefined;
+
+    const schedule = (delay: number) => {
+      timer = window.setTimeout(() => {
+        if (cancelled) return;
+        if (document.hidden) {
+          schedule(REFRESH_MS);
+          return;
+        }
+        void fetchSnapshot().then(() => {
+          if (!cancelled) schedule(nextPollDelay(failures.current, REFRESH_MS));
+        });
+      }, delay);
+    };
+
+    const initial = window.setTimeout(() => {
+      void fetchSnapshot().then(() => {
+        if (!cancelled) schedule(REFRESH_MS);
+      });
+    }, 0);
+
     return () => {
-      window.clearTimeout(initialRequest);
-      window.clearInterval(timer);
+      cancelled = true;
+      window.clearTimeout(initial);
+      if (timer !== undefined) window.clearTimeout(timer);
+      abortRef.current?.abort();
     };
   }, [fetchSnapshot]);
 
@@ -62,7 +91,6 @@ const Dashboard = ({ onOpenGrid }: DashboardProps) => {
       setError(grid.start_blocked_reason);
       return;
     }
-    if (action !== 'start' && !window.confirm(`${action === 'delete' ? '刪除' : '停止'} ${grid.symbol ?? grid.grid_id}？停止會取消掛單，預設不平倉。`)) return;
     setActionGridId(grid.grid_id);
     try {
       if (action === 'start') await api.startGrid(grid.grid_id);
@@ -70,36 +98,47 @@ const Dashboard = ({ onOpenGrid }: DashboardProps) => {
       if (action === 'delete') await api.deleteGrid(grid.grid_id);
       await fetchSnapshot();
     } catch (caught) {
+      if (caught instanceof ApiError && caught.isUnauthorized) {
+        onUnauthorized();
+        return;
+      }
       setError(caught instanceof Error ? caught.message : '策略操作失敗');
     } finally {
       setActionGridId(null);
+      setConfirm(null);
     }
   };
 
   const aggregate = snapshot?.aggregate;
   return (
     <main className="dashboard" aria-busy={loading}>
+      <TopBar
+        dataStatus={snapshot?.data_status}
+        enginePid={health?.engine.pid ?? null}
+        engineRunning={health?.engine.process_running}
+        circuitOpen={health?.circuit_breaker.is_open}
+        lastSync={snapshot?.generated_at ?? null}
+        accountMode={snapshot?.account_mode}
+        onRefresh={() => void fetchSnapshot()}
+        loading={loading}
+      />
       <header className="dashboard-header">
         <div>
-          <p className="eyebrow"><span className={`status-dot ${snapshot?.data_status === 'live' ? 'is-live' : ''}`} /> 網格交易總控台</p>
           <h2>策略總覽</h2>
-          <p className="muted">單一快照更新；不以零值掩蓋尚未同步的交易資料。</p>
+          <p className="muted">只顯示已註冊策略；未知值顯示 —，401 與尚未同步分開處理。</p>
         </div>
-        <button className="btn btn-outline" onClick={() => void fetchSnapshot()} disabled={loading}>
-          <RefreshCcw size={16} aria-hidden="true" /> 重新整理
-        </button>
       </header>
 
       <div className="notice notice-warning safety-banner" role="status">
         <AlertTriangle size={18} />
-        PAPER 使用模擬盤（公開行情 + 記憶體撮合，不呼叫私有下單 API）。未標模式的既有 YAML 與 LIVE 啟動仍是實盤，且 LIVE 需要 GRID_LIVE_TRADING_ENABLED。
+        PAPER 使用模擬盤。未標模式的既有 YAML 與 LIVE 啟動仍是實盤，且 LIVE 需要 GRID_LIVE_TRADING_ENABLED。
       </div>
-      {error && <div className="notice notice-error" role="alert"><AlertTriangle size={18} />{error}</div>}
+      {error && error !== '尚未同步' && <div className="notice notice-error" role="alert"><AlertTriangle size={18} />{error}</div>}
 
       <section className="kpi-grid" aria-label="網格總覽指標">
-        <article className="kpi-card"><span>{snapshot?.account_mode === 'paper' ? 'PAPER 淨盈虧' : 'LIVE 淨盈虧'}</span><strong className={(aggregate?.net_pnl ?? 0) >= 0 ? 'positive' : 'negative'}>{aggregate ? money(aggregate.net_pnl) : '—'}</strong><small>已實現 {aggregate ? money(aggregate.realized_pnl) : '—'} / 未實現 {aggregate ? money(aggregate.unrealized_pnl) : '—'}</small></article>
-        <article className="kpi-card"><span>累計交易量</span><strong>{aggregate ? money(aggregate.volume, 0) : '—'}</strong><small>完成網格 {aggregate ? number(aggregate.completed_cycles, 0) : '—'} 格</small></article>
-        <article className="kpi-card"><span>運行狀態</span><strong>{aggregate ? `${aggregate.running_grids}/${aggregate.total_grids}` : '—'}</strong><small>{aggregate ? `${aggregate.available_grids} 已同步 · ${aggregate.stale_grids} 過期` : '載入中'}</small></article>
+        <KpiCard label={snapshot?.account_mode === 'paper' ? 'PAPER 淨盈虧' : 'LIVE 淨盈虧'} value={aggregate ? money(aggregate.net_pnl) : '—'} hint={`已實現 ${aggregate ? money(aggregate.realized_pnl) : '—'} / 未實現 ${aggregate ? money(aggregate.unrealized_pnl) : '—'}`} tone={(aggregate?.net_pnl ?? 0) >= 0 ? 'positive' : 'negative'} />
+        <KpiCard label="累計交易量" value={aggregate ? money(aggregate.volume, 0) : '—'} hint={`完成網格 ${aggregate ? number(aggregate.completed_cycles, 0) : '—'} 格`} />
+        <KpiCard label="運行狀態" value={aggregate ? `${aggregate.running_grids}/${aggregate.total_grids}` : '—'} hint={aggregate ? `${aggregate.available_grids} 已同步 · ${aggregate.stale_grids} 過期` : '載入中'} />
       </section>
       {snapshot?.aggregate_paper && snapshot.aggregate_paper.total_grids > 0 && snapshot.account_mode !== 'paper' ? (
         <section className="paper-band" aria-label="PAPER 帳戶">
@@ -109,36 +148,33 @@ const Dashboard = ({ onOpenGrid }: DashboardProps) => {
       ) : null}
 
       {loading && !snapshot ? <div className="dashboard-empty">正在載入策略快照…</div> : null}
-      {!loading && snapshot?.grids.length === 0 ? <div className="dashboard-empty">目前沒有網格策略，請先建立一個策略。</div> : null}
+      {!loading && snapshot?.grids.length === 0 ? <div className="dashboard-empty">目前沒有已註冊策略。建立策略後會出現在這裡，不會列出 archived 或歷史 YAML。</div> : null}
 
       <section className="strategy-grid" aria-label="網格策略">
-        {snapshot?.grids.map((grid) => {
-          const isRunning = grid.status === 'running';
-          const isStarting = grid.status === 'starting';
-          const isStopping = grid.status === 'stopping';
-          const isBusy = actionGridId === grid.grid_id;
-          const netPnl = grid.net_pnl;
-          return <article className="strategy-card" key={grid.grid_id}>
-            <header className="strategy-card-header">
-              <div><p className="strategy-title"><span className={`status-dot ${grid.data_status === 'live' && isRunning ? 'is-live' : ''}`} />{grid.symbol ?? '未命名策略'}</p><small>{grid.exchange ?? '未知交易所'} · {grid.grid_type ?? '未知模式'}</small></div>
-              <div className="badges"><span className={`badge badge-${grid.mode}`}>{grid.mode}</span><span className={`badge badge-${grid.data_status}`}>{grid.data_status}</span></div>
-            </header>
-            <div className="pnl-block"><span>淨盈虧</span><strong className={netPnl === null ? '' : netPnl >= 0 ? 'positive' : 'negative'}>{money(netPnl)}</strong><small>{grid.pnl_rate === null ? '收益率 —' : `收益率 ${number(grid.pnl_rate)}%`}</small></div>
-            <dl className="strategy-metrics">
-              <div><dt>權益</dt><dd>{money(grid.equity)}</dd></div><div><dt>最新價</dt><dd>{number(grid.current_price)}</dd></div>
-              <div><dt>成交 / 格數</dt><dd>{grid.filled_buy === null || grid.filled_sell === null ? '—' : `${grid.filled_buy + grid.filled_sell} / ${number(grid.completed_cycles, 0)}`}</dd></div><div><dt>掛單</dt><dd>{number(grid.pending_orders, 0)}</dd></div>
-              <div><dt>價格區間</dt><dd>{grid.lower_price === null || grid.upper_price === null ? '—' : `${number(grid.lower_price)} – ${number(grid.upper_price)}`}</dd></div><div><dt>每格大小</dt><dd>{number(grid.grid_interval)}</dd></div>
-            </dl>
-            <p className={`freshness freshness-${grid.data_status}`}>{freshnessText(grid)}</p>
-            {(grid.command_status === 'failed' || grid.command_status === 'timed_out') && <p className="command-alert" role="alert">命令 {grid.command_status === 'timed_out' ? '確認逾時' : '失敗'}：請進入詳情查看稽核紀錄。</p>}
-            <footer className="strategy-actions">
-              <button className="btn btn-outline" onClick={() => onOpenGrid(grid.grid_id)}>詳情</button>
-              {isStarting || isStopping ? <button className="btn btn-outline" disabled><RefreshCcw size={15} />{isStopping ? '等待停止確認' : '等待引擎確認'}</button> : isRunning ? <button className="btn btn-warning" disabled={isBusy} onClick={() => void runAction(grid, 'stop')}><Square size={15} />{isBusy ? '處理中…' : '停止'}</button> : <button className="btn btn-primary" disabled={isBusy} onClick={() => void runAction(grid, 'start')}><Play size={15} />{isBusy ? '處理中…' : '啟動'}</button>}
-              <button className="btn btn-danger" disabled={isBusy || isRunning || isStarting || isStopping} title={isRunning || isStarting || isStopping ? '請先等待策略停止後再刪除' : undefined} onClick={() => void runAction(grid, 'delete')}><Trash2 size={15} />刪除</button>
-            </footer>
-          </article>;
-        })}
+        {snapshot?.grids.map(grid => (
+          <GridCard
+            key={grid.grid_id}
+            grid={grid}
+            busy={actionGridId === grid.grid_id}
+            onOpen={() => onOpenGrid(grid.grid_id)}
+            onStart={() => void runAction(grid, 'start')}
+            onStop={() => setConfirm({ grid, action: 'stop' })}
+            onDelete={() => setConfirm({ grid, action: 'delete' })}
+          />
+        ))}
       </section>
+      {confirm && (
+        <ConfirmDialog
+          title={confirm.action === 'stop' ? '停止策略' : '刪除策略'}
+          body={confirm.action === 'stop'
+            ? `停止 ${confirm.grid.symbol ?? confirm.grid.grid_id} 會取消掛單，預設不平倉。此操作會寫入稽核日誌。`
+            : `刪除 ${confirm.grid.symbol ?? confirm.grid.grid_id} 僅允許已停止的策略，YAML 會歸檔。`}
+          confirmLabel={confirm.action === 'stop' ? '確認停止並撤單' : '確認刪除'}
+          danger={confirm.action === 'delete'}
+          onCancel={() => setConfirm(null)}
+          onConfirm={() => void runAction(confirm.grid, confirm.action)}
+        />
+      )}
     </main>
   );
 };

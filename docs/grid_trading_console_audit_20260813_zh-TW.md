@@ -21,7 +21,7 @@
 
 **本輪不得開啟 `GRID_LIVE_TRADING_ENABLED`，也不得把 PAPER 當成隔離資金的沙盒。**
 
-> 實作狀態（同日）：Phase A + B + C 已落地。PAPER 使用獨立模擬 adapter（公開行情 + 記憶體撮合）；LIVE 仍需 feature flag；snapshot 分帳。金鑰輪替（A8）仍是獨立事故單。
+> 實作狀態（同日）：Phase A + B + C + D/E 已落地。PAPER 使用獨立模擬 adapter（公開行情 + 記憶體撮合）；LIVE 仍需 feature flag；snapshot 分帳；登入頁 / 詳情訂單 / Dialog / CI / README 已補。金鑰輪替（A8）仍是獨立事故單。
 
 ---
 

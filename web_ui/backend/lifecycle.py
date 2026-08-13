@@ -133,12 +133,17 @@ def write_json_atomic(path: str, payload: Any) -> None:
         raise
 
 
-def read_json_file(path: str) -> dict:
-    if not os.path.exists(path):
-        return {}
-    with open(path, "r", encoding="utf-8") as handle:
-        data = json.load(handle)
-    return data if isinstance(data, dict) else {}
+def registered_config_paths(active_grids: dict) -> list[str]:
+    """Only strategies recorded in active_grids; never archived dumps."""
+    paths: list[str] = []
+    for path in active_grids:
+        normalized = str(path).replace("\\", "/")
+        if "/archived/" in normalized or normalized.startswith("archived/"):
+            continue
+        if not normalized.endswith(".yaml"):
+            continue
+        paths.append(path)
+    return sorted(paths)
 
 
 def iter_hotplug_starts(
