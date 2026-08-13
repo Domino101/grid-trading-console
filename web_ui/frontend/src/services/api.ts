@@ -226,6 +226,20 @@ export interface GridActionResponse {
     action: string;
     status: string;
     message: string;
+    command_id?: string | null;
+}
+
+export interface GridCommand {
+    command_id: string;
+    grid_id: string;
+    config_path: string;
+    action: string;
+    status: 'accepted' | 'pending_engine' | 'running' | 'stopped' | 'failed';
+    source: string;
+    reason: string | null;
+    detail: string | null;
+    created_at: number;
+    updated_at: number;
 }
 
 // helper to get auth token
@@ -337,6 +351,14 @@ export const api = {
             const error = await res.json().catch(() => ({}));
             throw new Error(error.detail?.message || error.detail || 'Failed to create grid');
         }
+        return res.json();
+    },
+
+    async getCommand(commandId: string): Promise<GridCommand> {
+        const res = await fetch(`${API_BASE}/v1/commands/${encodeURIComponent(commandId)}`, {
+            headers: getAuthHeaders(),
+        });
+        if (!res.ok) throw new Error(`Failed to get command ${commandId}`);
         return res.json();
     },
 

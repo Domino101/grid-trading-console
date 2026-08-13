@@ -38,6 +38,7 @@ from schemas import (
 from yaml_generator import GridYAMLGenerator
 from safety_guard import SafetyGuard
 from grid_state_store import GridStateStore
+from command_repository import GridCommandRepository
 
 logger = logging.getLogger("GridAPI.Grids")
 
@@ -575,10 +576,14 @@ async def start_grid(
             message=f"網格 {grid_id} 已在運行中",
         )
 
+    command = GridCommandRepository.instance().create(
+        grid_id=grid_id, config_path=config_path, action="start", source=source, reason=reason,
+    )
     try:
         active_grids[config_path] = True
         _write_active_grids(active_grids)
-        logger.info(f"▶️ 已啟動網格: {grid_id}")
+        GridCommandRepository.instance().update_status(command["command_id"], "pending_engine")
+        logger.info(f"▶️ 已接受啟動網格命令: {grid_id}, command={command['command_id']}")
 
         # 記錄寫操作時間戳
         guard.record_action(source)
@@ -596,10 +601,12 @@ async def start_grid(
         return GridActionResponse(
             grid_id=grid_id,
             action="start",
-            status="started",
-            message=f"網格 {grid_id} 已啟動，引擎將在 ~5 秒內偵測到並開始運行",
+            status="pending_engine",
+            command_id=command["command_id"],
+            message=f"網格 {grid_id} 的啟動命令已接受，等待引擎 heartbeat 確認",
         )
     except Exception as e:
+        GridCommandRepository.instance().update_status(command["command_id"], "failed", str(e))
         audit_logger.log(
             source=source,
             action="start",
@@ -679,10 +686,14 @@ async def stop_grid(
             message=f"網格 {grid_id} 已處於停止狀態",
         )
 
+    command = GridCommandRepository.instance().create(
+        grid_id=grid_id, config_path=config_path, action="stop", source=source, reason=reason,
+    )
     try:
         active_grids[config_path] = False
         _write_active_grids(active_grids)
-        logger.info(f"🛑 已停止網格: {grid_id}")
+        GridCommandRepository.instance().update_status(command["command_id"], "pending_engine")
+        logger.info(f"🛑 已接受停止網格命令: {grid_id}, command={command['command_id']}")
 
         # 記錄寫操作時間戳
         guard.record_action(source)
@@ -700,10 +711,12 @@ async def stop_grid(
         return GridActionResponse(
             grid_id=grid_id,
             action="stop",
-            status="stopped",
-            message=f"網格 {grid_id} 已標記停止，引擎將在 ~5 秒內優雅取消掛單並停止",
+            status="pending_engine",
+            command_id=command["command_id"],
+            message=f"網格 {grid_id} 的停止命令已接受，等待引擎取消掛單並確認",
         )
     except Exception as e:
+        GridCommandRepository.instance().update_status(command["command_id"], "failed", str(e))
         audit_logger.log(
             source=source,
             action="stop",
