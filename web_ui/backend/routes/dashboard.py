@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends
 
 from auth import verify_token
 from grid_state_store import GridStateStore
+from command_repository import GridCommandRepository
 from schemas import DashboardAggregate, DashboardGridItem, DashboardSnapshotResponse
 from yaml_generator import GridYAMLGenerator
 from routes.grids import _build_grid_info, _get_project_root, _read_active_grids
@@ -65,6 +66,8 @@ async def get_dashboard_snapshot(_token: str = Depends(verify_token)):
         )
 
     store = GridStateStore.instance()
+    command_repository = GridCommandRepository.instance()
+    command_repository.mark_timeouts()
     items: list[DashboardGridItem] = []
     realized_total = 0.0
     unrealized_total = 0.0
@@ -93,6 +96,12 @@ async def get_dashboard_snapshot(_token: str = Depends(verify_token)):
         lifecycle_status = "running" if desired_running and data_status == "live" else (
             "starting" if desired_running else "stopped"
         )
+        command = command_repository.latest_for_grid(info.grid_id)
+        if command and command["status"] == "pending_engine":
+            if command["action"] == "start":
+                lifecycle_status = "starting"
+            elif command["action"] == "stop":
+                lifecycle_status = "stopping"
 
         profit = runtime.get("profit", {}) if runtime else {}
         filled = runtime.get("filled_orders", {}) if runtime else {}
@@ -120,6 +129,8 @@ async def get_dashboard_snapshot(_token: str = Depends(verify_token)):
             grid_type=info.grid_type,
             mode=_grid_mode(config_path),
             status=lifecycle_status,
+            command_id=command["command_id"] if command else None,
+            command_status=command["status"] if command else None,
             data_status=data_status,
             last_updated_at=runtime.get("last_update") if runtime else None,
             current_price=_number(runtime.get("current_price")) if runtime else None,

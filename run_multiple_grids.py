@@ -245,6 +245,12 @@ async def run_single_grid_task(config_path: str, shared_adapter, logger, running
             logger.info(f"✅ [{grid_config.symbol}] 預留監控器已啟動")
 
         logger.info(f"✨ [{grid_config.symbol}] 網格系統完全就位！開始監聽交易對...")
+        # Machine-readable acknowledgement consumed by the control API. The
+        # config path, rather than a symbol, is used as the lifecycle identity.
+        print("[GRID_LIFECYCLE] " + json.dumps({
+            "event": "grid_lifecycle", "config_path": config_path,
+            "status": "running", "symbol": grid_config.symbol,
+        }, ensure_ascii=False, separators=(",", ":")), flush=True)
 
         # 6. 週期性統計日誌彙報
         import decimal
@@ -299,8 +305,15 @@ async def run_single_grid_task(config_path: str, shared_adapter, logger, running
 
     except asyncio.CancelledError:
         logger.info(f"🛑 [{grid_config.symbol if 'grid_config' in locals() else config_path}] 網格任務已被取消/停用。")
+        print("[GRID_LIFECYCLE] " + json.dumps({
+            "event": "grid_lifecycle", "config_path": config_path, "status": "stopped",
+        }, ensure_ascii=False, separators=(",", ":")), flush=True)
+        raise
     except Exception as e:
         logger.error(f"💥 運行網格任務時發生崩潰 [{config_path}]: {e}", exc_info=True)
+        print("[GRID_LIFECYCLE] " + json.dumps({
+            "event": "grid_lifecycle", "config_path": config_path, "status": "failed", "detail": str(e),
+        }, ensure_ascii=False, separators=(",", ":")), flush=True)
     finally:
         if config_path in running_grids_ref:
             del running_grids_ref[config_path]
