@@ -41,8 +41,9 @@ class DashboardSnapshotTests(unittest.TestCase):
         snapshot = self._snapshot()
 
         self.assertEqual(snapshot.data_status, "degraded")
-        self.assertEqual(snapshot.aggregate.running_grids, 1)
+        self.assertEqual(snapshot.aggregate.running_grids, 0)
         item = snapshot.grids[0]
+        self.assertEqual(item.status, "starting")
         self.assertEqual(item.mode, "paper")
         self.assertEqual(item.data_status, "unavailable")
         self.assertIsNone(item.current_price)
