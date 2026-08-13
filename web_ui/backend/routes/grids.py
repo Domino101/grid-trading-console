@@ -13,6 +13,7 @@ import os
 import sys
 import json
 import logging
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Optional
 
@@ -96,6 +97,33 @@ def _read_yaml_config(config_path: str) -> Optional[dict]:
             return yaml.safe_load(f)
     except Exception:
         return None
+
+
+def _decimal_places(value: object) -> int:
+    """Count decimal places without accepting a binary float representation."""
+    try:
+        exponent = Decimal(str(value)).as_tuple().exponent
+        return max(0, -exponent)
+    except (InvalidOperation, ValueError):
+        return 99
+
+
+def _validate_market_rules(params: dict, market_info) -> list[str]:
+    """Server-side final check; client validation is only a convenience."""
+    errors: list[str] = []
+    lower, upper = params.get("lower_price"), params.get("upper_price")
+    amount = params.get("order_amount")
+    if lower is not None and upper is not None and amount is not None:
+        notional = ((float(lower) + float(upper)) / 2) * float(amount)
+        if market_info.min_notional is not None and notional < market_info.min_notional:
+            errors.append(f"每格名義額 {notional:.8g} 低於交易所最低要求 {market_info.min_notional}")
+    if market_info.price_precision is not None:
+        for field in ("lower_price", "upper_price", "grid_interval"):
+            if params.get(field) is not None and _decimal_places(params[field]) > market_info.price_precision:
+                errors.append(f"{field} 小數位超過交易所價格精度 {market_info.price_precision}")
+    if market_info.quantity_precision is not None and amount is not None and _decimal_places(amount) > market_info.quantity_precision:
+        errors.append(f"order_amount 小數位超過交易所數量精度 {market_info.quantity_precision}")
+    return errors
 
 
 def _build_grid_info(config_path: str, active_grids: dict) -> GridInfo:
@@ -381,6 +409,32 @@ async def create_grid(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"message": "參數驗證失敗", "errors": errors},
         )
+
+    # 1.5 LIVE server-side final gate. It is intentionally disabled by default;
+    # PAPER creation stays available for validation workflows.
+    if params.get("account_mode", "paper") == "live":
+        if os.getenv("GRID_LIVE_TRADING_ENABLED", "false").lower() not in {"1", "true", "yes"}:
+            message = "LIVE 建立功能尚未啟用（需要 GRID_LIVE_TRADING_ENABLED=true）"
+            audit_logger.log(source=source, action="create_grid", grid_id=None, params=params, result="rejected", reason=reason, error_msg=message)
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=message)
+        import asyncio
+        from routes.market import _lookup_market_from_ccxt_sync
+        market_info = await asyncio.get_running_loop().run_in_executor(
+            None, _lookup_market_from_ccxt_sync, params["symbol"], params["exchange"]
+        )
+        if market_info is None:
+            message = "LIVE 建立前無法確認交易對市場規則"
+            audit_logger.log(source=source, action="create_grid", grid_id=None, params=params, result="rejected", reason=reason, error_msg=message)
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=message)
+        market_errors = _validate_market_rules(params, market_info)
+        params["market_validation"] = {
+            "symbol": market_info.symbol, "exchange": market_info.exchange,
+            "price_precision": market_info.price_precision, "quantity_precision": market_info.quantity_precision,
+            "min_notional": market_info.min_notional,
+        }
+        if market_errors:
+            audit_logger.log(source=source, action="create_grid", grid_id=None, params=params, result="rejected", reason=reason, error_msg=f"市場規則驗證失敗: {market_errors}")
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"message": "市場規則驗證失敗", "errors": market_errors})
 
     # 2. 安全護欄
     can_create, err_msg = guard.check_can_create_grid()
