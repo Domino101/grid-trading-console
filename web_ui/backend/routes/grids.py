@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, status, Query
 from audit import AuditLogger
 
 # 加入專案根目錄到 sys.path 以便匯入 core 模組
@@ -501,6 +501,7 @@ async def start_grid(
     grid_id: str,
     source: str = Query(default="hermes", description="來源"),
     reason: Optional[str] = Query(default=None, description="原因"),
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
     _token: str = Depends(verify_token),
 ):
     """
@@ -548,6 +549,15 @@ async def start_grid(
             detail=f"網格配置 {grid_id} 不存在",
         )
 
+    command_repo = GridCommandRepository.instance()
+    if idempotency_key:
+        existing = command_repo.get_by_idempotency_key("start", idempotency_key)
+        if existing:
+            return GridActionResponse(
+                grid_id=existing["grid_id"], action="start", status=existing["status"],
+                command_id=existing["command_id"], message="重複請求已回傳原始命令",
+            )
+
     # 安全護欄
     can_create, err_msg = guard.check_can_create_grid()
     if not can_create:
@@ -578,6 +588,7 @@ async def start_grid(
 
     command = GridCommandRepository.instance().create(
         grid_id=grid_id, config_path=config_path, action="start", source=source, reason=reason,
+        idempotency_key=idempotency_key,
     )
     try:
         active_grids[config_path] = True
@@ -631,6 +642,7 @@ async def stop_grid(
     grid_id: str,
     source: str = Query(default="hermes", description="來源"),
     reason: Optional[str] = Query(default=None, description="原因"),
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
     _token: str = Depends(verify_token),
 ):
     """
@@ -678,6 +690,15 @@ async def stop_grid(
             detail=f"網格 {grid_id} 不在 active_grids 控制中",
         )
 
+    command_repo = GridCommandRepository.instance()
+    if idempotency_key:
+        existing = command_repo.get_by_idempotency_key("stop", idempotency_key)
+        if existing:
+            return GridActionResponse(
+                grid_id=existing["grid_id"], action="stop", status=existing["status"],
+                command_id=existing["command_id"], message="重複請求已回傳原始命令",
+            )
+
     if not active_grids.get(config_path, False):
         return GridActionResponse(
             grid_id=grid_id,
@@ -688,6 +709,7 @@ async def stop_grid(
 
     command = GridCommandRepository.instance().create(
         grid_id=grid_id, config_path=config_path, action="stop", source=source, reason=reason,
+        idempotency_key=idempotency_key,
     )
     try:
         active_grids[config_path] = False

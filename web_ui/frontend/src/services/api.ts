@@ -243,16 +243,13 @@ export interface GridCommand {
 }
 
 // helper to get auth token
-const getAuthHeaders = (): HeadersInit => {
+const getAuthHeaders = (idempotencyKey?: string): HeadersInit => {
     // 假設 token 儲存在 localStorage 或可以透過環境變數傳入
     const token = localStorage.getItem('GRID_API_TOKEN');
-    if (token) {
-        return {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        };
-    }
-    return { 'Content-Type': 'application/json' };
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
+    return headers;
 };
 
 export const api = {
@@ -362,19 +359,19 @@ export const api = {
         return res.json();
     },
 
-    async startGrid(gridId: string, source: string = 'dashboard'): Promise<GridActionResponse> {
+    async startGrid(gridId: string, source: string = 'dashboard', idempotencyKey = crypto.randomUUID()): Promise<GridActionResponse> {
         const res = await fetch(`${API_BASE}/v1/grids/${encodeURIComponent(gridId)}/start?source=${encodeURIComponent(source)}`, {
             method: 'POST',
-            headers: getAuthHeaders(),
+            headers: getAuthHeaders(idempotencyKey),
         });
         if (!res.ok) throw new Error(`Failed to start grid ${gridId}`);
         return res.json();
     },
 
-    async stopGrid(gridId: string, source: string = 'dashboard'): Promise<GridActionResponse> {
+    async stopGrid(gridId: string, source: string = 'dashboard', idempotencyKey = crypto.randomUUID()): Promise<GridActionResponse> {
         const res = await fetch(`${API_BASE}/v1/grids/${encodeURIComponent(gridId)}/stop?source=${encodeURIComponent(source)}`, {
             method: 'POST',
-            headers: getAuthHeaders(),
+            headers: getAuthHeaders(idempotencyKey),
         });
         if (!res.ok) throw new Error(`Failed to stop grid ${gridId}`);
         return res.json();

@@ -148,10 +148,11 @@ class GridCommandResponse(BaseModel):
     grid_id: str
     config_path: str
     action: str
-    status: str  # accepted / pending_engine / running / stopped / failed
+    status: str  # accepted / pending_engine / running / stopped / failed / timed_out
     source: str
     reason: Optional[str] = None
     detail: Optional[str] = None
+    idempotency_key: Optional[str] = None
     created_at: float
     updated_at: float
 

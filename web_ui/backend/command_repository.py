@@ -46,24 +46,31 @@ class GridCommandRepository:
                     source TEXT NOT NULL,
                     reason TEXT,
                     detail TEXT,
+                    idempotency_key TEXT,
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL
                 )
             """)
+            # Existing Phase 1 databases are migrated in place.
+            columns = {row["name"] for row in connection.execute("PRAGMA table_info(grid_commands)")}
+            if "idempotency_key" not in columns:
+                connection.execute("ALTER TABLE grid_commands ADD COLUMN idempotency_key TEXT")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_grid_commands_grid_created ON grid_commands(grid_id, created_at DESC)")
+            connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_grid_commands_idempotency ON grid_commands(action, idempotency_key) WHERE idempotency_key IS NOT NULL")
 
-    def create(self, grid_id: str, config_path: str, action: str, source: str, reason: Optional[str] = None) -> dict[str, Any]:
+    def create(self, grid_id: str, config_path: str, action: str, source: str, reason: Optional[str] = None,
+               idempotency_key: Optional[str] = None) -> dict[str, Any]:
         command_id = str(uuid.uuid4())
         now = time.time()
         command = {
             "command_id": command_id, "grid_id": grid_id, "config_path": config_path,
             "action": action, "status": "accepted", "source": source, "reason": reason,
-            "detail": None, "created_at": now, "updated_at": now,
+            "detail": None, "idempotency_key": idempotency_key, "created_at": now, "updated_at": now,
         }
         with self._lock, self._connect() as connection:
             connection.execute(
-                """INSERT INTO grid_commands(command_id, grid_id, config_path, action, status, source, reason, detail, created_at, updated_at)
-                   VALUES(:command_id, :grid_id, :config_path, :action, :status, :source, :reason, :detail, :created_at, :updated_at)""",
+                """INSERT INTO grid_commands(command_id, grid_id, config_path, action, status, source, reason, detail, idempotency_key, created_at, updated_at)
+                   VALUES(:command_id, :grid_id, :config_path, :action, :status, :source, :reason, :detail, :idempotency_key, :created_at, :updated_at)""",
                 command,
             )
         return command
@@ -76,9 +83,28 @@ class GridCommandRepository:
             )
 
     def get(self, command_id: str) -> Optional[dict[str, Any]]:
+        self.mark_timeouts()
         with self._lock, self._connect() as connection:
             row = connection.execute("SELECT * FROM grid_commands WHERE command_id = ?", (command_id,)).fetchone()
         return self._row_to_dict(row)
+
+    def get_by_idempotency_key(self, action: str, key: str) -> Optional[dict[str, Any]]:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM grid_commands WHERE action = ? AND idempotency_key = ?", (action, key)
+            ).fetchone()
+        return self._row_to_dict(row)
+
+    def mark_timeouts(self, timeout_seconds: int = 90) -> None:
+        """Do not claim an engine operation succeeded when no acknowledgement arrives."""
+        deadline = time.time() - timeout_seconds
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """UPDATE grid_commands SET status = 'timed_out',
+                   detail = '等待引擎確認逾時', updated_at = ?
+                   WHERE status = 'pending_engine' AND updated_at < ?""",
+                (time.time(), deadline),
+            )
 
     def latest_for_grid(self, grid_id: str) -> Optional[dict[str, Any]]:
         with self._lock, self._connect() as connection:
