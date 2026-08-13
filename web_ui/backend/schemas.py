@@ -157,6 +157,11 @@ class GridCommandResponse(BaseModel):
     updated_at: float
 
 
+class GridCommandListResponse(BaseModel):
+    grid_id: str
+    commands: List[GridCommandResponse]
+
+
 class CircuitBreakerInfo(BaseModel):
     is_open: bool
     error_code: Optional[str] = None

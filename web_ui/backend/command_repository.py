@@ -107,9 +107,18 @@ class GridCommandRepository:
             )
 
     def latest_for_grid(self, grid_id: str) -> Optional[dict[str, Any]]:
+        self.mark_timeouts()
         with self._lock, self._connect() as connection:
             row = connection.execute("SELECT * FROM grid_commands WHERE grid_id = ? ORDER BY created_at DESC LIMIT 1", (grid_id,)).fetchone()
         return self._row_to_dict(row)
+
+    def list_for_grid(self, grid_id: str, limit: int = 20) -> list[dict[str, Any]]:
+        self.mark_timeouts()
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM grid_commands WHERE grid_id = ? ORDER BY created_at DESC LIMIT ?", (grid_id, limit)
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     @staticmethod
     def _row_to_dict(row: Optional[sqlite3.Row]) -> Optional[dict[str, Any]]:

@@ -2,9 +2,11 @@ import React, { useState } from 'react';
 import { Activity, Settings, BarChart2 } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import GridForm from './components/GridForm';
+import GridDetail from './components/GridDetail';
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'logs' | 'configs'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'configs' | 'detail'>('dashboard');
+  const [selectedGridId, setSelectedGridId] = useState<string | null>(null);
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', backgroundColor: 'var(--bg-dark)' }}>
@@ -38,8 +40,9 @@ const App: React.FC = () => {
 
       {/* Main Content */}
       <div style={{ flex: 1, padding: '1rem 1rem 1rem 0', display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
-        {activeTab === 'dashboard' && <Dashboard />}
+        {activeTab === 'dashboard' && <Dashboard onOpenGrid={(gridId) => { setSelectedGridId(gridId); setActiveTab('detail'); }} />}
         {activeTab === 'configs' && <GridForm />}
+        {activeTab === 'detail' && selectedGridId && <GridDetail gridId={selectedGridId} onBack={() => setActiveTab('dashboard')} />}
       </div>
     </div>
   );
