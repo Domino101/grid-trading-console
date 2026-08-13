@@ -376,7 +376,7 @@ class TestSchemas(unittest.TestCase):
             upper_price=200.0,
         )
         self.assertEqual(req.symbol, "SOL/USDC:USDC")
-        self.assertTrue(req.auto_start)  # 預設值
+        self.assertFalse(req.auto_start)  # 預設值：建立與啟動分離
         self.assertIsNone(req.metadata)
 
     def test_create_grid_request_full(self):

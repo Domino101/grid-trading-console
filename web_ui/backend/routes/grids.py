@@ -36,6 +36,8 @@ from schemas import (
     GridListResponse,
     GridStatsResponse,
     GridHistoryResponse,
+    GridOrdersResponse,
+    GridFillsResponse,
     GridSummaryResponse,
 )
 from yaml_generator import GridYAMLGenerator
@@ -49,6 +51,8 @@ from lifecycle import (
     delete_rejection,
     finite_number,
     live_trading_enabled,
+    optional_int,
+    registered_config_paths,
     start_rejection,
     write_json_atomic,
 )
@@ -83,10 +87,7 @@ def _read_active_grids() -> dict:
 
 
 def _write_active_grids(data: dict) -> None:
-    path = _get_active_grids_path()
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
+    write_json_atomic(_get_active_grids_path(), data)
 
 
 def _read_yaml_config(config_path: str) -> Optional[dict]:
@@ -136,6 +137,37 @@ def _validate_market_rules(params: dict, market_info) -> list[str]:
     return errors
 
 
+def _grid_read_model(config_path: str, active_grids: dict) -> dict:
+    """Single lifecycle read model used by list/stats/detail/delete."""
+    grid_id = GridYAMLGenerator.grid_id_from_path(config_path)
+    yaml_data = _read_yaml_config(config_path) or {}
+    grid_system = yaml_data.get("grid_system") or {}
+    price_range = grid_system.get("price_range") or {}
+    runtime = GridStateStore.instance().get(config_path)
+    command = GridCommandRepository.instance().latest_for_grid(grid_id)
+    leverage = optional_int(grid_system.get("leverage"))
+    if leverage is None:
+        raw_leverage = finite_number(grid_system.get("leverage"))
+        leverage = int(raw_leverage) if raw_leverage is not None else None
+    return build_grid_read_model(
+        grid_id=grid_id,
+        config_path=config_path,
+        symbol=grid_system.get("symbol"),
+        exchange=grid_system.get("exchange"),
+        grid_type=grid_system.get("grid_type"),
+        mode=account_mode_from_yaml(yaml_data),
+        desired_running=bool(active_grids.get(config_path)),
+        runtime=runtime,
+        command=command,
+        lower_price=finite_number(price_range.get("lower_price")),
+        upper_price=finite_number(price_range.get("upper_price")),
+        grid_interval=finite_number(grid_system.get("grid_interval")),
+        order_amount=finite_number(grid_system.get("order_amount")),
+        leverage=leverage,
+        live_enabled=live_trading_enabled(),
+    )
+
+
 def _build_grid_info(config_path: str, active_grids: dict) -> GridInfo:
     """從配置路徑構建 GridInfo"""
     grid_id = GridYAMLGenerator.grid_id_from_path(config_path)
@@ -170,32 +202,11 @@ def _build_grid_info(config_path: str, active_grids: dict) -> GridInfo:
 
 @router.get("", response_model=GridListResponse)
 async def list_grids(_token: str = Depends(verify_token)):
-    """列出所有已註冊的網格（掃描 active_grids.json + config/grid/ 目錄）"""
-    project_root = _get_project_root()
+    """列出已註冊策略（active_grids.json），不含 archived 與歷史 YAML 掃描。"""
     active_grids = _read_active_grids()
-
-    # 收集所有 config/grid/ 下的 YAML（以 active_grids 為主，再補上磁碟中的）
-    config_grid_dir = os.path.join(project_root, "config", "grid")
-    known_paths = set(active_grids.keys())
-
-    # 掃描磁碟上的 YAML 檔案
-    if os.path.isdir(config_grid_dir):
-        for f in os.listdir(config_grid_dir):
-            if f.endswith(".yaml") and not f.startswith("README"):
-                rel_path = f"config/grid/{f}"
-                known_paths.add(rel_path)
-
-    grids = []
-    for config_path in sorted(known_paths):
-        grids.append(_build_grid_info(config_path, active_grids))
-
-    active_count = sum(1 for g in grids if g.status == "running")
-
-    return GridListResponse(
-        total=len(grids),
-        active=active_count,
-        grids=grids,
-    )
+    grids = [_build_grid_info(path, active_grids) for path in registered_config_paths(active_grids)]
+    active_count = sum(1 for item in grids if item.status == "running")
+    return GridListResponse(total=len(grids), active=active_count, grids=grids)
 
 
 # ────────────────────────────────────────────────────────
@@ -349,6 +360,30 @@ async def get_grid_history(
             "equity": balance.get("total"),
         })
     return {"grid_id": grid_id, "range_hours": hours, "points": points}
+
+
+@router.get("/{grid_id}/orders", response_model=GridOrdersResponse)
+async def get_grid_orders(grid_id: str, _token: str = Depends(verify_token)):
+    config_path = GridYAMLGenerator.path_from_grid_id(grid_id)
+    if not os.path.exists(os.path.join(_get_project_root(), config_path)):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"網格 {grid_id} 不存在")
+    runtime = GridStateStore.instance().get(config_path) or {}
+    orders = runtime.get("pending_order_list")
+    if not isinstance(orders, list):
+        return {"grid_id": grid_id, "available": False, "orders": [], "message": "引擎尚未提供掛單明細"}
+    return {"grid_id": grid_id, "available": True, "orders": orders, "message": None}
+
+
+@router.get("/{grid_id}/fills", response_model=GridFillsResponse)
+async def get_grid_fills(grid_id: str, _token: str = Depends(verify_token)):
+    config_path = GridYAMLGenerator.path_from_grid_id(grid_id)
+    if not os.path.exists(os.path.join(_get_project_root(), config_path)):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"網格 {grid_id} 不存在")
+    runtime = GridStateStore.instance().get(config_path) or {}
+    fills = runtime.get("recent_fills")
+    if not isinstance(fills, list):
+        return {"grid_id": grid_id, "available": False, "fills": [], "message": "引擎尚未提供成交明細"}
+    return {"grid_id": grid_id, "available": True, "fills": fills, "message": None}
 
 
 # ────────────────────────────────────────────────────────
@@ -605,6 +640,12 @@ async def create_grid(
             metadata.get("confidence", "N/A"),
         )
 
+    if grid_status != "pending_engine":
+        active_grids = _read_active_grids()
+        if config_path not in active_grids:
+            active_grids[config_path] = False
+            _write_active_grids(active_grids)
+
     if grid_status == "pending_engine":
         message = f"網格 {grid_id} 已建立，啟動命令已接受，等待引擎 heartbeat 確認"
     elif wants_start and start_block:
@@ -679,9 +720,23 @@ async def start_grid(
             detail=f"網格配置 {grid_id} 不存在",
         )
 
+    yaml_data = _read_yaml_config(config_path) or {}
+    blocked = start_rejection(account_mode_from_yaml(yaml_data), live_trading_enabled())
+    if blocked:
+        audit_logger.log(
+            source=source,
+            action="start",
+            grid_id=grid_id,
+            params={"grid_id": grid_id},
+            result="rejected",
+            reason=reason,
+            error_msg=blocked,
+        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=blocked)
+
     command_repo = GridCommandRepository.instance()
     if idempotency_key:
-        existing = command_repo.get_by_idempotency_key("start", idempotency_key)
+        existing = command_repo.get_by_idempotency_key("start", idempotency_key, grid_id=grid_id)
         if existing:
             return GridActionResponse(
                 grid_id=existing["grid_id"], action="start", status=existing["status"],

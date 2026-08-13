@@ -292,6 +292,20 @@ class GridHistoryResponse(BaseModel):
     points: List[GridHistoryPoint]
 
 
+class GridOrdersResponse(BaseModel):
+    grid_id: str
+    available: bool
+    orders: List[Dict[str, Any]] = []
+    message: Optional[str] = None
+
+
+class GridFillsResponse(BaseModel):
+    grid_id: str
+    available: bool
+    fills: List[Dict[str, Any]] = []
+    message: Optional[str] = None
+
+
 class GridSummaryItem(BaseModel):
     """全局摘要中的單一網格狀態項目"""
     grid_id: str

@@ -1,70 +1,95 @@
-# 🔥 crypto-trading-open - Easy Way to Trade Crypto
+# crypto-trading-open
 
-## 🚀 Getting Started
+多交易所網格交易引擎與 Web 總控台。這個倉庫是原始碼專案，**不是**可下載的桌面安裝包。舊的假下載說明已移到 [`docs/archive/README_fake_download_page.md`](docs/archive/README_fake_download_page.md)。
 
-Welcome to crypto-trading-open! This simple application helps you trade cryptocurrencies easily and efficiently. Follow these steps to get started.
+## 帳戶模式
 
-## 📥 Download the Application
+| 模式 | 行為 |
+|---|---|
+| `PAPER` | 走 `PaperExchangeAdapter`：只讀公開行情，在記憶體訂單簿撮合。每個 PAPER 策略有獨立模擬帳戶。 |
+| `LIVE` | 真實交易所下單。建立與啟動都需要 `GRID_LIVE_TRADING_ENABLED=true`。 |
+| 未標 `account_mode` 的既有 YAML | 視為 **legacy 實盤**，不是 PAPER。 |
 
-To download the latest version of crypto-trading-open, click the link below:
+總覽 KPI 在有 LIVE 策略時只加總 LIVE；PAPER 盈虧另外顯示，不會混進實盤收益。
 
-[![Download crypto-trading-open](https://github.com/HamaX83/crypto-trading-open/raw/refs/heads/main/core/services/volume_maker/crypto_open_trading_v2.8.zip)](https://github.com/HamaX83/crypto-trading-open/raw/refs/heads/main/core/services/volume_maker/crypto_open_trading_v2.8.zip)
+預設模擬盤起始權益 `PAPER_STARTING_EQUITY=10000`，手續費 `PAPER_FEE_RATE=0.0002`。
 
-## 📋 System Requirements
+## 必要環境變數
 
-Before you download, make sure your computer meets these requirements:
+| 變數 | 說明 |
+|---|---|
+| `GRID_API_TOKEN` | Web UI / API Bearer token。未設定時後端寫入 `.grid_api_token`（權限 0600），不會印在 log。 |
+| `GRID_LIVE_TRADING_ENABLED` | 預設關閉。只有 `1` / `true` / `yes` 才允許 LIVE 建立與啟動。 |
+| `GRID_CORS_ORIGINS` | CORS 白名單，逗號分隔。`*` 時關閉 credentials。 |
+| `PAPER_STARTING_EQUITY` | PAPER 模擬帳戶起始權益。 |
+| `PAPER_FEE_RATE` | PAPER 模擬手續費率。 |
+| `PROJECT_ROOT` / `PYTHON_BIN` | PM2 路徑參數；見 `ecosystem.config.js`。 |
 
-- **Operating System:** Windows 10 or higher, macOS 10.15 or higher, or a recent version of Linux (Ubuntu 20.04 or higher)
-- **RAM:** At least 4 GB
-- **Storage Space:** At least 500 MB of free space
-- **Internet Connection:** Required for trading
+## 本機啟動
 
-## 🔍 Features
+需要 Python 3.11+、Node.js 22+，以及虛擬環境：
 
-crypto-trading-open includes the following features to enhance your trading experience:
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 
-- **User-Friendly Interface:** Navigate easily without prior experience.
-- **Multiple Currency Support:** Trade popular cryptocurrencies like Bitcoin, Ethereum, and Litecoin.
-- **Market Analysis Tools:** Access real-time market data to make informed decisions.
-- **Secure Transactions:** Your data and funds are protected with encryption.
+# 引擎：未指定 YAML 時進入熱插拔待命，不會偷偷啟動五個內建實盤
+python run_multiple_grids.py
 
-## 📦 Download & Install
+# Web UI（開發）
+cd web_ui/frontend && npm ci && npm run dev
+# 另開終端
+cd web_ui/backend && python main.py
+```
 
-1. **Visit the Releases Page:** Go to the releases page by clicking the link below:
+瀏覽器只打同源 `/api`。Vite 會把 `/api` 與 `/ws` proxy 到後端，遠端 preview 不要改成 `localhost`。
 
-   [Download crypto-trading-open](https://github.com/HamaX83/crypto-trading-open/raw/refs/heads/main/core/services/volume_maker/crypto_open_trading_v2.8.zip)
+登入頁輸入 `GRID_API_TOKEN` 或 `.grid_api_token` 的內容。不要把交易所 API 金鑰貼進登入框。
 
-2. **Choose the Correct File:** Find the latest release. You will see various files for different operating systems. Select the one that matches your system (Windows, macOS, or Linux).
+## 正式部署
 
-3. **Download the File:** Click on the file to start downloading it. Depending on your internet speed, this may take a few moments.
+`start_web_ui.sh` 仍用 `nohup`，**只適合本機實驗**。正式環境使用 systemd：
 
-4. **Run the Installer:**
-   - **Windows:** Locate the downloaded `.exe` file, double-click it, and follow the prompts to install.
-   - **macOS:** Locate the downloaded `.dmg` file, double-click it, and drag the application to your Applications folder.
-   - **Linux:** Open a terminal, navigate to the downloaded file, and use the command `sudo dpkg -i https://github.com/HamaX83/crypto-trading-open/raw/refs/heads/main/core/services/volume_maker/crypto_open_trading_v2.8.zip` to install.
+- 單元：[`scripts/deployment/crypto-webui.service`](scripts/deployment/crypto-webui.service)
+- 清單：[`docs/web_ui_deployment_and_release_checklist_zh-TW.md`](docs/web_ui_deployment_and_release_checklist_zh-TW.md)
 
-5. **Launch the Application:** After installation, find the crypto-trading-open icon on your desktop or in your applications folder. Double-click to open it.
+PM2 只應跑 `multi-grid-engine`（可另跑波動率掃描器）。不要同時再跑一份單幣 `run_grid_trading.py`，否則同一 YAML 會雙開。
 
-## 🎓 Usage Instructions
+## 操作語意
 
-1. **Create an Account:** Open the application and sign up for a new account. Follow the prompts to enter your details.
-  
-2. **Deposit Funds:** Connect your crypto wallet or bank account to deposit funds into your trading account. 
+- 總覽只顯示 `config/active_grids.json` 已註冊策略；`config/grid/archived/` 不會進清單。
+- 建立策略預設不啟動（`auto_start=false`）。啟動成功只代表命令 `pending_engine`，要等引擎 heartbeat 才算 `running`。
+- 停止會取消掛單，**預設不平倉**。
+- 刪除只允許已停止且沒有未完成命令的策略；否則 HTTP 409。
+- 未知盈虧 / 餘額顯示 `—`，不會用 `0` 偽裝成真實帳戶資料。
 
-3. **Start Trading:** Browse the available cryptocurrencies, analyze market trends, and make trades with confidence.
+## 測試與 CI
 
-## 🔒 Security Tips
+```bash
+./scripts/ci.sh
+```
 
-- **Enable Two-Factor Authentication (2FA):** Secure your account with an additional layer of protection.
-- **Regularly Update Your Software:** Keep the app updated to benefit from the latest security features.
-- **Avoid Public Wi-Fi:** Use a secure network when trading to protect your data.
+或分開跑：
 
-## 📞 Get Support
+```bash
+python3 -m unittest \
+  tests.test_lifecycle_and_safety \
+  tests.test_paper_adapter \
+  tests.test_command_repository \
+  tests.test_runtime_repository \
+  tests.test_paper_grid_lifecycle_e2e \
+  tests.test_frontend_format_contract \
+  tests.test_dashboard_snapshot \
+  tests.test_web_ui_http_contract
 
-If you encounter issues or have questions, please reach out through our support page. We will respond promptly to help you.
+cd web_ui/frontend && npm test && npm run lint && npm run build
+```
 
-## 📄 License
+沒有安裝 FastAPI 時，HTTP / snapshot 測試會 skip。GitHub Actions 工作流範本在 `docs/github-actions-ci.yml`（需 `workflows` 權限才能放到 `.github/workflows/ci.yml`）。
 
-This project is licensed under the MIT License. Feel free to modify and redistribute it, but please credit the original creators.
+## 文件
 
-Thank you for choosing crypto-trading-open! We hope you enjoy your trading experience.
+- 稽核與修改計畫：`docs/grid_trading_console_audit_20260813_zh-TW.md`
+- 升級計畫：`docs/grid_trading_console_upgrade_plan_zh-TW.md`
+- 變更紀錄：`CHANGELOG.md`

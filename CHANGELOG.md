@@ -4,6 +4,25 @@
 
 ## [Unreleased] — 2026-08-13
 
+### Added
+
+- Token 登入頁；401 / 403 會退出到登入，與「尚未同步」分開。
+- TopBar 顯示引擎 PID、熔斷、最後同步與 PAPER/LIVE 徽章。
+- 策略詳情顯示 pending orders / fills；引擎未提供時顯示「引擎尚未提供」。
+- 停止確認 Dialog：明確寫出會取消掛單、預設不平倉。
+- 抽出 LoginPage / TopBar / KpiCard / GridCard / ConfirmDialog；手機側欄改 Drawer。
+- 前端 formatter / 建立精靈驗證單測（`npm test`）與 Python 契約測試。
+- CI 入口：`scripts/ci.sh`（unittest + `npm test` + `npm run lint` + `npm run build`）；GitHub Actions 範本在 `docs/github-actions-ci.yml`。
+- `GET /api/v1/grids/{id}/orders` 與 `/fills`。
+
+### Changed
+
+- 總覽 / list / summary 只顯示 `active_grids.json` 已註冊策略；archived 永不進清單。
+- Dashboard 輪詢改 AbortController + 指數退避。
+- `start_web_ui.sh` 標示非正式部署，並指向 systemd unit。
+- `ecosystem.config.js` 移除與 multi-grid 重複的單幣進程，路徑改 `PROJECT_ROOT` / `__dirname`。
+- README 改為真實專案說明；舊假下載頁移到 `docs/archive/`。
+
 ### Security
 
 - 舊版 `/api/scripts`、`/api/configs`、`/api/config`、`/api/process*` 與 log WebSocket 現在需要 API token；`config/exchanges` 不可經 API 讀寫。

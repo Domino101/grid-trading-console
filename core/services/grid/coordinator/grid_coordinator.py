@@ -432,6 +432,19 @@ class GridCoordinator:
         self.state.status = GridStatus.RUNNING
         self.logger.info("▶️ 網格交易已恢復運行")
 
+    async def stop(self):
+        """Cancel open orders and stop the engine. Positions are left open."""
+        self._paused = True
+        self._paused_reason = "stop"
+        try:
+            if hasattr(self.engine, "stop"):
+                await self.engine.stop()
+            elif hasattr(self.engine, "cancel_all_orders"):
+                await self.engine.cancel_all_orders()
+        finally:
+            self.state.status = GridStatus.STOPPED
+            self.logger.info("🛑 網格已停止：已取消掛單，未平倉")
+
     async def get_statistics(self) -> GridStatistics:
         """
         獲取網格統計資料(給 `run_multiple_grids.py` 週期性統計彙報使用)

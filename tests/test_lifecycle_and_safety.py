@@ -83,6 +83,18 @@ class LifecyclePolicyTests(unittest.TestCase):
         self.assertTrue(default_credentials)
         self.assertIn("http://127.0.0.1:5173", default_origins)
 
+    def test_registered_paths_skip_archived_and_non_yaml(self):
+        from lifecycle import registered_config_paths
+
+        paths = registered_config_paths({
+            "config/grid/a.yaml": True,
+            "config/grid/archived/old.yaml": False,
+            "archived/x.yaml": True,
+            "notes.txt": True,
+            "config/grid/b.yaml": False,
+        })
+        self.assertEqual(paths, ["config/grid/a.yaml", "config/grid/b.yaml"])
+
     def test_hotplug_accepts_new_yaml_outside_startup_list(self):
         from lifecycle import iter_hotplug_starts
 

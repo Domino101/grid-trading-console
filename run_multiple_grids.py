@@ -362,6 +362,20 @@ async def run_single_grid_task(config_path: str, adapter_pool, logger, running_g
                         }
                     stats_dict["symbol"] = grid_config.symbol
                     stats_dict["source"] = "engine_runtime"
+                    try:
+                        pending = engine.get_pending_orders()
+                        stats_dict["pending_order_list"] = [
+                            {
+                                "side": getattr(order.side, "value", str(order.side)),
+                                "price": float(order.price) if order.price is not None else None,
+                                "amount": float(order.amount) if order.amount is not None else None,
+                                "grid_id": getattr(order, "grid_id", None),
+                                "status": getattr(order.status, "value", str(order.status)),
+                            }
+                            for order in pending[:50]
+                        ]
+                    except Exception:
+                        pass
                     print(f"[STATS_JSON][{grid_config.symbol}] {json.dumps(stats_dict, cls=JSONEncoder)}")
                     try:
                         publish_runtime(config_path, stats_dict)
