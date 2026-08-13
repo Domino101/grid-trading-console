@@ -42,7 +42,7 @@ const App: React.FC = () => {
       <aside className={`glass-panel app-sidebar ${drawerOpen ? 'is-open' : ''}`}>
         <div className="sidebar-brand">
           <Activity color="var(--accent-primary)" size={28} />
-          <h1 className="text-xl font-semibold">Grid Engine</h1>
+          <h1 className="text-xl font-semibold">Grid Console</h1>
           <button className="drawer-close" type="button" onClick={() => setDrawerOpen(false)} aria-label="關閉"><X size={18} /></button>
         </div>
         <nav className="app-nav">

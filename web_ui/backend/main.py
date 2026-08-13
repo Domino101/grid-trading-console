@@ -51,8 +51,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     lifespan=lifespan,
-    title="Grid Trading Control API",
-    description="Hermes Agent × Grid Trading 控制接口",
+    title="grid-trading-console API",
+    description="Grid trading engine control API",
     version="1.0.0",
 )
 
