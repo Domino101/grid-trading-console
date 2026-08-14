@@ -1,6 +1,6 @@
 ---
 name: websocket-debug
-description: "WebSocket connection pool debugging for crypto-trading-open. Use when investigating exchange WS disconnections, orderbook data staleness, connection leaks, or reconnection storms across Binance, OKX, Hyperliquid, Lighter, EdgeX, Backpack."
+description: "WebSocket connection pool debugging for grid-trading-console. Use when investigating exchange WS disconnections, orderbook data staleness, connection leaks, or reconnection storms across Binance, OKX, Hyperliquid, Lighter, EdgeX, Backpack, O1Exchange, Paper."
 ---
 
 # WebSocket Debug Skill
@@ -24,4 +24,3 @@ description: "WebSocket connection pool debugging for crypto-trading-open. Use w
 1. **Heartbeat / Ping-Pong Disconnection**: Ensure ping/pong frames are handled every 15-30s.
 2. **Reconnection Storms**: Verify exponential backoff delay is applied during reconnection attempts.
 3. **Data Format Changes**: Verify JSON payload parsing in `_on_message()` matches exchange message schemas.
-

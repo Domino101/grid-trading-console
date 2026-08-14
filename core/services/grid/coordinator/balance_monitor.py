@@ -391,7 +391,7 @@ class BalanceMonitor:
             if value is None:
                 return Decimal(default)
             return Decimal(str(value))
-        except:
+        except Exception:
             return Decimal(default)
 
     def get_balances(self) -> dict:
@@ -452,7 +452,7 @@ class BalanceMonitor:
             from ....adapters.exchanges.interface import ExchangeType
             if hasattr(self.engine, 'exchange') and hasattr(self.engine.exchange, 'config'):
                 return self.engine.exchange.config.exchange_type == ExchangeType.SPOT
-        except:
+        except Exception:
             pass
         return False
 
@@ -461,7 +461,7 @@ class BalanceMonitor:
         try:
             if hasattr(self.coordinator, 'tracker'):
                 return self.coordinator.tracker.get_current_position()
-        except:
+        except Exception:
             pass
         return Decimal('0')
 

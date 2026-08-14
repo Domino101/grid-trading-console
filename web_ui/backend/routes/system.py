@@ -24,7 +24,7 @@ from schemas import SystemHealthResponse, CircuitBreakerInfo, ApiThrottleInfo, E
 from safety_guard import SafetyGuard, MAX_CONCURRENT_GRIDS
 from audit import AuditLogger
 from grid_state_store import GridStateStore
-from lifecycle import data_status_from_runtime
+from lifecycle import data_status_from_runtime, live_trading_enabled
 
 logger = logging.getLogger("GridAPI.System")
 
@@ -115,6 +115,7 @@ async def get_system_health(_token: str = Depends(verify_token)):
         running_grid_configs=running_configs,
         max_recommended_grids=MAX_CONCURRENT_GRIDS,
         can_accept_new_grid=can_accept,
+        live_trading_enabled=live_trading_enabled(),
     )
 
 

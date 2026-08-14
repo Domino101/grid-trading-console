@@ -675,7 +675,7 @@ class LighterAdapter(ExchangeAdapter):
             try:
                 order = await self.get_order(order_id, symbol)
                 return order
-            except:
+            except Exception:
                 # 如果获取失败，返回一个基本的OrderData对象
                 return OrderData(
                     id=order_id,

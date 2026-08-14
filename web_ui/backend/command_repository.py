@@ -29,53 +29,77 @@ class GridCommandRepository:
                     cls._instance = cls()
         return cls._instance
 
+    @classmethod
+    def reset_instance(cls) -> None:
+        with cls._instance_lock:
+            cls._instance = None
+
     def _connect(self):
-        return connect_sqlite(self.database_path)
+        connection = connect_sqlite(self.database_path)
+        self._ensure_schema(connection)
+        return connection
+
+    def _ensure_schema(self, connection: sqlite3.Connection) -> None:
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS grid_commands (
+                command_id TEXT PRIMARY KEY,
+                grid_id TEXT NOT NULL,
+                config_path TEXT NOT NULL,
+                action TEXT NOT NULL,
+                status TEXT NOT NULL,
+                source TEXT NOT NULL,
+                reason TEXT,
+                detail TEXT,
+                idempotency_key TEXT,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            )
+        """)
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(grid_commands)")}
+        if "idempotency_key" not in columns:
+            connection.execute("ALTER TABLE grid_commands ADD COLUMN idempotency_key TEXT")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_grid_commands_grid_created "
+            "ON grid_commands(grid_id, created_at DESC)"
+        )
+        connection.execute("DROP INDEX IF EXISTS idx_grid_commands_idempotency")
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_grid_commands_idempotency "
+            "ON grid_commands(grid_id, action, idempotency_key) "
+            "WHERE idempotency_key IS NOT NULL"
+        )
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS grid_command_events (
+                event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                command_id TEXT NOT NULL,
+                grid_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                detail TEXT,
+                created_at REAL NOT NULL
+            )
+        """)
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_command_events_lookup "
+            "ON grid_command_events(command_id, created_at ASC)"
+        )
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS grid_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                grid_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                detail TEXT,
+                occurred_at REAL NOT NULL
+            )
+        """)
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_grid_events_grid_time "
+            "ON grid_events(grid_id, occurred_at DESC)"
+        )
 
     def _initialize(self) -> None:
-        with self._connect() as connection:
-            connection.execute("""
-                CREATE TABLE IF NOT EXISTS grid_commands (
-                    command_id TEXT PRIMARY KEY,
-                    grid_id TEXT NOT NULL,
-                    config_path TEXT NOT NULL,
-                    action TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    source TEXT NOT NULL,
-                    reason TEXT,
-                    detail TEXT,
-                    idempotency_key TEXT,
-                    created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL
-                )
-            """)
-            columns = {row["name"] for row in connection.execute("PRAGMA table_info(grid_commands)")}
-            if "idempotency_key" not in columns:
-                connection.execute("ALTER TABLE grid_commands ADD COLUMN idempotency_key TEXT")
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS idx_grid_commands_grid_created "
-                "ON grid_commands(grid_id, created_at DESC)"
-            )
-            connection.execute("DROP INDEX IF EXISTS idx_grid_commands_idempotency")
-            connection.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_grid_commands_idempotency "
-                "ON grid_commands(grid_id, action, idempotency_key) "
-                "WHERE idempotency_key IS NOT NULL"
-            )
-            connection.execute("""
-                CREATE TABLE IF NOT EXISTS grid_events (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    grid_id TEXT NOT NULL,
-                    event_type TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    detail TEXT,
-                    occurred_at REAL NOT NULL
-                )
-            """)
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS idx_grid_events_grid_time "
-                "ON grid_events(grid_id, occurred_at DESC)"
-            )
+        with connect_sqlite(self.database_path) as connection:
+            self._ensure_schema(connection)
 
     def create(
         self,

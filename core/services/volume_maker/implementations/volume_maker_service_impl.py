@@ -1151,7 +1151,7 @@ class VolumeMakerServiceImpl(IVolumeMakerService):
                 elif side == OrderSide.BUY and orderbook.asks:
                     fill_price = orderbook.asks[0].price
                 return (fill_price, self.config.order_size)
-            except:
+            except Exception:
                 return (None, self.config.order_size)
 
     async def _wait_for_stable_price(self) -> Optional[Tuple[Decimal, Decimal, Optional[float]]]:

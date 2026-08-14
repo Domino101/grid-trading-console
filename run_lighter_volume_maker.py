@@ -89,7 +89,7 @@ class LighterVolumeMakerApp:
                 if self.ui:
                     try:
                         self.ui.stop()
-                    except:
+                    except Exception:
                         pass
 
             elif self._stop_count == 2:

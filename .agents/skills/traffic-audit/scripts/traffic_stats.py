@@ -194,8 +194,8 @@ def main() -> None:
 
         if local_port == 22 or remote_port == 22:
             service = "SSH Tunnel (VS Code / Shell)"
-        elif local_port in (8000, 8005, 8006) or remote_port in (8000, 8005, 8006):
-            service = "Web UI / API (Port 8000)"
+        elif local_port in (8000, 8001, 8005, 8006) or remote_port in (8000, 8001, 8005, 8006):
+            service = "Web UI / API (Port 8001)"
         elif remote_port == 443 or local_port == 443:
             service = f"Exchange HTTPS / WSS ({host_name})"
         elif remote_port == 53 or local_port == 53:
@@ -265,7 +265,7 @@ def main() -> None:
     ssh_info = by_port["SSH Tunnel (VS Code / Shell)"]
     ssh_total = ssh_info["egress"] + ssh_info["ingress"]
     poly_total = sum((info["egress"] + info["ingress"]) for s, info in by_port.items() if "Exchange" in s)
-    dash_total = by_port["Web UI / API (Port 8000)"]["egress"] + by_port["Web UI / API (Port 8000)"]["ingress"]
+    dash_total = by_port.get("Web UI / API (Port 8001)", {}).get("egress", 0) + by_port.get("Web UI / API (Port 8001)", {}).get("ingress", 0)
 
     findings_count = 0
     if ssh_total > total_bytes * 0.4:

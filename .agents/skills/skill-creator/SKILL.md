@@ -1,15 +1,15 @@
 ---
 name: skill-creator
-description: Create new skills, modify and improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, edit, or optimize an existing skill, run evals to test a skill, benchmark skill performance with variance analysis, or optimize a skill's description for better triggering accuracy. When creating skills for this crypto-trading-open project, always follow the project-specific conventions described below.
+description: Create new skills, modify and improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, edit, or optimize an existing skill, run evals to test a skill, benchmark skill performance with variance analysis, or optimize a skill's description for better triggering accuracy. When creating skills for this grid-trading-console project, always follow the project-specific conventions described below.
 ---
 
 # Skill Creator
 
 A skill for creating new skills and iteratively improving them.
 
-## Project-Specific Conventions (crypto-trading-open)
+## Project-Specific Conventions (grid-trading-console)
 
-This project is a **multi-exchange cryptocurrency automated trading bot** (Python 3.10+, CCXT / custom exchange adapters for Binance, OKX, Hyperliquid, Lighter, EdgeX, Backpack, Grid Trading, Volume Maker, Web UI). When creating or editing skills for this project, follow these conventions:
+This project is a **multi-exchange cryptocurrency grid trading and console system** (Python 3.10+, custom exchange adapters for Binance, OKX, Hyperliquid, Lighter, EdgeX, Backpack, O1Exchange, Paper, Multi-Grid Engine, Volume Maker, FastAPI backend, React 19 frontend). When creating or editing skills for this project, follow these conventions:
 
 ### Skill Directory & Naming
 - Skills live in `.agents/skills/<skill-name>/SKILL.md`
@@ -26,18 +26,17 @@ Every skill in this project should include:
 
 ### Existing Skills as Reference
 Current active skills cover:
-- **Trading & Risk**: order-execution-debug, position-lifecycle, strategy-development, risk-audit
-- **Infrastructure**: websocket-debug, api-diagnostics, db-migration, stability-check, deployment-check
-- **Operations**: log-analysis, reconciler-debug, production-troubleshooting, config-tuning-guide
-- **Development**: code-quality, test-generation, dashboard-enhancement, graphify
-- **Design & UI**: ui-styling, ui-ux-pro-max, design, design-system, brand, banner-design, slides
-- **Utilities**: ponytail, ponytail-debt, ponytail-help, version-audit, traffic-audit, ssh-tunnel
-- **Meta**: skill-creator (this), find-skills
+- **Trading & Strategy**: `strategy-development`, `order-execution-debug`, `position-lifecycle`, `risk-audit`, `config-tuning-guide`
+- **Infrastructure & Exchange**: `websocket-debug`, `api-diagnostics`, `db-migration`, `stability-check`, `traffic-audit`
+- **Operations & Troubleshooting**: `deployment-check`, `production-troubleshooting`, `log-analysis`, `reconciler-debug`, `ssh-tunnel`
+- **Development & Quality**: `dashboard-enhancement`, `code-quality`, `test-generation`, `version-audit`, `release-gate`
+- **UI/UX Reference**: `ui-ux-pro-max`
+- **Agent Meta & Utilities**: `ponytail`, `ponytail-debt`, `ponytail-help`, `skill-creator`, `find-skills`, `graphify`
 
 ### Key Project Components to Reference
 | Component | Location | Details |
 |---|---|---|
-| Strategy & Services | `core/services/` | Grid Trading, Volume Maker, Arbitrage Monitor, Price Alerts |
+| Strategy & Services | `core/services/` | Grid Trading, Multi-Grid Engine, Volume Maker, Arbitrage Monitor, Price Alerts |
 | Exchange Adapters | `core/adapters/exchanges/adapters/` | Binance, OKX, Hyperliquid, Lighter, EdgeX, Backpack |
 | Adapter Factory | `core/adapters/exchanges/factory.py` | Instantiates CCXT or custom adapters |
 | WebSocket Pool | `core/adapters/exchanges/websocket_manager.py` | Connection pool & BBO orderbook streams |

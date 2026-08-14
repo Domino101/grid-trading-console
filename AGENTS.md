@@ -10,3 +10,13 @@ Rules:
 - If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+
+## Service Restart & Live Verification (修改後重啟與運行驗證標準)
+
+Rule:
+- **Mandatory Restart & Verification**: Whenever any code or configuration affecting active services (Web UI backend, React frontend, Trading Engines, PM2 services) is modified, you MUST:
+  1. Check if the target service is running in the background (`lsof -i :8001`, `pm2 list`, `ps aux`).
+  2. If the service is running, restart it cleanly to load the latest code/build.
+  3. Execute a live verification request (e.g. `curl` to the running port, check logs) against the actual running instance.
+  4. Only declare the task complete after verifying that the live restarted instance returns the expected result.
+

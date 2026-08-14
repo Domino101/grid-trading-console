@@ -182,6 +182,7 @@ export interface SystemHealth {
     running_grid_configs: string[];
     max_recommended_grids: number;
     can_accept_new_grid: boolean;
+    live_trading_enabled?: boolean;
 }
 
 export interface GridEvent { grid_id: string; event_type: string; status: string; detail: string | null; occurred_at: number; }
@@ -196,6 +197,59 @@ export interface MarketInfo {
     contract_size: number | null;
     cached: boolean;
 }
+
+export interface GridRecommendationPeriod {
+    days: number;
+    lower_price: number;
+    upper_price: number;
+    grid_count: number;
+    grid_interval: number;
+    recommended_order_amount: number;
+    estimated_apr: number;
+    completed_cycles: number;
+    price_range_percent: number;
+    period_low: number;
+    period_high: number;
+}
+
+export interface GridRecommendationResponse {
+    symbol: string;
+    exchange: string;
+    current_price: number;
+    price_precision: number;
+    quantity_precision: number;
+    min_notional: number;
+    selected_period: string;
+    recommended: GridRecommendationPeriod;
+    periods: Record<string, GridRecommendationPeriod>;
+}
+
+export interface MarketRankingItem {
+    rank: number;
+    symbol: string;
+    exchange: string;
+    current_price: number;
+    volume_24h: number;
+    price_change_24h_percent: number;
+    estimated_apr: number;
+    completed_cycles: number;
+    lower_price: number;
+    upper_price: number;
+    grid_count: number;
+    grid_interval: number;
+    recommended_order_amount: number;
+    rating: string;
+}
+
+export interface MarketRankingsResponse {
+    exchange: string;
+    period: string;
+    updated_at: number;
+    cached: boolean;
+    items: MarketRankingItem[];
+}
+
+
 
 export interface GridHistoryPoint {
     recorded_at: number;
@@ -299,6 +353,7 @@ export interface GridCreateResponse {
     status: string;
     yaml_content: string;
     message: string;
+    command_id?: string | null;
 }
 
 export interface GridActionResponse {
@@ -373,14 +428,17 @@ export const api = {
     },
 
     async updateConfig(path: string, content: string): Promise<void> {
+        const headers = authHeaders();
+        headers.set('Content-Type', 'text/plain');
         const res = await fetch(`${API_BASE}/config/${encodeURIComponent(path)}`, {
             method: 'PUT',
-            headers: { ...Object.fromEntries(authHeaders().entries()), 'Content-Type': 'text/plain' },
+            headers,
             body: content,
         });
         if (res.status === 401 || res.status === 403) throw new ApiError('未授權', res.status);
         if (!res.ok) throw new ApiError('Failed to save config', res.status);
     },
+
 
     async getProcesses(): Promise<ProcessStatus[]> {
         return requestJson('/processes', {}, 'Failed to list processes');
@@ -421,6 +479,24 @@ export const api = {
             '無法讀取交易對規則',
         );
     },
+
+    async getGridRecommendation(symbol: string, exchange: string, days = 7): Promise<GridRecommendationResponse> {
+        return requestJson(
+            `/v1/market/recommendation/${encodeURIComponent(symbol)}?exchange=${encodeURIComponent(exchange)}&days=${days}`,
+            { headers: authHeaders() },
+            '無法讀取 AI 網格推薦參數與回測數據',
+        );
+    },
+
+    async getMarketRankings(exchange = 'binance', period = '7d', limit = 20): Promise<MarketRankingsResponse> {
+        return requestJson(
+            `/v1/market/rankings?exchange=${encodeURIComponent(exchange)}&period=${encodeURIComponent(period)}&limit=${limit}`,
+            { headers: authHeaders() },
+            '無法讀取市場年化排行榜',
+        );
+    },
+
+
 
     async getGrid(gridId: string, signal?: AbortSignal): Promise<GridInfo> {
         return requestJson(`/v1/grids/${encodeURIComponent(gridId)}`, { headers: authHeaders(), signal }, `Failed to get grid ${gridId}`);
@@ -502,9 +578,10 @@ export const api = {
         );
     },
 
-    async deleteGrid(gridId: string, source: string = 'dashboard'): Promise<GridActionResponse> {
+    async deleteGrid(gridId: string, source: string = 'dashboard', force: boolean = true): Promise<GridActionResponse> {
+        const forceParam = force ? '&force=true' : '';
         return requestJson(
-            `/v1/grids/${encodeURIComponent(gridId)}?source=${encodeURIComponent(source)}`,
+            `/v1/grids/${encodeURIComponent(gridId)}?source=${encodeURIComponent(source)}${forceParam}`,
             { method: 'DELETE', headers: authHeaders() },
             `Failed to delete grid ${gridId}`,
         );

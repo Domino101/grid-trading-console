@@ -57,6 +57,12 @@ import math
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv(project_root / ".env", override=False)
+except ImportError:
+    pass
+
 # 🔥 配置优化的日志系统（简洁清晰，不丢失信息）
 setup_optimized_logging(use_colored=True)
 

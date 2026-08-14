@@ -1,33 +1,30 @@
 ---
 name: config-tuning-guide
-description: "Strategy parameter tuning guide for crypto-trading-open. Use when adjusting strategy parameters, understanding parameter interactions, choosing conservative vs aggressive profiles, or backtesting settings for Grid Trading, Volume Maker, Arbitrage Monitor, and Price Alerts."
+description: "Strategy parameter tuning guide for grid-trading-console. Use when adjusting strategy parameters, understanding parameter interactions, choosing conservative vs aggressive profiles, or backtesting settings for Grid Trading, Multi-Grid Engine, Volume Maker, Arbitrage Monitor, and Price Alerts."
 ---
 
 # Config Tuning Guide Skill
 
 ## When to Activate
 - User asks about configuration parameters or tuning strategy settings
-- Adjusting strategy parameters for Grid Trading, Volume Maker, Arbitrage Monitor, or Price Alert
+- Adjusting strategy parameters for Grid Trading, Multi-Grid Engine, Volume Maker, Arbitrage Monitor, or Price Alert
 - Setting up conservative vs aggressive trading profiles
 
 ## Configuration Structure
 
-Configuration parameters in `crypto-trading-open` are specified in `config/` or entry scripts (`run_grid_trading.py`, `run_volume_maker.py`, `run_arbitrage_monitor.py`, `run_price_alert.py`).
+Configuration parameters in `grid-trading-console` are specified in `config/` (e.g. `config/grid/`, `config/volume_maker/`, `config/arbitrage/`, `config/price_alert/`) or entry scripts (`run_multiple_grids.py`, `run_grid_trading.py`, `run_volume_maker.py`, `run_arbitrage_monitor.py`, `run_price_alert.py`).
 
-```json
-{
-  "exchange": "binance",
-  "symbol": "BTC/USDT",
-  "paper_trading": true,
-  "strategy": {
-    "grid": {
-      "grid_levels": 10,
-      "lower_price": 50000.0,
-      "upper_price": 70000.0,
-      "order_amount": 0.001
-    }
-  }
-}
+```yaml
+exchange: "binance"
+symbol: "BTC/USDT"
+paper_trading: true
+grid:
+  grid_levels: 10
+  lower_price: 50000.0
+  upper_price: 70000.0
+  order_amount: 0.001
+  stop_loss_price: 48000.0
+  take_profit_price: 72000.0
 ```
 
 ## Strategy Parameters Reference
@@ -58,22 +55,12 @@ Configuration parameters in `crypto-trading-open` are specified in `config/` or 
 ## Tuning Profiles
 
 ### Conservative Grid
-```json
-{
-  "grid_levels": 20,
-  "spread_margin": "wide (5-10%)",
-  "stop_loss_enabled": true,
-  "paper_trading": true
-}
-```
+- Wider price band (+/- 25% from current price)
+- Fewer levels (10–15 levels)
+- Higher profit per grid (> 1.0% net after exchange fees)
 
 ### Aggressive Grid
-```json
-{
-  "grid_levels": 50,
-  "spread_margin": "tight (1-2%)",
-  "order_amount": "higher",
-  "paper_trading": false
-}
-```
-
+- Narrower price band (+/- 8% from current price)
+- Higher density (20–40 levels)
+- Lower profit per grid (0.3%–0.6% net)
+- Requires tight monitoring of exchange maker/taker fee tier

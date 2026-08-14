@@ -28,6 +28,11 @@ class GridStateStore:
                     cls._instance = cls()
         return cls._instance
 
+    @classmethod
+    def reset_instance(cls) -> None:
+        with cls._lock:
+            cls._instance = None
+
     def _refresh_from_repository(self, force: bool = False) -> None:
         now = time.time()
         if not force and (now - self._last_refresh) < self.REFRESH_TTL:

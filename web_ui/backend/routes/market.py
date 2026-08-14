@@ -8,6 +8,7 @@ GET /api/v1/market/info/{symbol} — 查詢交易對精度/最小下單量
 import os
 import sys
 import time
+import math
 import logging
 from typing import Optional
 
@@ -19,15 +20,41 @@ if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
 from auth import verify_token
-from schemas import MarketInfoResponse
+from schemas import MarketInfoResponse, GridRecommendationResponse, MarketRankingsResponse
+from grid_recommendation import generate_recommendation_sync, get_market_rankings_sync
 
 logger = logging.getLogger("GridAPI.Market")
 
 router = APIRouter(prefix="/api/v1/market", tags=["market"])
 
+
+
 # ── 記憶體快取 ──
 _market_cache: dict = {}
 _CACHE_TTL = 60  # 秒
+
+
+def _precision_to_decimals(val: Optional[float | int], precision_mode: Optional[int] = None) -> Optional[int]:
+    """
+    將 CCXT 回傳的 precision 轉為小數位數整數 (int)。
+    支援 TICK_SIZE (例: 0.01 -> 2, 0.001 -> 3, 0.00001 -> 5, 1.0 -> 0)
+    以及 DECIMAL_PLACES (例: 2 -> 2, 4 -> 4)
+    """
+    if val is None:
+        return None
+    try:
+        val_f = float(val)
+    except (ValueError, TypeError):
+        return None
+    if val_f <= 0:
+        return 0
+    # 若 CCXT precisionMode 為 TICK_SIZE (2) 或數值 < 1.0 (典型 tick size)
+    if precision_mode == 2 or val_f < 1.0:
+        if val_f >= 1.0:
+            return 0
+        return int(round(-math.log10(val_f)))
+    # DECIMAL_PLACES 模式 (0) 或整數
+    return int(val_f)
 
 
 @router.get("/info/{symbol:path}", response_model=MarketInfoResponse)
@@ -47,7 +74,7 @@ async def get_market_info(
     """
     import asyncio
 
-    cache_key = f"{exchange}:{symbol}"
+    cache_key = f"{exchange.lower()}:{symbol}"
 
     # 檢查快取
     if cache_key in _market_cache:
@@ -86,7 +113,6 @@ def _lookup_market_from_ccxt_sync(symbol: str, exchange: str) -> Optional[Market
         import ccxt
 
         exchange_lower = exchange.lower()
-
         exchange_class = getattr(ccxt, exchange_lower, None)
         if exchange_class is None:
             return None
@@ -98,26 +124,158 @@ def _lookup_market_from_ccxt_sync(symbol: str, exchange: str) -> Optional[Market
         })
         ex.load_markets()
 
-        if symbol not in ex.markets:
+        # 彈性匹配交易對符號
+        matched_symbol = None
+        if symbol in ex.markets:
+            matched_symbol = symbol
+        elif symbol.upper() in ex.markets:
+            matched_symbol = symbol.upper()
+        else:
+            s_upper = symbol.upper()
+            if "/" in s_upper and ":" not in s_upper:
+                parts = s_upper.split("/")
+                candidate = f"{s_upper}:{parts[1]}"
+                if candidate in ex.markets:
+                    matched_symbol = candidate
+            elif ":" in s_upper:
+                candidate = s_upper.split(":")[0]
+                if candidate in ex.markets:
+                    matched_symbol = candidate
+            if not matched_symbol:
+                clean_id = s_upper.replace("/", "").replace(":", "").replace("-", "").replace("_", "")
+                for m_sym, m in ex.markets.items():
+                    if m.get("id") == clean_id or m.get("id") == s_upper:
+                        matched_symbol = m_sym
+                        break
+
+        if not matched_symbol or matched_symbol not in ex.markets:
             return None
 
-        market = ex.markets[symbol]
+        market = ex.markets[matched_symbol]
         precision = market.get("precision", {})
         limits = market.get("limits", {})
         amount_limits = limits.get("amount", {})
         cost_limits = limits.get("cost", {})
+        precision_mode = getattr(ex, "precisionMode", None)
+
+        price_prec = _precision_to_decimals(precision.get("price"), precision_mode)
+        qty_prec = _precision_to_decimals(precision.get("amount"), precision_mode)
+
+        min_amount = amount_limits.get("min")
+        if min_amount is not None:
+            try:
+                min_amount = float(min_amount)
+            except (ValueError, TypeError):
+                min_amount = None
+
+        min_cost = cost_limits.get("min")
+        if min_cost is not None:
+            try:
+                min_cost = float(min_cost)
+            except (ValueError, TypeError):
+                min_cost = None
+
+        contract_sz = market.get("contractSize")
+        if contract_sz is not None:
+            try:
+                contract_sz = float(contract_sz)
+            except (ValueError, TypeError):
+                contract_sz = None
 
         return MarketInfoResponse(
             symbol=symbol,
             exchange=exchange,
-            price_precision=precision.get("price"),
-            quantity_precision=precision.get("amount"),
-            min_order_amount=amount_limits.get("min"),
-            min_notional=cost_limits.get("min"),
-            contract_size=market.get("contractSize"),
+            price_precision=price_prec,
+            quantity_precision=qty_prec,
+            min_order_amount=min_amount,
+            min_notional=min_cost,
+            contract_size=contract_sz,
             cached=False,
         )
 
     except Exception as e:
         logger.warning(f"查詢市場資訊失敗 ({exchange}:{symbol}): {e}")
         return None
+
+
+@router.get("/recommendation/{symbol:path}", response_model=GridRecommendationResponse)
+async def get_grid_recommendation(
+    symbol: str,
+    exchange: str = Query(default="binance", description="交易所名稱 (binance/lighter/hyperliquid)"),
+    days: int = Query(default=7, description="回測週期天數 (7/30/180)"),
+    _token: str = Depends(verify_token),
+):
+    """
+    獲取 AI 推薦網格參數與歷史回測年化收益率。
+    包含 7D, 30D, 180D 完整週期回測指標與推薦上下限、網格數。
+    """
+    import asyncio
+
+    # 1. 取得交易對精度與最小下單限制 (預設值安全備援)
+    market_info = None
+    try:
+        loop = asyncio.get_running_loop()
+        market_info = await loop.run_in_executor(
+            None, _lookup_market_from_ccxt_sync, symbol, exchange
+        )
+    except Exception as e:
+        logger.warning(f"獲取市場資訊輔助參數失敗: {e}")
+
+    price_precision = market_info.price_precision if (market_info and market_info.price_precision is not None) else 2
+    quantity_precision = market_info.quantity_precision if (market_info and market_info.quantity_precision is not None) else 4
+    min_notional = market_info.min_notional if (market_info and market_info.min_notional is not None) else 5.0
+
+    # 2. 在線程池中執行 K 線抓取、參數推薦與虛擬網格回測
+    loop = asyncio.get_running_loop()
+    try:
+        recommendation = await loop.run_in_executor(
+            None,
+            generate_recommendation_sync,
+            symbol,
+            exchange,
+            days,
+            price_precision,
+            quantity_precision,
+            min_notional,
+        )
+        return recommendation
+    except Exception as e:
+        logger.error(f"產出 AI 網格推薦失敗 ({exchange}:{symbol}): {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"獲取網格推薦與回測數據失敗: {str(e)}",
+        )
+
+
+@router.get("/rankings", response_model=MarketRankingsResponse)
+async def get_market_rankings(
+    exchange: str = Query(default="binance", description="交易所名稱 (binance/lighter/hyperliquid)"),
+    period: str = Query(default="7d", description="回測週期 (7d/30d/180d)"),
+    limit: int = Query(default=20, ge=1, le=50, description="回傳排名筆數"),
+    _token: str = Depends(verify_token),
+):
+    """
+    獲取全市場熱門主流代幣之網格年化收益排行榜 (Backtest APR Ranking)
+    
+    具備 15 分鐘後端記憶體快取，前端請求不產生交易所 API 負擔，絕對防封。
+    """
+    import asyncio
+
+    loop = asyncio.get_running_loop()
+    try:
+        rankings = await loop.run_in_executor(
+            None,
+            get_market_rankings_sync,
+            exchange,
+            period,
+            limit,
+        )
+        return rankings
+    except Exception as e:
+        logger.error(f"獲取市場年化排行榜失敗: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"獲取市場年化排行榜失敗: {str(e)}",
+        )
+
+

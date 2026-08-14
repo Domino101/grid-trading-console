@@ -841,7 +841,7 @@ class PositionMonitor:
                 # 首次查询，使用当前市场价格作为初始成本
                 try:
                     entry_price = await self.engine.get_current_price()
-                except:
+                except Exception:
                     entry_price = Decimal('0')
 
             self.logger.debug(

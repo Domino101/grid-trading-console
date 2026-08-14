@@ -1,6 +1,6 @@
 ---
 name: position-lifecycle
-description: "Position lifecycle management for crypto-trading-open. Use when debugging position tracking, entry/exit orders, TP/SL settings, realized/unrealized PnL calculation, or position state transitions in Grid Trading and Volume Maker strategies."
+description: "Position lifecycle management for grid-trading-console. Use when debugging position tracking, entry/exit orders, TP/SL settings, realized/unrealized PnL calculation, or position state transitions in Grid Trading and Volume Maker strategies."
 ---
 
 # Position Lifecycle Skill
@@ -26,6 +26,5 @@ description: "Position lifecycle management for crypto-trading-open. Use when de
 - **Unrealized PnL**: `(current_mid_price - avg_entry_price) * position_size`
 
 ## Verification & Debugging
-- Check positions database table or API endpoints (`web_ui/app.py`).
+- Check positions in runtime snapshots (`data/web_ui_runtime.sqlite3`) or API endpoints (`/api/v1/grids`).
 - Verify position updates match exchange WebSocket fills.
-

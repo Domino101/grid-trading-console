@@ -514,5 +514,5 @@ class VolumeMakerTerminalUI:
             try:
                 # Rich Live 会在上下文管理器退出时自动清理
                 pass
-            except:
+            except Exception:
                 pass

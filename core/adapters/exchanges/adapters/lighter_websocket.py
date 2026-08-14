@@ -226,7 +226,7 @@ class LighterWebSocket(LighterBase):
             if self._direct_ws:
                 try:
                     await self._direct_ws.close()
-                except:
+                except Exception:
                     pass
                 self._direct_ws = None
 

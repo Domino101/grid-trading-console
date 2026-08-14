@@ -1,6 +1,6 @@
 ---
 name: strategy-development
-description: "Guidelines for developing, testing, and deploying new trading strategies in crypto-trading-open. Use when creating new trading strategies, modifying existing ones (Grid Trading, Volume Maker, Arbitrage Monitor, Price Alert), or evaluating strategy performance."
+description: "Guidelines for developing, testing, and deploying new trading strategies in grid-trading-console. Use when creating new trading strategies, modifying existing ones (Grid Trading, Multi-Grid Engine, Volume Maker, Arbitrage Monitor, Price Alert), or evaluating strategy performance."
 ---
 
 # Strategy Development Skill
@@ -12,14 +12,14 @@ description: "Guidelines for developing, testing, and deploying new trading stra
 
 ## Architecture Overview
 
-Strategies in `crypto-trading-open` live in `core/services/` (e.g. `grid/`, `volume_maker/`, `arbitrage_monitor/`, `price_alert/`). They communicate with exchanges via `ExchangeAdapterFactory` and exchange adapters in `core/adapters/exchanges/adapters/`.
+Strategies in `grid-trading-console` live in `core/services/` (e.g. `grid/`, `volume_maker/`, `arbitrage_monitor/`, `price_alert/`). They communicate with exchanges via `ExchangeAdapterFactory` and exchange adapters in `core/adapters/exchanges/adapters/`.
 
 ```
 Strategy Service (core/services/)
     ↓
 Exchange Adapter Factory (core/adapters/exchanges/factory.py)
     ↓
-Exchange Adapter (Binance, OKX, Hyperliquid, Lighter, EdgeX, Backpack)
+Exchange Adapter (Binance, OKX, Hyperliquid, Lighter, EdgeX, Backpack, O1Exchange, Paper)
 ```
 
 ## Development Guidelines
@@ -28,4 +28,3 @@ Exchange Adapter (Binance, OKX, Hyperliquid, Lighter, EdgeX, Backpack)
 2. **Exchange Interaction**: Use `ExchangeAdapterFactory().create(exchange_name)` to instantiate exchange adapters. Always check `adapter.create_order()` return structure.
 3. **Risk Verification**: Validate min notional values and precision before order submission.
 4. **Testing**: Write unit tests in `tests/` to verify logic.
-

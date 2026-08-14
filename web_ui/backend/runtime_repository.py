@@ -35,30 +35,40 @@ class RuntimeSnapshotRepository:
                     cls._instance = cls()
         return cls._instance
 
+    @classmethod
+    def reset_instance(cls) -> None:
+        with cls._instance_lock:
+            cls._instance = None
+
     def _connect(self):
-        return connect_sqlite(self.database_path)
+        connection = connect_sqlite(self.database_path)
+        self._ensure_schema(connection)
+        return connection
+
+    def _ensure_schema(self, connection: sqlite3.Connection) -> None:
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS grid_runtime_snapshots (
+                config_path TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                updated_at REAL NOT NULL
+            )
+        """)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS grid_runtime_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                config_path TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                recorded_at REAL NOT NULL
+            )
+        """)
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_runtime_history_path_time "
+            "ON grid_runtime_history(config_path, recorded_at DESC)"
+        )
 
     def _initialize(self) -> None:
-        with self._connect() as connection:
-            connection.execute("""
-                CREATE TABLE IF NOT EXISTS grid_runtime_snapshots (
-                    config_path TEXT PRIMARY KEY,
-                    payload TEXT NOT NULL,
-                    updated_at REAL NOT NULL
-                )
-            """)
-            connection.execute("""
-                CREATE TABLE IF NOT EXISTS grid_runtime_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    config_path TEXT NOT NULL,
-                    payload TEXT NOT NULL,
-                    recorded_at REAL NOT NULL
-                )
-            """)
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS idx_runtime_history_path_time "
-                "ON grid_runtime_history(config_path, recorded_at DESC)"
-            )
+        with connect_sqlite(self.database_path) as connection:
+            self._ensure_schema(connection)
 
     def save(self, config_path: str, stats: dict, updated_at: Optional[float] = None) -> float:
         timestamp = updated_at if updated_at is not None else time.time()

@@ -358,7 +358,7 @@ async def main():
         for sig in (signal.SIGTERM, signal.SIGINT):
             try:
                 loop.remove_signal_handler(sig)
-            except:
+            except Exception:
                 pass
 
 

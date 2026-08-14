@@ -1,19 +1,19 @@
 ---
 name: production-troubleshooting
-description: "Production troubleshooting playbook for crypto-trading-open. Use when trading services crash, hang, encounter exchange API rate limits/IP bans, produce unexpected orders, or when Web UI is unreachable."
+description: "Production troubleshooting playbook for grid-trading-console. Use when trading services crash, hang, encounter exchange API rate limits/IP bans, produce unexpected orders, or when Web UI is unreachable."
 ---
 
 # Production Troubleshooting Skill
 
 ## When to Activate
-- Trading script (`run_grid_trading.py`, `run_volume_maker.py`, etc.) crashes or hangs
-- Exchange API issues (Binance IP ban HTTP 418/429, OKX authorization errors)
+- Trading script (`run_multiple_grids.py`, `run_grid_trading.py`, `run_volume_maker.py`, etc.) crashes or hangs
+- Exchange API issues (Binance IP ban HTTP 418/429, OKX authorization errors, Hyperliquid/Lighter connection drops)
 - PM2 services failing or Web UI unreachable (`start_web_ui.sh`)
 
 ## Emergency Response Checklist
 1. **Check Process Alive**: `pgrep -fa python` or `pm2 status`
-2. **Check Web UI**: `curl http://localhost:8000` or check `start_web_ui.sh`
-3. **Check Logs**: `tail -n 50 logs/*.log` or `tail -n 50 tmp_output.log`
+2. **Check Web UI**: `curl -I http://localhost:8001` or check `logs/web_ui.log`
+3. **Check Logs**: `tail -n 50 logs/web_ui.log` or `tail -n 50 logs/pm2-multi-grid.log`
 4. **Check IP Ban**: `curl -s -w "\nHTTP: %{http_code}\n" "https://api.binance.com/api/v3/ping"`
 
 ## Common Decision Trees
@@ -24,9 +24,8 @@ description: "Production troubleshooting playbook for crypto-trading-open. Use w
 
 ### Process Crashed / Restart Failed
 - Check logs for missing module or invalid syntax.
-- Test script manually: `python3 run_grid_trading.py --help` or run under venv: `venv/bin/python3 run_grid_trading.py`.
+- Test script manually under venv: `/root/grid-trading-console/venv/bin/python3 run_multiple_grids.py --help`.
 
-### Web UI Offline
-- Check port availability: `netstat -tlpn | grep python` or `lsof -i :8000`.
-- Restart Web UI: `bash start_web_ui.sh`.
-
+### Web UI Offline (Port 8001)
+- Check port availability: `lsof -i :8001` or `netstat -tlpn | grep 8001`.
+- Restart Web UI: `bash start_web_ui.sh` or run manually via `web_ui/backend/main.py`.

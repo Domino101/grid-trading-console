@@ -107,6 +107,9 @@ def cors_settings(env_value: Optional[str]) -> tuple[list[str], bool]:
 
 
 def connect_sqlite(path: str) -> sqlite3.Connection:
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
     connection = sqlite3.connect(path, timeout=5)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA journal_mode=WAL")
