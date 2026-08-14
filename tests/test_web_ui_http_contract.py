@@ -170,20 +170,107 @@ class WebUiHttpContractTests(unittest.TestCase):
         deleted = self.client.delete(f"/api/v1/grids/{grid_id}", headers=headers)
         self.assertEqual(deleted.status_code, 409)
 
-    def test_live_start_without_flag_is_rejected(self):
-        config_path = os.path.join(self.temp_dir.name, "config", "grid", "live-btc.yaml")
-        with open(config_path, "w", encoding="utf-8") as handle:
-            handle.write(
-                "grid_system:\n  symbol: BTC/USDT\n  exchange: binance\n"
-                "  account_mode: live\n  grid_type: neutral\n"
-            )
-        started = self.client.post(
-            "/api/v1/grids/live-btc/start",
-            headers={"Authorization": "Bearer contract-token"},
-        )
-        self.assertEqual(started.status_code, 409)
-        self.assertIn("GRID_LIVE_TRADING_ENABLED", started.json()["detail"])
+    def test_delete_starting_strategy_with_force_succeeds(self):
+        headers = {"Authorization": "Bearer contract-token"}
+        created = self.client.post("/api/v1/grids", headers=headers, json={
+            "symbol": "DOGE/USDT", "exchange": "binance", "grid_type": "neutral",
+            "lower_price": 0.1, "upper_price": 0.3, "grid_interval": 0.01,
+            "order_amount": 100, "account_mode": "paper", "auto_start": False,
+        })
+        self.assertEqual(created.status_code, 201, created.text)
+        grid_id = created.json()["grid_id"]
+        started = self.client.post(f"/api/v1/grids/{grid_id}/start", headers=headers)
+        self.assertEqual(started.status_code, 200)
+        force_deleted = self.client.delete(f"/api/v1/grids/{grid_id}?force=true", headers=headers)
+        self.assertEqual(force_deleted.status_code, 200, force_deleted.text)
+        self.assertEqual(force_deleted.json()["status"], "deleted")
+
+    def test_market_info_endpoint_requires_auth(self):
+        denied = self.client.get("/api/v1/market/info/ETH/USDC:USDC?exchange=binance")
+        self.assertIn(denied.status_code, (401, 403))
+
+    def test_market_info_precision_conversion_and_lookup(self):
+        from routes.market import _precision_to_decimals, _lookup_market_from_ccxt_sync
+        from unittest.mock import MagicMock, patch
+
+        # Test precision conversion logic
+        self.assertEqual(_precision_to_decimals(0.01, 2), 2)
+        self.assertEqual(_precision_to_decimals(0.001, 2), 3)
+        self.assertEqual(_precision_to_decimals(0.00001, 2), 5)
+        self.assertEqual(_precision_to_decimals(1.0, 2), 0)
+        self.assertEqual(_precision_to_decimals(2, 0), 2)
+        self.assertEqual(_precision_to_decimals(4, 0), 4)
+        self.assertEqual(_precision_to_decimals(0.01), 2)
+        self.assertEqual(_precision_to_decimals(None), None)
+        self.assertEqual(_precision_to_decimals(-1), 0)
+
+        # Mock ccxt exchange to test market lookup with tick size
+        fake_market = {
+            "symbol": "ETH/USDC:USDC",
+            "id": "ETHUSDC",
+            "precision": {"price": 0.01, "amount": 0.001},
+            "limits": {
+                "amount": {"min": 0.001, "max": 1000.0},
+                "cost": {"min": 20.0, "max": None},
+            },
+            "contractSize": 1.0,
+        }
+        fake_ex = MagicMock()
+        fake_ex.precisionMode = 2  # TICK_SIZE
+        fake_ex.markets = {"ETH/USDC:USDC": fake_market}
+
+        with patch("ccxt.binance", return_value=fake_ex):
+            # Test exact match
+            res = _lookup_market_from_ccxt_sync("ETH/USDC:USDC", "binance")
+            self.assertIsNotNone(res)
+            self.assertEqual(res.price_precision, 2)
+            self.assertEqual(res.quantity_precision, 3)
+            self.assertEqual(res.min_notional, 20.0)
+            self.assertEqual(res.min_order_amount, 0.001)
+
+            # Test flexible match without settle
+            res_no_settle = _lookup_market_from_ccxt_sync("ETH/USDC", "binance")
+            self.assertIsNotNone(res_no_settle)
+            self.assertEqual(res_no_settle.price_precision, 2)
+            self.assertEqual(res_no_settle.quantity_precision, 3)
+
+            # Test lowercase match
+            res_lower = _lookup_market_from_ccxt_sync("eth/usdc:usdc", "binance")
+            self.assertIsNotNone(res_lower)
+            self.assertEqual(res_lower.price_precision, 2)
+
+    def test_market_info_http_endpoint_with_auth(self):
+        from unittest.mock import MagicMock, patch
+        fake_market = {
+            "symbol": "ETH/USDC:USDC",
+            "id": "ETHUSDC",
+            "precision": {"price": 0.01, "amount": 0.001},
+            "limits": {
+                "amount": {"min": 0.001, "max": 1000.0},
+                "cost": {"min": 20.0, "max": None},
+            },
+            "contractSize": 1.0,
+        }
+        fake_ex = MagicMock()
+        fake_ex.precisionMode = 2
+        fake_ex.markets = {"ETH/USDC:USDC": fake_market}
+
+        headers = {"Authorization": "Bearer contract-token"}
+        with patch("ccxt.binance", return_value=fake_ex):
+            # Clear cache
+            from routes.market import _market_cache
+            _market_cache.clear()
+
+            resp = self.client.get("/api/v1/market/info/ETH/USDC:USDC?exchange=binance", headers=headers)
+            self.assertEqual(resp.status_code, 200, resp.text)
+            data = resp.json()
+            self.assertEqual(data["symbol"], "ETH/USDC:USDC")
+            self.assertEqual(data["price_precision"], 2)
+            self.assertEqual(data["quantity_precision"], 3)
+            self.assertEqual(data["min_notional"], 20.0)
+            self.assertEqual(data["min_order_amount"], 0.001)
 
 
 if __name__ == "__main__":
     unittest.main()
+

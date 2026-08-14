@@ -1,13 +1,13 @@
 ---
 name: order-execution-debug
-description: "Order execution full-chain diagnostics for crypto-trading-open. Use when debugging order placement, fill simulation, slippage, maker/taker order routing, or exchange-rejected orders across Binance, OKX, Hyperliquid, Lighter, EdgeX, Backpack."
+description: "Order execution full-chain diagnostics for grid-trading-console. Use when debugging order placement, fill simulation, slippage, maker/taker order routing, or exchange-rejected orders across Binance, OKX, Hyperliquid, Lighter, EdgeX, Backpack, O1Exchange, Paper."
 ---
 
 # Order Execution Debug Skill
 
 ## When to Activate
 - Orders not filling, being rejected, or cancelled unexpectedly
-- Debugging order placement in Grid Trading or Volume Maker services
+- Debugging order placement in Grid Trading, Multi-Grid Engine, or Volume Maker services
 - Investigating exchange min notional errors, price tick precision, or quantity precision
 - Testing exchange adapter order methods in `core/adapters/exchanges/`
 
@@ -25,7 +25,7 @@ Trading Service (Grid / Volume Maker) → Risk / Boundary Check
 |---|---|---|
 | **Exchange Factory** | `core/adapters/exchanges/factory.py` | Instantiates appropriate exchange adapter |
 | **Adapter Interface** | `core/adapters/exchanges/interface.py` | Standardized methods (`create_order`, `cancel_order`, `get_open_orders`, etc.) |
-| **Exchange Adapters** | `core/adapters/exchanges/adapters/` | Implementations for Binance, OKX, Hyperliquid, Lighter, EdgeX, Backpack |
+| **Exchange Adapters** | `core/adapters/exchanges/adapters/` | Implementations for Binance, OKX, Hyperliquid, Lighter, EdgeX, Backpack, O1Exchange, Paper |
 | **WebSocket Manager** | `core/adapters/exchanges/websocket_manager.py` | Connection pool & BBO orderbook streams |
 
 ## Common Execution Issues & Solutions
@@ -36,4 +36,3 @@ Trading Service (Grid / Volume Maker) → Risk / Boundary Check
 | **Invalid Quantity Precision** | `LOT_SIZE` error | Quantity decimal places exceed exchange tick size | Round quantity using exchange `stepSize` |
 | **Invalid Price Precision** | `PRICE_FILTER` error | Price decimal places exceed exchange `tickSize` | Round price using exchange `tickSize` |
 | **Rate Limit / Ban** | HTTP `418` / `429` | Request frequency too high | Increase poll interval or enable WS feed |
-

@@ -282,7 +282,7 @@ class ProcessManager:
                             except Exception: pass
                             finally: 
                                 try: stream.close()
-                                except: pass
+                                except Exception: pass
                         
                         t = threading.Thread(target=tail_reader, args=(tail_proc.stdout, pid, config_path), daemon=True)
                         t.start()
@@ -303,7 +303,7 @@ class ProcessManager:
                 if not self.pm2_tailers[pid]["listeners"]:
                     try:
                         self.pm2_tailers[pid]["process"].terminate()
-                    except: pass
+                    except Exception: pass
                     del self.pm2_tailers[pid]
 
     def start_process(self, script: str, config_path: str) -> int:

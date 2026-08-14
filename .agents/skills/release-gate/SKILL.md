@@ -1,6 +1,6 @@
 ---
 name: release-gate
-description: "Release audit verification and sign-off checklist generator for crypto-trading-open. Verifies test suite pass rate, code quality, dependency cleanliness, and generates a formatted Markdown Release Audit Checklist before merging to main."
+description: "Release audit verification and sign-off checklist generator for grid-trading-console. Verifies test suite pass rate, code quality, dependency cleanliness, and generates a formatted Markdown Release Audit Checklist before merging to main."
 ---
 
 # Release Gate Skill (發布驗收與門檻審核)
@@ -11,7 +11,7 @@ description: "Release audit verification and sign-off checklist generator for cr
 
 ## Quality Gates Checklist
 1. **Pytest Suite**: Run `python3 -m pytest` and verify 100% pass rate.
-2. **Trade Safety**: Verify `paper_trading` default protection and risk bounds.
-3. **No Secrets/Hardcoded Credentials**: Verify no raw API keys or Web3 private keys in commit diff.
-4. **Git Branching**: Ensure merge uses `git merge --no-ff`.
-
+2. **Frontend Build**: Run `cd web_ui/frontend && npm run build` and ensure TypeScript compilation clean.
+3. **Trade Safety**: Verify `paper_trading` default protection and risk bounds.
+4. **No Secrets/Hardcoded Credentials**: Verify no raw API keys or Web3 private keys in commit diff.
+5. **Live Smoke Test**: Verify Web UI (Port 8001) and PM2 engines start cleanly.

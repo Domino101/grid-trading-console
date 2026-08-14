@@ -1,16 +1,30 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, RefreshCcw } from 'lucide-react';
-import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ArrowLeft,
+  RefreshCcw,
+  TrendingUp,
+  Activity,
+  Layers,
+  Sliders,
+  Clock,
+} from 'lucide-react';
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import {
   api,
   type DashboardGridItem,
   type GridCommand,
   type GridEvent,
-  type GridFillRow,
   type GridFillsResponse,
   type GridHistoryPoint,
   type GridInfo,
-  type GridOrderRow,
   type GridOrdersResponse,
 } from '../services/api';
 import { ApiError } from '../utils/auth';
@@ -22,7 +36,10 @@ interface GridDetailProps {
   onUnauthorized: () => void;
 }
 
-const GridDetail = ({ gridId, onBack, onUnauthorized }: GridDetailProps) => {
+type TabType = 'chart' | 'orders' | 'fills' | 'audit' | 'specs';
+
+const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized }) => {
+  const [activeTab, setActiveTab] = useState<TabType>('chart');
   const [grid, setGrid] = useState<GridInfo | null>(null);
   const [item, setItem] = useState<DashboardGridItem | null>(null);
   const [commands, setCommands] = useState<GridCommand[]>([]);
@@ -32,24 +49,27 @@ const GridDetail = ({ gridId, onBack, onUnauthorized }: GridDetailProps) => {
   const [fills, setFills] = useState<GridFillsResponse | null>(null);
   const [rangeHours, setRangeHours] = useState(24);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const load = useCallback(async () => {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+    setLoading(true);
     try {
-      const [nextGrid, snapshot, commandResponse, historyResponse, eventResponse, orderResponse, fillResponse] = await Promise.all([
-        api.getGrid(gridId, controller.signal),
-        api.getDashboardSnapshot(controller.signal),
-        api.listGridCommands(gridId, controller.signal),
-        api.getGridHistory(gridId, rangeHours, controller.signal),
-        api.listGridEvents(gridId, controller.signal),
-        api.getGridOrders(gridId, controller.signal),
-        api.getGridFills(gridId, controller.signal),
-      ]);
+      const [nextGrid, snapshot, commandResponse, historyResponse, eventResponse, orderResponse, fillResponse] =
+        await Promise.all([
+          api.getGrid(gridId, controller.signal),
+          api.getDashboardSnapshot(controller.signal),
+          api.listGridCommands(gridId, controller.signal),
+          api.getGridHistory(gridId, rangeHours, controller.signal),
+          api.listGridEvents(gridId, controller.signal),
+          api.getGridOrders(gridId, controller.signal),
+          api.getGridFills(gridId, controller.signal),
+        ]);
       setGrid(nextGrid);
-      setItem(snapshot.grids.find(entry => entry.grid_id === gridId) ?? null);
+      setItem(snapshot.grids.find((entry) => entry.grid_id === gridId) ?? null);
       setCommands(commandResponse.commands);
       setHistory(historyResponse.points);
       setEvents(eventResponse.events);
@@ -63,182 +83,384 @@ const GridDetail = ({ gridId, onBack, onUnauthorized }: GridDetailProps) => {
       }
       if (caught instanceof DOMException && caught.name === 'AbortError') return;
       setError(caught instanceof Error ? caught.message : '無法載入策略詳情');
+    } finally {
+      setLoading(false);
     }
   }, [gridId, onUnauthorized, rangeHours]);
 
   useEffect(() => {
-    const initial = window.setTimeout(() => { void load(); }, 0);
+    const initial = window.setTimeout(() => {
+      void load();
+    }, 0);
     return () => {
       window.clearTimeout(initial);
       abortRef.current?.abort();
     };
   }, [load]);
 
+  const netPnl = item?.net_pnl;
+  const isPositive = netPnl != null && netPnl >= 0;
+
   return (
     <main className="dashboard grid-detail">
+      {/* Header */}
       <header className="dashboard-header">
         <div>
-          <button className="back-link" type="button" onClick={onBack}><ArrowLeft size={16} />返回總覽</button>
-          <p className="eyebrow">策略工作台</p>
-          <h2>{grid?.symbol ?? gridId}</h2>
-        </div>
-        <button className="btn btn-outline" type="button" onClick={() => void load()}><RefreshCcw size={16} />重新整理</button>
-      </header>
-      {error && <div className="notice notice-error" role="alert">{error}</div>}
-      {item?.start_blocked_reason && <div className="notice notice-warning" role="status">{item.start_blocked_reason}</div>}
-      <section className="detail-layout">
-        <article className="strategy-card">
-          <h3>網格與風控摘要</h3>
-          <dl className="strategy-metrics">
-            <div><dt>交易所</dt><dd>{grid?.exchange ?? '—'}</dd></div>
-            <div><dt>策略狀態</dt><dd>{item?.status ?? grid?.status ?? '—'}</dd></div>
-            <div><dt>帳戶模式</dt><dd>{item?.mode ?? grid?.mode ?? '—'}</dd></div>
-            <div><dt>價格區間</dt><dd>{grid?.lower_price === undefined || grid?.upper_price === undefined ? '—' : `${number(grid.lower_price)} – ${number(grid.upper_price)}`}</dd></div>
-            <div><dt>格距 / 下單量</dt><dd>{number(grid?.grid_interval)} / {number(grid?.order_amount, 6)}</dd></div>
-            <div><dt>槓桿</dt><dd>{number(grid?.leverage, 0)}</dd></div>
-            <div><dt>資料狀態</dt><dd>{item?.data_status ?? '尚未同步'}</dd></div>
-          </dl>
-        </article>
-        <article className="strategy-card">
-          <h3>資產與收益</h3>
-          <dl className="strategy-metrics">
-            <div><dt>淨盈虧</dt><dd>{money(item?.net_pnl)}</dd></div>
-            <div><dt>已實現 / 未實現</dt><dd>{money(item?.realized_pnl)} / {money(item?.unrealized_pnl)}</dd></div>
-            <div><dt>手續費</dt><dd>{money(item?.fees)}</dd></div>
-            <div><dt>當前價格</dt><dd>{number(item?.current_price)}</dd></div>
-            <div><dt>持倉</dt><dd>{number(item?.current_position)}</dd></div>
-            <div><dt>掛單</dt><dd>{number(item?.pending_orders, 0)}</dd></div>
-          </dl>
-        </article>
-      </section>
-      <section className="strategy-card">
-        <div className="chart-heading">
-          <h3>淨盈虧快照</h3>
-          <div className="range-tabs" aria-label="歷史查詢區間">
-            {[24, 168].map(hours => (
-              <button className={rangeHours === hours ? 'active' : ''} key={hours} type="button" onClick={() => setRangeHours(hours)}>
-                {hours === 24 ? '24H' : '7D'}
-              </button>
-            ))}
+          <button className="btn btn-outline" type="button" onClick={onBack} style={{ marginBottom: '0.5rem', padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}>
+            <ArrowLeft size={14} />
+            <span>返回總覽</span>
+          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.25rem' }}>
+            <h2>{grid?.symbol ?? gridId}</h2>
+            {item && <span className={`badge badge-${item.mode}`}>{item.mode}</span>}
+            {item && <span className={`badge badge-${item.data_status}`}>{item.data_status}</span>}
+            <span className="exchange-pill">{grid?.exchange ?? '未知交易所'}</span>
           </div>
         </div>
-        {history.length < 2
-          ? <p className="muted">尚無足夠歷史快照可繪製曲線。</p>
-          : (
-            <div className="history-chart">
-              <ResponsiveContainer width="100%" height={240}>
-                <LineChart data={history.map(point => ({
-                  ...point,
-                  time: new Date(point.recorded_at * 1000).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' }),
-                }))}>
-                  <XAxis dataKey="time" tick={{ fill: '#9CA3AF', fontSize: 11 }} minTickGap={36} />
-                  <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} width={70} />
-                  <Tooltip contentStyle={{ background: '#16171c', border: '1px solid #334155' }} labelStyle={{ color: '#F3F4F6' }} />
-                  <Line type="monotone" dataKey="net_pnl" name="淨盈虧" stroke="#10B981" strokeWidth={2} dot={false} connectNulls />
-                </LineChart>
+
+        <button className="btn btn-outline" type="button" onClick={() => void load()} disabled={loading}>
+          <RefreshCcw size={14} className={loading ? 'spin' : ''} />
+          <span>{loading ? '更新中…' : '重新整理'}</span>
+        </button>
+      </header>
+
+      {error && <div className="notice notice-error" role="alert">{error}</div>}
+      {item?.start_blocked_reason && <div className="notice notice-warning" role="status">{item.start_blocked_reason}</div>}
+
+      {/* Mini KPI Bar */}
+      <section className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
+        <article className="kpi-card" style={{ minHeight: 'auto', padding: '1rem' }}>
+          <span className="text-secondary" style={{ fontSize: '0.75rem' }}>累計淨盈虧 (Net PnL)</span>
+          <strong className={`font-mono ${netPnl === null ? '' : isPositive ? 'positive' : 'negative'}`} style={{ fontSize: '1.4rem' }}>
+            {money(netPnl)}
+          </strong>
+          <small className="font-mono">已實現: {money(item?.realized_pnl)} · 未實現: {money(item?.unrealized_pnl)}</small>
+        </article>
+
+        <article className="kpi-card" style={{ minHeight: 'auto', padding: '1rem' }}>
+          <span className="text-secondary" style={{ fontSize: '0.75rem' }}>當前價格 / 持倉量</span>
+          <strong className="font-mono" style={{ fontSize: '1.4rem' }}>
+            {number(item?.current_price)}
+          </strong>
+          <small className="font-mono">持倉: {number(item?.current_position)} · 手續費: {money(item?.fees)}</small>
+        </article>
+
+        <article className="kpi-card" style={{ minHeight: 'auto', padding: '1rem' }}>
+          <span className="text-secondary" style={{ fontSize: '0.75rem' }}>網格區間 / 格距</span>
+          <strong className="font-mono" style={{ fontSize: '1.3rem' }}>
+            {grid?.lower_price != null && grid?.upper_price != null ? `${number(grid.lower_price)} - ${number(grid.upper_price)}` : '—'}
+          </strong>
+          <small className="font-mono">格距: {number(grid?.grid_interval)} · 每格量: {number(grid?.order_amount, 4)}</small>
+        </article>
+
+        <article className="kpi-card" style={{ minHeight: 'auto', padding: '1rem' }}>
+          <span className="text-secondary" style={{ fontSize: '0.75rem' }}>掛單 / 成交套利</span>
+          <strong className="font-mono" style={{ fontSize: '1.4rem' }}>
+            {number(item?.pending_orders, 0)} <small style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>掛單</small>
+          </strong>
+          <small className="font-mono positive">已套利 {number(item?.completed_cycles, 0)} 格 (買 {item?.filled_buy ?? 0} / 賣 {item?.filled_sell ?? 0})</small>
+        </article>
+      </section>
+
+      {/* Navigation Tabs */}
+      <nav className="detail-nav-tabs" role="tablist">
+        <button
+          className={`detail-tab ${activeTab === 'chart' ? 'active' : ''}`}
+          type="button"
+          onClick={() => setActiveTab('chart')}
+        >
+          <TrendingUp size={15} />
+          <span>收益走勢</span>
+        </button>
+
+        <button
+          className={`detail-tab ${activeTab === 'orders' ? 'active' : ''}`}
+          type="button"
+          onClick={() => setActiveTab('orders')}
+        >
+          <Layers size={15} />
+          <span>掛單深度 ({orders?.orders.length ?? 0})</span>
+        </button>
+
+        <button
+          className={`detail-tab ${activeTab === 'fills' ? 'active' : ''}`}
+          type="button"
+          onClick={() => setActiveTab('fills')}
+        >
+          <Activity size={15} />
+          <span>成交紀錄 ({fills?.fills.length ?? 0})</span>
+        </button>
+
+        <button
+          className={`detail-tab ${activeTab === 'audit' ? 'active' : ''}`}
+          type="button"
+          onClick={() => setActiveTab('audit')}
+        >
+          <Clock size={15} />
+          <span>命令與事件 ({commands.length + events.length})</span>
+        </button>
+
+        <button
+          className={`detail-tab ${activeTab === 'specs' ? 'active' : ''}`}
+          type="button"
+          onClick={() => setActiveTab('specs')}
+        >
+          <Sliders size={15} />
+          <span>策略參數</span>
+        </button>
+      </nav>
+
+      {/* Tab 1: Chart */}
+      {activeTab === 'chart' && (
+        <section className="glass-panel chart-card" style={{ padding: '1.25rem' }}>
+          <div className="chart-heading">
+            <div>
+              <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>淨盈虧歷史走勢</h3>
+              <p className="muted">即時記錄策略淨盈虧快照走勢與回撤變化</p>
+            </div>
+            <div className="range-tabs" aria-label="查詢時段">
+              {[24, 168].map((hours) => (
+                <button
+                  key={hours}
+                  className={rangeHours === hours ? 'active' : ''}
+                  type="button"
+                  onClick={() => setRangeHours(hours)}
+                >
+                  {hours === 24 ? '24 小時' : '7 天'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {history.length < 2 ? (
+            <div style={{ padding: '3rem 1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+              尚無足夠歷史快照數據可繪製曲線（至少需 2 筆紀錄）。
+            </div>
+          ) : (
+            <div className="history-chart-wrapper">
+              <ResponsiveContainer width="100%" height={280}>
+                <AreaChart
+                  data={history.map((point) => ({
+                    ...point,
+                    time: new Date(point.recorded_at * 1000).toLocaleTimeString('zh-TW', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hour12: false,
+                    }),
+                  }))}
+                  margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                >
+                  <defs>
+                    <linearGradient id="pnlGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--trading-green)" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="var(--trading-green)" stopOpacity={0.0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                  <XAxis dataKey="time" tick={{ fill: '#94A3B8', fontSize: 11 }} minTickGap={40} />
+                  <YAxis tick={{ fill: '#94A3B8', fontSize: 11 }} width={65} domain={['auto', 'auto']} />
+                  <Tooltip
+                    contentStyle={{
+                      background: 'rgba(15, 20, 32, 0.95)',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      borderRadius: '8px',
+                      fontFamily: 'var(--font-mono)',
+                    }}
+                    labelStyle={{ color: '#F8FAFC' }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="net_pnl"
+                    name="淨盈虧"
+                    stroke="var(--trading-green)"
+                    strokeWidth={2}
+                    fillOpacity={1}
+                    fill="url(#pnlGradient)"
+                    connectNulls
+                  />
+                </AreaChart>
               </ResponsiveContainer>
             </div>
           )}
-      </section>
-      <section className="detail-layout">
-        <OrderTable
-          title="掛單明細"
-          available={orders?.available ?? false}
-          empty={orders?.message || '引擎尚未提供掛單明細'}
-          rows={orders?.orders ?? []}
-        />
-        <FillTable
-          title="成交明細"
-          available={fills?.available ?? false}
-          empty={fills?.message || '引擎尚未提供成交明細'}
-          rows={fills?.fills ?? []}
-        />
-      </section>
-      <section className="strategy-card">
-        <h3>命令與稽核時間線</h3>
-        {commands.length === 0
-          ? <p className="muted">尚無命令紀錄。</p>
-          : (
-            <ol className="command-timeline">
-              {commands.map(command => (
-                <li key={command.command_id}>
-                  <strong>{command.action} · {command.status}</strong>
-                  <span>{new Date(command.updated_at * 1000).toLocaleString('zh-TW')} · {command.source}</span>
-                  {command.reason && <small>原因：{command.reason}</small>}
-                  {command.detail && <small>詳情：{command.detail}</small>}
-                </li>
-              ))}
-            </ol>
+        </section>
+      )}
+
+      {/* Tab 2: Orders Ladder */}
+      {activeTab === 'orders' && (
+        <section className="glass-panel" style={{ padding: '1.25rem' }}>
+          <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.5rem' }}>當前網格掛單階梯</h3>
+          {!orders?.available || orders.orders.length === 0 ? (
+            <p className="muted" style={{ padding: '2rem 0', textAlign: 'center' }}>
+              {orders?.message || '引擎目前無活躍掛單或尚未同步'}
+            </p>
+          ) : (
+            <div className="table-wrapper" style={{ marginTop: '0.75rem' }}>
+              <table className="pro-table">
+                <thead>
+                  <tr>
+                    <th>方向 (Side)</th>
+                    <th>價格 (Price)</th>
+                    <th>數量 (Amount)</th>
+                    <th>狀態 (Status)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orders.orders.map((row, idx) => {
+                    const isBuy = row.side?.toLowerCase() === 'buy';
+                    return (
+                      <tr key={`${row.side}-${row.price}-${idx}`}>
+                        <td>
+                          <span className={`badge ${isBuy ? 'badge-success' : 'badge-failed'}`}>
+                            {row.side?.toUpperCase() ?? '—'}
+                          </span>
+                        </td>
+                        <td className={`font-mono ${isBuy ? 'positive' : 'negative'}`}>
+                          {number(row.price)}
+                        </td>
+                        <td className="font-mono">{number(row.amount, 6)}</td>
+                        <td>
+                          <span className="text-secondary font-mono">{row.status ?? 'OPEN'}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
-      </section>
-      <section className="strategy-card">
-        <h3>引擎事件</h3>
-        {events.length === 0
-          ? <p className="muted">尚未收到引擎 lifecycle 事件。</p>
-          : (
-            <ol className="command-timeline">
-              {events.map(event => (
-                <li key={`${event.occurred_at}-${event.status}-${event.event_type}`}>
-                  <strong>{event.event_type} · {event.status}</strong>
-                  <span>{new Date(event.occurred_at * 1000).toLocaleString('zh-TW')}</span>
-                  {event.detail && <small>詳情：{event.detail}</small>}
-                </li>
-              ))}
-            </ol>
+        </section>
+      )}
+
+      {/* Tab 3: Fills */}
+      {activeTab === 'fills' && (
+        <section className="glass-panel" style={{ padding: '1.25rem' }}>
+          <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.5rem' }}>成交與套利紀錄</h3>
+          {!fills?.available || fills.fills.length === 0 ? (
+            <p className="muted" style={{ padding: '2rem 0', textAlign: 'center' }}>
+              {fills?.message || '尚無成交明細紀錄'}
+            </p>
+          ) : (
+            <div className="table-wrapper" style={{ marginTop: '0.75rem' }}>
+              <table className="pro-table">
+                <thead>
+                  <tr>
+                    <th>方向 (Side)</th>
+                    <th>成交價格 (Price)</th>
+                    <th>成交量 (Amount)</th>
+                    <th>手續費 (Fee)</th>
+                    <th>成交時間 (Time)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fills.fills.map((row, idx) => {
+                    const isBuy = row.side?.toLowerCase() === 'buy';
+                    return (
+                      <tr key={`${row.side}-${row.price}-${idx}`}>
+                        <td>
+                          <span className={`badge ${isBuy ? 'badge-success' : 'badge-failed'}`}>
+                            {row.side?.toUpperCase() ?? '—'}
+                          </span>
+                        </td>
+                        <td className={`font-mono ${isBuy ? 'positive' : 'negative'}`}>
+                          {number(row.price)}
+                        </td>
+                        <td className="font-mono">{number(row.amount, 6)}</td>
+                        <td className="font-mono text-muted">{money(row.fee, 4)}</td>
+                        <td className="font-mono text-muted">{row.time != null ? String(row.time) : '—'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
-      </section>
+        </section>
+      )}
+
+      {/* Tab 4: Audit Timeline & Events */}
+      {activeTab === 'audit' && (
+        <div className="detail-layout-grid">
+          <section className="glass-panel" style={{ padding: '1.25rem' }}>
+            <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem' }}>命令審計日誌</h3>
+            {commands.length === 0 ? (
+              <p className="muted">尚無命令紀錄。</p>
+            ) : (
+              <ol className="timeline-stream">
+                {commands.map((cmd) => (
+                  <li className="timeline-item" key={cmd.command_id}>
+                    <div className="timeline-title">
+                      <span className="badge badge-success">{cmd.action.toUpperCase()}</span>
+                      <span>{cmd.status}</span>
+                    </div>
+                    <span className="timeline-time">
+                      {new Date(cmd.updated_at * 1000).toLocaleString('zh-TW')} · 來源: {cmd.source}
+                    </span>
+                    {cmd.reason && <small className="text-secondary">原因: {cmd.reason}</small>}
+                    {cmd.detail && <small className="text-muted">詳情: {cmd.detail}</small>}
+                  </li>
+                ))}
+              </ol>
+            )}
+          </section>
+
+          <section className="glass-panel" style={{ padding: '1.25rem' }}>
+            <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem' }}>引擎生命週期事件</h3>
+            {events.length === 0 ? (
+              <p className="muted">尚未收到引擎事件。</p>
+            ) : (
+              <ol className="timeline-stream">
+                {events.map((evt, idx) => (
+                  <li className="timeline-item" key={`${evt.occurred_at}-${idx}`}>
+                    <div className="timeline-title">
+                      <span className="badge badge-paper">{evt.event_type}</span>
+                      <span>{evt.status}</span>
+                    </div>
+                    <span className="timeline-time">
+                      {new Date(evt.occurred_at * 1000).toLocaleString('zh-TW')}
+                    </span>
+                    {evt.detail && <small className="text-muted">{evt.detail}</small>}
+                  </li>
+                ))}
+              </ol>
+            )}
+          </section>
+        </div>
+      )}
+
+      {/* Tab 5: Strategy Specs */}
+      {activeTab === 'specs' && (
+        <section className="glass-panel" style={{ padding: '1.5rem' }}>
+          <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>完整策略與風控規格</h3>
+          <div className="form-fields-grid">
+            <div className="metric-cell">
+              <dt>策略識別碼 (Grid ID)</dt>
+              <dd className="font-mono">{grid?.grid_id ?? gridId}</dd>
+            </div>
+            <div className="metric-cell">
+              <dt>配置路徑 (Config Path)</dt>
+              <dd className="font-mono text-muted">{grid?.config_path ?? '—'}</dd>
+            </div>
+            <div className="metric-cell">
+              <dt>槓桿倍數 (Leverage)</dt>
+              <dd className="font-mono">{grid?.leverage ?? 1}x</dd>
+            </div>
+            <div className="metric-cell">
+              <dt>網格方向 (Grid Type)</dt>
+              <dd className="font-mono">{grid?.grid_type?.toUpperCase() ?? 'NEUTRAL'}</dd>
+            </div>
+            <div className="metric-cell">
+              <dt>建立者 (Created By)</dt>
+              <dd className="font-mono">{grid?.created_by ?? 'system'}</dd>
+            </div>
+            <div className="metric-cell">
+              <dt>當前命令狀態</dt>
+              <dd className="font-mono">{grid?.command_status ?? 'NORMAL'}</dd>
+            </div>
+          </div>
+        </section>
+      )}
     </main>
   );
 };
-
-const OrderTable = ({ title, available, empty, rows }: { title: string; available: boolean; empty: string; rows: GridOrderRow[] }) => (
-  <article className="strategy-card">
-    <h3>{title}</h3>
-    {!available || rows.length === 0
-      ? <p className="muted">{empty}</p>
-      : (
-        <table className="data-table">
-          <thead>
-            <tr><th>方向</th><th>價格</th><th>數量</th><th>狀態</th></tr>
-          </thead>
-          <tbody>
-            {rows.map((row, index) => (
-              <tr key={`${row.side}-${row.price}-${index}`}>
-                <td>{row.side ?? '—'}</td>
-                <td>{number(row.price)}</td>
-                <td>{number(row.amount, 6)}</td>
-                <td>{row.status ?? '—'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-  </article>
-);
-
-const FillTable = ({ title, available, empty, rows }: { title: string; available: boolean; empty: string; rows: GridFillRow[] }) => (
-  <article className="strategy-card">
-    <h3>{title}</h3>
-    {!available || rows.length === 0
-      ? <p className="muted">{empty}</p>
-      : (
-        <table className="data-table">
-          <thead>
-            <tr><th>方向</th><th>價格</th><th>數量</th><th>時間</th></tr>
-          </thead>
-          <tbody>
-            {rows.map((row, index) => (
-              <tr key={`${row.side}-${row.price}-${index}`}>
-                <td>{row.side ?? '—'}</td>
-                <td>{number(row.price)}</td>
-                <td>{number(row.amount, 6)}</td>
-                <td>{row.time == null ? '—' : String(row.time)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-  </article>
-);
 
 export default GridDetail;

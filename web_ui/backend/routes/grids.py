@@ -957,6 +957,7 @@ async def delete_grid(
     grid_id: str,
     source: str = Query(default="hermes", description="來源"),
     reason: Optional[str] = Query(default=None, description="原因"),
+    force: bool = Query(default=False, description="是否強制停止並刪除運行中的策略"),
     _token: str = Depends(verify_token),
 ):
     """
@@ -1008,22 +1009,33 @@ async def delete_grid(
     try:
         active_grids = _read_active_grids()
         model = _grid_read_model(config_path, active_grids)
-        blocked = delete_rejection(model["status"], model.get("command_status"))
-        if blocked:
-            audit_logger.log(
-                source=source,
-                action="delete",
-                grid_id=grid_id,
-                params={"grid_id": grid_id, "status": model["status"]},
-                result="rejected",
-                reason=reason,
-                error_msg=blocked,
-            )
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=blocked)
+        if not force:
+            blocked = delete_rejection(model["status"], model.get("command_status"))
+            if blocked:
+                audit_logger.log(
+                    source=source,
+                    action="delete",
+                    grid_id=grid_id,
+                    params={"grid_id": grid_id, "status": model["status"]},
+                    result="rejected",
+                    reason=reason,
+                    error_msg=blocked,
+                )
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=blocked)
 
-        # 1. 停止（若仍標記為 desired running — 理論上已被守門擋下）
+        # 1. 停止（若仍標記為 desired running）
         was_running = active_grids.get(config_path, False)
         if was_running:
+            try:
+                GridCommandRepository.instance().create(
+                    grid_id=grid_id,
+                    config_path=config_path,
+                    action="stop",
+                    source=source,
+                    reason=reason or "force_delete",
+                )
+            except Exception:
+                pass
             active_grids[config_path] = False
             _write_active_grids(active_grids)
             logger.info(f"🛑 刪除前已停止網格: {grid_id}")

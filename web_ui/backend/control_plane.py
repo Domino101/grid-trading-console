@@ -23,7 +23,7 @@ def publish_runtime(config_path: str, stats: dict, updated_at: Optional[float] =
     RuntimeSnapshotRepository.instance().save(config_path, stats, updated_at=updated_at)
     repository = GridCommandRepository.instance()
     command = repository.latest_for_grid(_grid_id(config_path))
-    if command and command.get("action") == "start" and command.get("status") == "pending_engine":
+    if command and command.get("action") == "start" and command.get("status") in {"pending_engine", "accepted", "timed_out"}:
         repository.update_status(command["command_id"], "running", "engine runtime heartbeat")
 
 
@@ -35,11 +35,12 @@ def publish_lifecycle(config_path: str, status: str, detail: Optional[str] = Non
     repository = GridCommandRepository.instance()
     repository.record_event(grid_id, "engine_lifecycle", status, detail)
     command = repository.latest_for_grid(grid_id)
-    if command is None or command.get("status") != "pending_engine":
+    if command is None:
         return
     expected = "start" if status == "running" else "stop"
     if status == "failed" or command.get("action") == expected:
-        repository.update_status(command["command_id"], status, detail)
+        if command.get("status") in {"pending_engine", "accepted", "timed_out"}:
+            repository.update_status(command["command_id"], status, detail)
 
 
 def backend_sys_path(project_root: str) -> str:

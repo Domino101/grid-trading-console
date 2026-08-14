@@ -1,7 +1,27 @@
+const fs = require("fs");
 const path = require("path");
 
 const ROOT = process.env.PROJECT_ROOT || __dirname;
 const PYTHON = process.env.PYTHON_BIN || path.join(ROOT, "venv", "bin", "python3");
+
+// Read .env if present so PM2 env inherits variables
+const envFile = path.join(ROOT, ".env");
+const parsedEnv = {};
+if (fs.existsSync(envFile)) {
+  try {
+    const lines = fs.readFileSync(envFile, "utf-8").split("\n");
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const idx = trimmed.indexOf("=");
+      if (idx > 0) {
+        const k = trimmed.substring(0, idx).trim();
+        const v = trimmed.substring(idx + 1).trim();
+        parsedEnv[k] = v;
+      }
+    }
+  } catch (e) {}
+}
 
 module.exports = {
   apps: [
@@ -20,6 +40,7 @@ module.exports = {
       env: {
         PYTHONUNBUFFERED: "1",
         PYTHONPATH: ROOT,
+        ...parsedEnv,
       },
       out_file: path.join(ROOT, "logs", "pm2-multi-grid.log"),
       error_file: path.join(ROOT, "logs", "pm2-multi-grid-error.log"),

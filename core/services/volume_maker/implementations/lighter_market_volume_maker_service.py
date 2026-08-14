@@ -1548,7 +1548,7 @@ class LighterMarketVolumeMakerService(IVolumeMakerService):
                             else:
                                 order.average = Decimal("0")
                                 order.filled = self.config.order_size
-                        except:
+                        except Exception:
                             order.average = Decimal("0")
                             order.filled = self.config.order_size
 
@@ -1703,7 +1703,7 @@ class LighterMarketVolumeMakerService(IVolumeMakerService):
                             else:
                                 close_price = Decimal("0")
                                 close_amount = self.config.order_size
-                        except:
+                        except Exception:
                             close_price = Decimal("0")
                             close_amount = self.config.order_size
 

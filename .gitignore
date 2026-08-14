@@ -156,3 +156,6 @@ config/active_grids.json
 *.db
 *.sqlite
 *.sqlite3
+graphify-out/cache/
+graphify-out/cost.json
+

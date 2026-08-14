@@ -1,6 +1,6 @@
 ---
 name: risk-audit
-description: "Comprehensive risk audit checklist for crypto-trading-open. Run before going live, after strategy modifications, or when investigating trading losses."
+description: "Comprehensive risk audit checklist for grid-trading-console. Run before going live, after strategy modifications, or when investigating trading losses."
 ---
 
 # Risk Audit Skill
@@ -8,7 +8,7 @@ description: "Comprehensive risk audit checklist for crypto-trading-open. Run be
 ## When to Activate
 - User mentions risk audit, loss investigation, or live trading readiness
 - Before switching `paper_trading` from true to false
-- After modifying parameters for Grid Trading, Volume Maker, or Arbitrage Monitor
+- After modifying parameters for Grid Trading, Multi-Grid Engine, Volume Maker, or Arbitrage Monitor
 
 ## Risk Audit Checklist
 
@@ -16,6 +16,7 @@ description: "Comprehensive risk audit checklist for crypto-trading-open. Run be
 - [ ] `paper_trading: true` verified as default state
 - [ ] Emergency stop-loss triggers configured and active
 - [ ] Max drawdown / daily loss threshold defined
+- [ ] Circuit breaker rules active (`safety_guard.py`, `clear_circuit_breaker.py`)
 
 ### 2. Order & Exchange Bounds
 - [ ] Min notional per exchange respected (e.g. Binance minimum $5-$10 order value)
@@ -32,4 +33,3 @@ Produce a report with:
 - Mode (`paper` vs `live`)
 - Risk Gate Pass / Fail Matrix
 - Recommendations & Action Items
-

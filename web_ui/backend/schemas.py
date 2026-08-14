@@ -196,6 +196,8 @@ class SystemHealthResponse(BaseModel):
     running_grid_configs: List[str]
     max_recommended_grids: int
     can_accept_new_grid: bool
+    live_trading_enabled: bool = False
+
 
 
 class MarketInfoResponse(BaseModel):
@@ -208,6 +210,63 @@ class MarketInfoResponse(BaseModel):
     min_notional: Optional[float] = None
     contract_size: Optional[float] = None
     cached: bool = False
+
+
+class GridRecommendationPeriod(BaseModel):
+    """單一週期（如 7D、30D、180D）之 AI 推薦網格參數與歷史回測指標"""
+    days: int
+    lower_price: float
+    upper_price: float
+    grid_count: int
+    grid_interval: float
+    recommended_order_amount: float
+    estimated_apr: float
+    completed_cycles: int
+    price_range_percent: float
+    period_low: float
+    period_high: float
+
+
+class GridRecommendationResponse(BaseModel):
+    """GET /api/v1/market/recommendation/{symbol} 回應"""
+    symbol: str
+    exchange: str
+    current_price: float
+    price_precision: int
+    quantity_precision: int
+    min_notional: float
+    selected_period: str
+    recommended: GridRecommendationPeriod
+    periods: Dict[str, GridRecommendationPeriod]
+
+
+class MarketRankingItem(BaseModel):
+    """單一代幣之年化率排行項目"""
+    rank: int
+    symbol: str
+    exchange: str
+    current_price: float
+    volume_24h: float
+    price_change_24h_percent: float
+    estimated_apr: float
+    completed_cycles: int
+    lower_price: float
+    upper_price: float
+    grid_count: int
+    grid_interval: float
+    recommended_order_amount: float
+    rating: str  # S / A / B / C
+
+
+class MarketRankingsResponse(BaseModel):
+    """GET /api/v1/market/rankings 回應"""
+    exchange: str
+    period: str
+    updated_at: float
+    cached: bool = False
+    items: List[MarketRankingItem]
+
+
 
 
 # ── 階段二：統計與摘要模型 ──

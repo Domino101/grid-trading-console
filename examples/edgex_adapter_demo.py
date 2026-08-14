@@ -440,7 +440,7 @@ class EdgeXAdapterDemo:
             try:
                 await self.adapter.disconnect()
                 self.logger.info("已断开连接")
-            except:
+            except Exception:
                 pass
 
 

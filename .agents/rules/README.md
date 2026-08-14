@@ -10,9 +10,9 @@ These rules are automatically applied by the AI agent when working in this proje
 
 ## rule-02-code-structure
 - New trading services and strategies go in `core/services/` (e.g. `grid/`, `volume_maker/`, `arbitrage_monitor/`, `price_alert/`)
-- Exchange-specific adapters go in `core/adapters/exchanges/adapters/` (e.g. `binance.py`, `okx.py`, `hyperliquid.py`, `lighter.py`, `edgex.py`, `backpack.py`)
-- Web UI changes must update `web_ui/` files (`web_ui/app.py`, templates, static assets)
-- Configuration goes in `config/` or environment variables — never hardcoded credentials
+- Exchange-specific adapters go in `core/adapters/exchanges/adapters/` (e.g. `binance.py`, `okx.py`, `hyperliquid.py`, `lighter.py`, `edgex.py`, `backpack.py`, `o1exchange.py`, `paper.py`)
+- Web UI backend is FastAPI (`web_ui/backend/main.py` on port 8001), frontend is React 19 SPA (`web_ui/frontend/`)
+- Configuration goes in `config/` or environment variables in `.env` — never hardcoded credentials
 
 ## rule-03-logging
 - Use `logging` module — NEVER `print()` for any runtime output in core services
@@ -20,7 +20,7 @@ These rules are automatically applied by the AI agent when working in this proje
 - All log messages include: timestamp, service_name, exchange, symbol, action, result
 
 ## rule-04-database
-- Database connections (SQLite `crypto_trading.db` or PostgreSQL) MUST use parameterized queries — no string concatenation
+- Database connections (SQLite `data/web_ui_runtime.sqlite3` and `data/grid_audit.db`) MUST use parameterized queries — no string concatenation
 - Schema changes require backup → dry run → execute → verify workflow
 
 ## rule-05-restart-after-changes

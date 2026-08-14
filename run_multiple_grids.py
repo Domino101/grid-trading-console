@@ -24,6 +24,12 @@ import argparse
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv(project_root / ".env", override=False)
+except ImportError:
+    pass
+
 from core.adapters.exchanges.utils import setup_optimized_logging
 from core.adapters.exchanges.models import ExchangeType
 from core.adapters.exchanges import ExchangeFactory, ExchangeConfig
@@ -306,7 +312,9 @@ async def run_single_grid_task(config_path: str, adapter_pool, logger, running_g
         if reserve_manager:
             logger.info(f"🔍 [{grid_config.symbol}] 正在執行啟動前資金預留檢查...")
             if not await check_spot_reserve_on_startup(grid_config, shared_adapter, reserve_manager):
+                err_msg = "現貨資金預留檢查未通過"
                 logger.error(f"❌ [{grid_config.symbol}] 啟動檢查未通過，跳過此網格！")
+                _emit_lifecycle(config_path, "failed", err_msg)
                 return
 
         # 5. 啟動協調器
@@ -528,6 +536,7 @@ async def main():
     # 定義熱插拔控制監控協程
     async def active_grids_monitor():
         logger.info("👀 網格動態控制監控器 (Hot-reload Monitor) 已啟動")
+        reported_rejections = set()
         while True:
             await asyncio.sleep(5)
             if not control_file.exists():
@@ -538,20 +547,37 @@ async def main():
             except Exception:
                 continue
 
-            for path, is_enabled in list(current_status.items()):
-                if not is_enabled and path in running_grids_ref:
-                    logger.info(f"🛑 [動態控制] 檢測到 {path} 被設為停用，正在優雅取消所有掛單並停用任務...")
-                    grid_info = running_grids_ref.get(path)
+            for running_path in list(running_grids_ref.keys()):
+                if not current_status.get(running_path, False):
+                    logger.info(f"🛑 [動態控制] 檢測到 {running_path} 被設為停用或已刪除，正在優雅取消所有掛單並停用任務...")
+                    grid_info = running_grids_ref.get(running_path)
                     if grid_info:
                         try:
                             await grid_info["coordinator"].stop()
                         except Exception as stop_err:
-                            logger.error(f"⚠️ [動態控制] 停止 {path} 失敗: {stop_err}")
+                            logger.error(f"⚠️ [動態控制] 停止 {running_path} 失敗: {stop_err}")
                         grid_info["task"].cancel()
-                    logger.info(f"✅ [動態控制] {path} 已成功停止並清空掛單。")
+                    logger.info(f"✅ [動態控制] {running_path} 已成功停止並清空掛單。")
+                    reported_rejections.discard(running_path)
 
             def _exists(path: str) -> bool:
                 return _abs_config(path).exists()
+
+            # 檢查是否有啟用但被阻擋或不存在的配置，即時回報失敗而非靜默逾時
+            for path, enabled in current_status.items():
+                if enabled and path not in running_grids_ref:
+                    if not _exists(path):
+                        if path not in reported_rejections:
+                            reported_rejections.add(path)
+                            logger.error(f"❌ [動態控制] 找不到配置檔案: {path}")
+                            _emit_lifecycle(path, "failed", f"找不到配置檔案: {path}")
+                    else:
+                        blocked = start_rejection(_config_account_mode(path), live_trading_enabled())
+                        if blocked:
+                            if path not in reported_rejections:
+                                reported_rejections.add(path)
+                                logger.error(f"❌ [動態控制] {path} 啟動被拒絕: {blocked}")
+                                _emit_lifecycle(path, "failed", blocked)
 
             for path in iter_hotplug_starts(
                 current_status,
@@ -560,6 +586,7 @@ async def main():
                 _config_account_mode,
                 live_trading_enabled(),
             ):
+                reported_rejections.discard(path)
                 logger.info(f"▶️ [動態控制] 檢測到 {path} 被設為啟用，正在異步啟動網格...")
                 asyncio.create_task(run_single_grid_task(path, adapter_pool, logger, running_grids_ref))
 

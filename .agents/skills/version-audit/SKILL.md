@@ -1,6 +1,6 @@
 ---
 name: version-audit
-description: "Version-to-version code audit and change analysis for crypto-trading-open. Performs token-efficient diff preprocessing, structured chunked analysis, and generates comprehensive audit reports comparing two git refs (branches, tags, commits)."
+description: "Version-to-version code audit and change analysis for grid-trading-console. Performs token-efficient diff preprocessing, structured chunked analysis, and generates comprehensive audit reports comparing two git refs (branches, tags, commits)."
 ---
 
 # Version Audit (版本對比稽核) Skill
@@ -19,4 +19,3 @@ description: "Version-to-version code audit and change analysis for crypto-tradi
    - Logic Correctness: order quantity rounding, price precision, error recovery.
    - Dependencies: clean dependencies in `requirements.txt`.
 4. **Report Generation**: Output structured Markdown change report.
-

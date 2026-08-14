@@ -13,6 +13,8 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+__test__ = False  # Tells pytest this is a CLI tool, not a test suite
+
 try:
     import lighter
     LIGHTER_AVAILABLE = True
@@ -37,7 +39,7 @@ async def test_account_index(base_url, api_key_private_key, account_index, api_k
         if err is None:
             return True
         return False
-    except:
+    except Exception:
         return False
 
 

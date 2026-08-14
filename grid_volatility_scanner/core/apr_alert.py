@@ -211,7 +211,7 @@ class APRAlertManager:
             # 如果所有方法都失败，至少打印终端响铃
             try:
                 print("\a", end="", flush=True)
-            except:
+            except Exception:
                 pass
 
     def reset_symbol(self, symbol: str):

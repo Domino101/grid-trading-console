@@ -1,6 +1,6 @@
 ---
 name: deployment-check
-description: "Deployment validation checklist, post-deploy health check, and emergency rollback protocol for crypto-trading-open. Use when deploying, restarting services (PM2 / background Python scripts), or handling emergency rollback."
+description: "Deployment validation checklist, post-deploy health check, and emergency rollback protocol for grid-trading-console. Use when deploying, restarting services (PM2 / background Python scripts), or handling emergency rollback."
 ---
 
 # Deployment Check & Emergency Rollback Skill
@@ -11,10 +11,11 @@ description: "Deployment validation checklist, post-deploy health check, and eme
 - Verifying production health or handling emergency rollback
 
 ## Pre-Deployment Checklist
-- [ ] `paper_trading: true` confirmed for initial deployment
-- [ ] Environment variables set (API keys, secret keys, Web3 private keys)
+- [ ] `paper_trading: true` confirmed for initial deployment / test runs
+- [ ] Environment variables set in `.env` (`GRID_API_TOKEN`, exchange API keys/secrets)
 - [ ] Code syntax clean and unit tests pass (`python3 -m pytest`)
 - [ ] Config files in `config/` validated
+- [ ] Frontend build succeeds (`cd web_ui/frontend && npm run build`)
 
 ## Deployment Steps
 Services are managed via PM2 (`ecosystem.config.js`) or background Python scripts:
@@ -24,18 +25,19 @@ pm2 start ecosystem.config.js
 pm2 restart all
 pm2 status
 
-# Start Web UI
+# Start Web UI (Port 8001)
 bash start_web_ui.sh
 
 # Run specific strategy service
+python3 run_multiple_grids.py
 python3 run_grid_trading.py
 python3 run_volume_maker.py
 ```
 
 ## Post-Deployment Verification
 - [ ] `pgrep -fa python` or `pm2 status` shows running services
-- [ ] Web UI accessible (`curl http://localhost:8000` or configured port)
-- [ ] Check logs (`tail -n 50 logs/*.log` or `tail -n 50 tmp_output.log`)
+- [ ] Web UI accessible (`curl -I http://localhost:8001` or `/api/v1/system/health`)
+- [ ] Check logs (`tail -n 50 logs/web_ui.log`, `tail -n 50 logs/pm2-multi-grid.log`)
 - [ ] No API authentication or IP ban errors (Binance/OKX HTTP 401/418/429)
 
 ## Emergency Rollback Sequence
@@ -45,7 +47,7 @@ python3 run_volume_maker.py
    ```
 2. **Database Backup**:
    ```bash
-   cp crypto_trading.db crypto_trading_rollback_$(date +%F_%H%M%S).db
+   cp data/web_ui_runtime.sqlite3 data/web_ui_runtime_rollback_$(date +%F_%H%M%S).sqlite3
    ```
 3. **Revert Git Commit**:
    ```bash
@@ -56,4 +58,3 @@ python3 run_volume_maker.py
    ```bash
    pm2 start ecosystem.config.js
    ```
-

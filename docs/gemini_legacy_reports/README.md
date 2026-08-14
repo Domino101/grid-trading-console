@@ -25,6 +25,7 @@
 
 | 檔案 | 對話主題 | 說明 |
 |------|----------|------|
+| `diagnosis_binance_ip_ban_and_apikey_20260503.md` | Binance IP Ban & API Key Diagnosis | 2026-05-03 IP 變更導致 API BAN 惡性循環診斷報告 |
 | `binance_api_optimization_summary.md` | Optimizing Binance API Rate Limiting | API 速率限制優化：批量下單、快取、交錯啟動 |
 | `binance_api_call_analysis.md` | Resetting Binance Circuit Breaker | API 調用分析與熔斷器重置策略 |
 | `circuit_breaker_fix_summary.md` | Resolving Binance Rate Limit Errors | 類級別共享熔斷器實作摘要 |
@@ -49,10 +50,15 @@
 | `handover_report.md` | Handover Report | 交接報告（近期） |
 | `handover_report_earlier.md` | Handover Report (Earlier) | 交接報告（早期） |
 
-### 📐 實作規劃
+### 📐 實作規劃與歷史日誌
 
 | 檔案 | 對話主題 | 說明 |
 |------|----------|------|
+| `work_log_20260430.md` | WebSocket Price Fetch Fix | WebSocket 價格獲取機制修復與 @bookTicker 切換 |
+| `work_log_20260502.md` | Grid Order Refill Fix | 網格補單失敗與 API 429 告警修復工作日誌 |
+| `work_log_20260503.md` | Circuit Breaker Implementation | 熔斷器 (Circuit Breaker) 加入與防 BAN 實作日誌 |
+| `work_log_20260503_2.md` | Multi-Process Circuit Protection | 跨進程重啟與全域熔斷保護修復日誌 |
+| `worklog_20260706_multi_grid_fix.md` | Multi Grid Startup Fix | 三網格同時啟動鏈 7 項 Bug 系統性修復日誌 |
 | `optimization_report.md` | Optimization Report | 效能優化報告 |
 | `phase_ii_implementation_plan.md` | Phase II Plan | 第二階段實作規劃 |
 | `implementation_plan_774f.md` | Implementation Plan | 實作計劃 |
