@@ -28,7 +28,7 @@ import {
   type GridOrdersResponse,
 } from '../services/api';
 import { ApiError } from '../utils/auth';
-import { money, number } from '../utils/format';
+import { freshnessText, money, number } from '../utils/format';
 
 interface GridDetailProps {
   gridId: string;
@@ -110,11 +110,28 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
             <ArrowLeft size={14} />
             <span>返回總覽</span>
           </button>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
             <h2>{grid?.symbol ?? gridId}</h2>
-            {item && <span className={`badge badge-${item.mode}`}>{item.mode}</span>}
-            {item && <span className={`badge badge-${item.data_status}`}>{item.data_status}</span>}
+            {item && <span className={`badge badge-${item.mode}`}>{item.mode.toUpperCase()}</span>}
+            {item && (
+              <span className={`badge badge-${item.status}`}>
+                {item.status === 'running'
+                  ? '運行中'
+                  : item.status === 'stopped'
+                  ? '已停止'
+                  : item.status === 'starting'
+                  ? '啟動中'
+                  : item.status === 'stopping'
+                  ? '停止中'
+                  : item.status}
+              </span>
+            )}
             <span className="exchange-pill">{grid?.exchange ?? '未知交易所'}</span>
+            {item && (
+              <span className={`freshness-tag ${item.data_status}`} style={{ fontSize: '0.75rem' }}>
+                {freshnessText(item.data_status, item.last_updated_at)}
+              </span>
+            )}
           </div>
         </div>
 
@@ -130,19 +147,21 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
       {/* Mini KPI Bar */}
       <section className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
         <article className="kpi-card" style={{ minHeight: 'auto', padding: '1rem' }}>
-          <span className="text-secondary" style={{ fontSize: '0.75rem' }}>累計淨盈虧 (Net PnL)</span>
+          <span className="text-secondary" style={{ fontSize: '0.75rem' }}>策略純淨收益 (Pure Net PnL)</span>
           <strong className={`font-mono ${netPnl === null ? '' : isPositive ? 'positive' : 'negative'}`} style={{ fontSize: '1.4rem' }}>
             {money(netPnl)}
           </strong>
-          <small className="font-mono">已實現: {money(item?.realized_pnl)} · 未實現: {money(item?.unrealized_pnl)}</small>
+          <small className="font-mono">毛利: {money(item?.grid_profit ?? item?.realized_pnl)} · 浮動: {money(item?.unrealized_pnl)}</small>
         </article>
 
         <article className="kpi-card" style={{ minHeight: 'auto', padding: '1rem' }}>
-          <span className="text-secondary" style={{ fontSize: '0.75rem' }}>當前價格 / 持倉量</span>
+          <span className="text-secondary" style={{ fontSize: '0.75rem' }}>網格持倉 / 全帳戶持倉</span>
           <strong className="font-mono" style={{ fontSize: '1.4rem' }}>
-            {number(item?.current_price)}
+            {number(item?.grid_position ?? item?.current_position, 4)}
           </strong>
-          <small className="font-mono">持倉: {number(item?.current_position)} · 手續費: {money(item?.fees)}</small>
+          <small className="font-mono">
+            {item?.account_position != null ? `全帳戶: ${number(item.account_position, 4)} · ` : ''}手續費: {money(item?.fees)}
+          </small>
         </article>
 
         <article className="kpi-card" style={{ minHeight: 'auto', padding: '1rem' }}>

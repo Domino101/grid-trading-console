@@ -7,7 +7,7 @@
 - 统一的反向挂单机制
 """
 
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from decimal import Decimal
 from datetime import datetime
 
@@ -166,8 +166,10 @@ class GridStrategyImpl(IGridStrategy):
     def calculate_reverse_order(
         self,
         filled_order: GridOrder,
-        grid_interval: Decimal,
-        distance: int = 1
+        grid_interval: Optional[Decimal] = None,
+        distance: int = 1,
+        interval: Optional[Decimal] = None,
+        **kwargs
     ) -> Tuple[GridOrderSide, Decimal, int]:
         """
         计算反向订单参数
@@ -178,35 +180,47 @@ class GridStrategyImpl(IGridStrategy):
 
         Args:
             filled_order: 已成交订单
-            grid_interval: 网格间隔
+            grid_interval: 网格间隔（兼容 interval 参数）
             distance: 反手挂单的格子距离（默认1格）
+            interval: 兼容別名
 
         Returns:
             (订单方向, 价格, 网格ID)
         """
+        eff_interval = grid_interval if grid_interval is not None else (
+            interval if interval is not None else (
+                self.config.grid_interval if self.config else Decimal('0')
+            )
+        )
+
         if filled_order.is_buy_order():
             # 买单成交 → 挂卖单
             new_side = GridOrderSide.SELL
             # 🔥 关键修复：使用【下单价格】而非【成交价格】计算反手价格
             # 这样可以保证网格间距的一致性，避免市价成交导致间距错乱
-            new_price = filled_order.price + (grid_interval * distance)
-            # 网格ID保持不变或向上移动（取决于具体实现）
-            new_grid_id = filled_order.grid_id
+            new_price = filled_order.price + (eff_interval * distance)
+            if self.config:
+                new_grid_id = self.config.get_grid_index_by_price(new_price)
+            else:
+                new_grid_id = filled_order.grid_id + distance
 
             self.logger.debug(
                 f"买单成交 (下单价@{filled_order.price}, 成交价@{filled_order.filled_price}), "
-                f"挂卖单@{new_price} (向上移动{distance}格，距离{grid_interval * distance})"
+                f"挂卖单@{new_price} (Grid {new_grid_id}, 向上移动{distance}格)"
             )
         else:
             # 卖单成交 → 挂买单
             new_side = GridOrderSide.BUY
             # 🔥 关键修复：使用【下单价格】而非【成交价格】计算反手价格
-            new_price = filled_order.price - (grid_interval * distance)
-            new_grid_id = filled_order.grid_id
+            new_price = filled_order.price - (eff_interval * distance)
+            if self.config:
+                new_grid_id = self.config.get_grid_index_by_price(new_price)
+            else:
+                new_grid_id = filled_order.grid_id - distance
 
             self.logger.debug(
                 f"卖单成交 (下单价@{filled_order.price}, 成交价@{filled_order.filled_price}), "
-                f"挂买单@{new_price} (向下移动{distance}格，距离{grid_interval * distance})"
+                f"挂买单@{new_price} (Grid {new_grid_id}, 向下移动{distance}格)"
             )
 
         return (new_side, new_price, new_grid_id)
@@ -214,8 +228,10 @@ class GridStrategyImpl(IGridStrategy):
     def calculate_batch_reverse_orders(
         self,
         filled_orders: List[GridOrder],
-        grid_interval: Decimal,
-        distance: int = 1
+        grid_interval: Optional[Decimal] = None,
+        distance: int = 1,
+        interval: Optional[Decimal] = None,
+        **kwargs
     ) -> List[Tuple[GridOrderSide, Decimal, int, Decimal]]:
         """
         批量计算反向订单参数
@@ -226,15 +242,21 @@ class GridStrategyImpl(IGridStrategy):
             filled_orders: 已成交订单列表
             grid_interval: 网格间隔
             distance: 反手挂单的格子距离（默认1格）
+            interval: 兼容別名
 
         Returns:
             [(订单方向, 价格, 网格ID, 数量), ...]
         """
+        eff_interval = grid_interval if grid_interval is not None else (
+            interval if interval is not None else (
+                self.config.grid_interval if self.config else Decimal('0')
+            )
+        )
         reverse_orders = []
 
         for order in filled_orders:
             side, price, grid_id = self.calculate_reverse_order(
-                order, grid_interval, distance)
+                order, eff_interval, distance)
             # 数量与成交订单保持一致
             amount = order.filled_amount or order.amount
             reverse_orders.append((side, price, grid_id, amount))

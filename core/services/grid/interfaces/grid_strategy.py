@@ -5,7 +5,7 @@
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from decimal import Decimal
 
 from ..models import GridConfig, GridOrder, GridOrderSide
@@ -35,7 +35,9 @@ class IGridStrategy(ABC):
     def calculate_reverse_order(
         self,
         filled_order: GridOrder,
-        grid_interval: Decimal
+        grid_interval: Decimal = None,
+        distance: int = 1,
+        **kwargs
     ) -> Tuple[GridOrderSide, Decimal, int]:
         """
         计算反向订单参数
@@ -43,6 +45,7 @@ class IGridStrategy(ABC):
         Args:
             filled_order: 已成交订单
             grid_interval: 网格间隔
+            distance: 反手挂单的格子距离（默认1格）
         
         Returns:
             (订单方向, 价格, 网格ID)

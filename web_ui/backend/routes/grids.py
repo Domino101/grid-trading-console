@@ -298,6 +298,8 @@ async def get_grid_stats(grid_id: str, _token: str = Depends(verify_token)):
         stale=model["data_status"] != "live",
         current_price=model["current_price"],
         current_position=model["current_position"],
+        grid_position=model.get("grid_position"),
+        account_position=model.get("account_position"),
         average_cost=finite_number(runtime.get("average_cost")),
         pending_orders={
             "buy": pending.get("buy") if isinstance(pending.get("buy"), int) else None,
@@ -310,12 +312,14 @@ async def get_grid_stats(grid_id: str, _token: str = Depends(verify_token)):
             "cycles": filled.get("cycles") if isinstance(filled.get("cycles"), int) else None,
         } if runtime else None,
         profit={
+            "grid_profit": finite_number(profit.get("grid_profit") if "grid_profit" in profit else profit.get("realized")),
             "realized": finite_number(profit.get("realized")),
             "unrealized": finite_number(profit.get("unrealized")),
             "total": finite_number(profit.get("total")),
             "fees": finite_number(profit.get("fees")),
             "net": finite_number(profit.get("net")),
             "rate": finite_number(profit.get("rate")),
+            "account_unrealized": finite_number(profit.get("account_unrealized")),
         } if runtime else None,
         grid_utilization=finite_number(runtime.get("grid_utilization")),
         balance={

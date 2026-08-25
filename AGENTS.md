@@ -20,3 +20,12 @@ Rule:
   3. Execute a live verification request (e.g. `curl` to the running port, check logs) against the actual running instance.
   4. Only declare the task complete after verifying that the live restarted instance returns the expected result.
 
+## Dual-Stage Audit Standard (雙軌稽核自動化標準)
+
+Rule:
+- **Automatic Audit Workflow**: Whenever the user requests to "audit", "review", "審查", "稽核" any module or codebase logic:
+  1. **Stage 1 (Macro Architecture)**: Execute `graphify query "<target>"` (or `graphify explain` / `graphify path`) first to understand module topology, caller chains, and impact radius.
+  2. **Stage 2 (Micro Line-level Inspection)**: Execute `ocr review --audience agent -b "<context>"` (if git diff exists) or `ocr scan --path <dir>` (for static directory audit) to perform line-level precision defect, concurrency, and safety audits.
+  3. Combine both outputs into a structured audit report.
+
+

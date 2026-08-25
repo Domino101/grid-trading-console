@@ -13,6 +13,7 @@ description: "Mandatory code quality checks for grid-trading-console. Run after 
 
 ## Pre-Commit Checklist
 - [ ] Run `python3 -m pytest` to ensure test suite passes
+- [ ] Run `ocr review --audience agent` (or `ocr delegate preview`) to perform AI line-level defect & security inspection
 - [ ] No `print()` statements in production core services (use `logging`)
 - [ ] No hardcoded credentials or API keys in code or config (use `.env`)
 - [ ] Type hints and docstrings present on public module methods

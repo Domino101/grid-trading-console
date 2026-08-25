@@ -4,7 +4,7 @@ export const money = (value: number | null | undefined, maximumFractionDigits = 
     : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits }).format(value)
 );
 
-export const number = (value: number | null | undefined, digits = 2) => (
+export const number = (value: number | null | undefined, digits = 4) => (
   value === null || value === undefined
     ? '—'
     : new Intl.NumberFormat('en-US', { maximumFractionDigits: digits }).format(value)

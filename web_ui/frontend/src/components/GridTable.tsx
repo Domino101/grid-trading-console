@@ -51,7 +51,7 @@ const GridTable: React.FC<GridTableProps> = ({
                   <div className="pro-table-symbol">
                     <span className={`status-dot ${grid.data_status === 'live' && isRunning ? 'is-live' : isRunning ? 'is-warning' : ''}`} />
                     <span>{grid.symbol ?? grid.grid_id}</span>
-                    <span className={`badge badge-${grid.mode}`}>{grid.mode}</span>
+                    <span className={`badge badge-${grid.mode}`}>{grid.mode.toUpperCase()}</span>
                   </div>
                 </td>
 
@@ -86,7 +86,10 @@ const GridTable: React.FC<GridTableProps> = ({
                 <td>
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
                     <span className="font-mono">{money(grid.equity)}</span>
-                    <small className="text-muted font-mono">pos: {number(grid.current_position)}</small>
+                    <small className="text-muted font-mono">
+                      網格: {number(grid.grid_position ?? grid.current_position, 4)}
+                      {grid.account_position != null ? ` · 帳戶: ${number(grid.account_position, 4)}` : ''}
+                    </small>
                   </div>
                 </td>
 
@@ -105,9 +108,14 @@ const GridTable: React.FC<GridTableProps> = ({
                 </td>
 
                 <td>
-                  <span className={`freshness-tag ${grid.data_status}`}>
-                    {freshnessText(grid.data_status, grid.last_updated_at)}
-                  </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                    <span className={`badge badge-${grid.status}`}>
+                      {isRunning ? '運行中' : isStarting ? '啟動中' : isStopping ? '停止中' : grid.status === 'stopped' ? '已停止' : grid.status}
+                    </span>
+                    <span className={`freshness-tag ${grid.data_status}`}>
+                      {freshnessText(grid.data_status, grid.last_updated_at)}
+                    </span>
+                  </div>
                 </td>
 
                 <td style={{ textAlign: 'right' }}>

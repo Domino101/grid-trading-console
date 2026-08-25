@@ -145,18 +145,18 @@ class GridEngineImpl(IGridEngine):
     - WebSocket订阅
     """
 
-    # 🔥 类变量：价格获取失败的全局计数器（在所有实例间共享）
-    _global_price_failures = 0  # 连续价格获取失败次数
-    _global_price_successes = 0  # 连续价格获取成功次数（用于确认网络恢复）
-    _last_price_failure_time = 0  # 上次价格获取失败时间
-    _price_failure_reset_timeout = 30  # 超过30秒没有新失败则重置计数器
-    _price_max_failures = 15  # 🔥 最大连续失败次数（15次后判定为网络故障）
-    _price_success_required_to_reset = 3  # 🆕 连续成功N次后才重置失败计数器（确认网络稳定）
-
     # 🔥 类变量：API 熔斷器狀態（所有實例共享）
     _shared_api_circuit_until: float = 0.0
     _shared_last_api_error_code: Optional[str] = None
     _shared_circuit_initialized: bool = False
+
+    # 實例變數預設值（避免 __new__ mock 遺漏）
+    _price_failures: int = 0
+    _price_successes: int = 0
+    _last_price_failure_time: float = 0.0
+    _price_failure_reset_timeout: float = 30.0
+    _price_max_failures: int = 15
+    _price_success_required_to_reset: int = 3
 
     def __init__(self, exchange_adapter: ExchangeInterface):
         """
@@ -169,6 +169,14 @@ class GridEngineImpl(IGridEngine):
         self.exchange = exchange_adapter
         self.config: GridConfig = None
         self.coordinator = None
+
+        # 價格獲取故障計數器（實例隔離）
+        self._price_failures = 0
+        self._price_successes = 0
+        self._last_price_failure_time = 0
+        self._price_failure_reset_timeout = 30
+        self._price_max_failures = 15
+        self._price_success_required_to_reset = 3
 
         self._order_callbacks: List[Callable] = []
 
@@ -660,10 +668,11 @@ class GridEngineImpl(IGridEngine):
                         return []
                     self._last_batch_place_time = now
 
-                    exchange_open_grid_ids = await self._get_open_grid_ids_from_exchange(force_refresh=True)
+                    exchange_open_pairs = await self._get_open_grid_side_pairs_from_exchange(force_refresh=True)
                     orders_to_place = []
                     for order in batch:
-                        if order.grid_id not in exchange_open_grid_ids:
+                        order_side_str = getattr(order.side, 'value', str(order.side)).lower()
+                        if (order.grid_id, order_side_str) not in exchange_open_pairs:
                             orders_to_place.append(order)
 
                     if not orders_to_place:
@@ -676,11 +685,14 @@ class GridEngineImpl(IGridEngine):
                         )
                 else:
                     try:
-                        exchange_open_grid_ids_else = await self._get_open_grid_ids_from_exchange(force_refresh=True)
-                        batch_filtered = [o for o in batch if o.grid_id not in exchange_open_grid_ids_else]
+                        exchange_open_pairs_else = await self._get_open_grid_side_pairs_from_exchange(force_refresh=True)
+                        batch_filtered = [
+                            o for o in batch 
+                            if (o.grid_id, getattr(o.side, 'value', str(o.side)).lower()) not in exchange_open_pairs_else
+                        ]
                         if len(batch_filtered) < len(batch):
                             self.logger.info(
-                                f"🔍 批量下單去重：過濾掉 {len(batch) - len(batch_filtered)} 個已存在格位的訂單"
+                                f"🔍 批量下單去重：過濾掉 {len(batch) - len(batch_filtered)} 個已存在格位/方向的訂單"
                             )
                         batch = batch_filtered
                     except Exception:
@@ -891,6 +903,8 @@ class GridEngineImpl(IGridEngine):
         adapter = self.exchange
         if hasattr(adapter, 'rest') and isinstance(adapter.rest, BinanceRest):
             rest_adapter = adapter.rest
+        elif hasattr(adapter, '_rest') and isinstance(adapter._rest, BinanceRest):
+            rest_adapter = adapter._rest
         elif isinstance(adapter, BinanceRest):
             rest_adapter = adapter
 
@@ -1049,12 +1063,13 @@ class GridEngineImpl(IGridEngine):
 
     async def _get_cached_balances(
         self,
-    ) -> Optional[Tuple[Optional[Decimal], Optional[Decimal]]]:
+    ) -> Optional[Tuple[Optional[Decimal], Optional[Decimal], Decimal]]:
         """
-        取得 (free_quote, free_base) 餘額,3 秒緩存。
+        取得 (free_quote, free_base, total_stable_collateral) 餘額,3 秒緩存。
 
         free_quote: 報價幣(USDC/USDT)可用餘額,用於保證金與現貨買單
         free_base:  基礎幣(SOL/ETH)可用餘額,用於現貨賣單
+        total_stable_collateral: 帳戶內所有主要穩定幣(USDT/USDC/USD)總可用餘額(支援多資產保證金模式)
 
         回傳 None 表示 fetch 失敗(此時應視為「無法判斷」,由上層決定是否放行)
         """
@@ -1077,6 +1092,7 @@ class GridEngineImpl(IGridEngine):
 
         free_quote: Optional[Decimal] = None
         free_base: Optional[Decimal] = None
+        total_stable_collateral: Decimal = Decimal('0')
 
         for b in balances:
             cur = (b.currency or '').upper()
@@ -1087,8 +1103,10 @@ class GridEngineImpl(IGridEngine):
             # 同時記 USDⓈ 形式(SOLUSDC 永續有時以 USDⓈ 為單位)
             if cur in ('USDⓈ', 'USDⓈ-M') and free_quote is None:
                 free_quote = b.free
+            if cur in ('USDT', 'USDC', 'USD', 'BUSD', 'FDUSD') and b.free:
+                total_stable_collateral += b.free
 
-        result = (free_quote, free_base)
+        result = (free_quote, free_base, total_stable_collateral)
         self._BALANCE_CACHE[key] = (result, now)
         return result
 
@@ -1097,7 +1115,7 @@ class GridEngineImpl(IGridEngine):
         檢查餘額是否足夠支撐此訂單。
 
         規則:
-        - 永續合約(BUY/SELL):需 free_quote >= amount * price / leverage
+        - 永續合約(BUY/SELL):需 free_quote >= amount * price / leverage，或 total_stable_collateral 足夠（Multi-Assets）
         - 現貨 BUY            :需 free_quote >= amount * price
         - 現貨 SELL           :需 free_base >= amount
 
@@ -1113,7 +1131,7 @@ class GridEngineImpl(IGridEngine):
             if balances is None:
                 # 無法取得餘額 → 放行,避免把整個網格卡死
                 return True
-            free_quote, free_base = balances
+            free_quote, free_base, total_stable_collateral = balances
 
             base, quote, is_perp = self._parse_symbol_currencies(self.config.symbol)
 
@@ -1121,17 +1139,20 @@ class GridEngineImpl(IGridEngine):
                 # 永續合約:不論 BUY/SELL 都需要保證金 = notional / leverage
                 leverage = max(1, int(getattr(self.config, 'leverage', 1) or 1))
                 required = (amount * price) / Decimal(leverage)
+                if free_quote is not None and free_quote >= required:
+                    return True
+                # 🔥 支援多資產保證金（如在 Binance U本位使用 USDT 作為 USDC 合約保證金）
+                if total_stable_collateral >= required:
+                    return True
                 if free_quote is None:
                     return True
-                if free_quote < required:
-                    self.logger.warning(
-                        f"💸 餘額不足跳過下單: Grid {order.grid_id}, "
-                        f"{order.side.value} {amount}@{price}, "
-                        f"需保證金 {required:.4f} {quote}, "
-                        f"可用 {free_quote:.4f} {quote}"
-                    )
-                    return False
-                return True
+                self.logger.warning(
+                    f"💸 餘額不足跳過下單: Grid {order.grid_id}, "
+                    f"{order.side.value} {amount}@{price}, "
+                    f"需保證金 {required:.4f} {quote}, "
+                    f"可用 {free_quote:.4f} {quote} (總可用穩定幣: {total_stable_collateral:.4f})"
+                )
+                return False
             else:
                 # 現貨
                 if order.side == GridOrderSide.BUY:
@@ -1409,27 +1430,27 @@ class GridEngineImpl(IGridEngine):
 
     async def _handle_price_success(self):
         current_time = time.time()
-        if (GridEngineImpl._last_price_failure_time > 0 and
-                current_time - GridEngineImpl._last_price_failure_time > GridEngineImpl._price_failure_reset_timeout):
-            if GridEngineImpl._global_price_failures > 0:
+        if (self._last_price_failure_time > 0 and
+                current_time - self._last_price_failure_time > self._price_failure_reset_timeout):
+            if self._price_failures > 0:
                 self.logger.info(
-                    f"⏰ 距离上次价格获取失败已超过{GridEngineImpl._price_failure_reset_timeout}秒，"
-                    f"重置价格失败计数器（之前失败{GridEngineImpl._global_price_failures}次）"
+                    f"⏰ 距离上次价格获取失败已超过{self._price_failure_reset_timeout}秒，"
+                    f"重置价格失败计数器（之前失败{self._price_failures}次）"
                 )
-                GridEngineImpl._global_price_failures = 0
-                GridEngineImpl._global_price_successes = 0
+                self._price_failures = 0
+                self._price_successes = 0
 
-        if GridEngineImpl._global_price_failures > 0:
-            GridEngineImpl._global_price_successes += 1
-            if GridEngineImpl._global_price_successes >= GridEngineImpl._price_success_required_to_reset:
+        if self._price_failures > 0:
+            self._price_successes += 1
+            if self._price_successes >= self._price_success_required_to_reset:
                 self.logger.info(
                     f"✅ 价格获取网络恢复，重置失败计数器"
-                    f"（之前失败{GridEngineImpl._global_price_failures}次，"
-                    f"连续成功{GridEngineImpl._global_price_successes}次）"
+                    f"（之前失败{self._price_failures}次，"
+                    f"连续成功{self._price_successes}次）"
                 )
-                GridEngineImpl._global_price_failures = 0
-                GridEngineImpl._global_price_successes = 0
-                GridEngineImpl._last_price_failure_time = 0
+                self._price_failures = 0
+                self._price_successes = 0
+                self._last_price_failure_time = 0
                 if self.coordinator and self.coordinator._paused and self.coordinator._paused_reason == 'network':
                     self.logger.info(
                         "✅ 价格获取已恢复，正在自动恢复系统..."
@@ -1437,39 +1458,39 @@ class GridEngineImpl(IGridEngine):
                     await self.coordinator.resume(auto=True)
             else:
                 self.logger.debug(
-                    f"⚠️ 价格获取部分恢复，连续成功{GridEngineImpl._global_price_successes}/"
-                    f"{GridEngineImpl._price_success_required_to_reset}次"
+                    f"⚠️ 价格获取部分恢复，连续成功{self._price_successes}/"
+                    f"{self._price_success_required_to_reset}次"
                     f"（需要更多成功才能重置失败计数器）"
                 )
 
     async def _handle_price_failure(self):
         current_time = time.time()
-        if (GridEngineImpl._last_price_failure_time > 0 and
-                current_time - GridEngineImpl._last_price_failure_time > GridEngineImpl._price_failure_reset_timeout):
-            if GridEngineImpl._global_price_failures > 0:
+        if (self._last_price_failure_time > 0 and
+                current_time - self._last_price_failure_time > self._price_failure_reset_timeout):
+            if self._price_failures > 0:
                 self.logger.info(
-                    f"⏰ 距离上次价格获取失败已超过{GridEngineImpl._price_failure_reset_timeout}秒，"
-                    f"重置价格失败计数器（之前失败{GridEngineImpl._global_price_failures}次）"
+                    f"⏰ 距离上次价格获取失败已超过{self._price_failure_reset_timeout}秒，"
+                    f"重置价格失败计数器（之前失败{self._price_failures}次）"
                 )
-                GridEngineImpl._global_price_failures = 0
+                self._price_failures = 0
 
-        GridEngineImpl._global_price_failures += 1
-        GridEngineImpl._global_price_successes = 0
-        GridEngineImpl._last_price_failure_time = current_time
+        self._price_failures += 1
+        self._price_successes = 0
+        self._last_price_failure_time = current_time
 
-        if GridEngineImpl._global_price_failures >= GridEngineImpl._price_max_failures:
+        if self._price_failures >= self._price_max_failures:
             self.logger.error(
-                f"🚨 价格获取网络故障！连续失败{GridEngineImpl._global_price_failures}次 "
-                f"(阈值={GridEngineImpl._price_max_failures}次)"
+                f"🚨 价格获取网络故障！连续失败{self._price_failures}次 "
+                f"(阈值={self._price_max_failures}次)"
             )
             if self.coordinator and not self.coordinator._paused:
                 self.logger.error(
-                    f"⏸️ 因价格获取网络故障暂停系统（失败{GridEngineImpl._global_price_failures}次）"
+                    f"⏸️ 因价格获取网络故障暂停系统（失败{self._price_failures}次）"
                 )
                 await self.coordinator.pause(reason='network')
         else:
             self.logger.warning(
-                f"⚠️ 价格获取失败 [{GridEngineImpl._global_price_failures}/{GridEngineImpl._price_max_failures}]"
+                f"⚠️ 价格获取失败 [{self._price_failures}/{self._price_max_failures}]"
             )
 
     def get_pending_orders(self) -> List[GridOrder]:
@@ -1482,42 +1503,48 @@ class GridEngineImpl(IGridEngine):
                 unique_orders.append(order)
         return unique_orders
 
-    async def _get_open_grid_ids_from_exchange(self, force_refresh: bool = False) -> Set[int]:
-        """取得交易所當前開放訂單的 grid_id 集合（輕量、帶容差）"""
+    async def _get_open_grid_side_pairs_from_exchange(self, force_refresh: bool = False) -> Set[Tuple[int, str]]:
+        """取得交易所當前開放訂單的 (grid_id, side) 集合（輕量、帶容差）"""
         try:
             if self._is_circuit_open():
-                cached = getattr(self, '_cached_open_grid_ids', set())
+                cached = getattr(self, '_cached_open_grid_side_pairs', set())
                 return cached if cached else set()
 
             now = time.time()
             if not force_refresh and hasattr(self, '_last_open_orders_query_time'):
                 if now - getattr(self, '_last_open_orders_query_time') < 5:
-                    cached = getattr(self, '_cached_open_grid_ids', set())
+                    cached = getattr(self, '_cached_open_grid_side_pairs', set())
                     if cached:
                         return cached
             self._last_open_orders_query_time = now
 
             open_orders = await self.exchange.get_open_orders(self.config.symbol)
-            grid_ids: Set[int] = set()
+            grid_side_pairs: Set[Tuple[int, str]] = set()
             min_tick = Decimal('1') / (Decimal('10') ** int(getattr(self.config, 'price_decimals', 2)))
             for ex_order in open_orders:
                 try:
                     px = Decimal(str(ex_order.price)) if ex_order.price is not None else None
                     if not px:
                         continue
+                    side_str = getattr(ex_order.side, 'value', str(ex_order.side)).lower()
                     for delta in range(-2, 3):
                         gid_d = self.config.get_grid_index_by_price(px + delta * min_tick)
-                        grid_ids.add(int(gid_d))
+                        grid_side_pairs.add((int(gid_d), side_str))
                 except Exception:
                     continue
-            self._cached_open_grid_ids = grid_ids
-            return grid_ids
+            self._cached_open_grid_side_pairs = grid_side_pairs
+            return grid_side_pairs
         except Exception:
             try:
-                local = {int(o.grid_id) for o in self.get_pending_orders() if o.grid_id}
+                local = {(int(o.grid_id), getattr(o.side, 'value', str(o.side)).lower()) for o in self.get_pending_orders() if o.grid_id}
                 return local
             except Exception:
                 return set()
+
+    async def _get_open_grid_ids_from_exchange(self, force_refresh: bool = False) -> Set[int]:
+        """取得交易所當前開放訂單的 grid_id 集合（輕量、帶容差）"""
+        pairs = await self._get_open_grid_side_pairs_from_exchange(force_refresh=force_refresh)
+        return {gid for gid, _ in pairs}
 
     async def sync_with_exchange(self):
         try:
@@ -2216,37 +2243,63 @@ class GridEngineImpl(IGridEngine):
 
     async def _refresh_active_window_once(self, window_each_side: int):
         current_price = await self.get_current_price()
-        # ==== FIX-A-1: 用 grid_id 集合取代價格比對，根除 Decimal 精度問題 ====
-        # (價格經 Binance 量化後和 get_grid_price() 原始值可能有 1e-10 級的偏差，
-        #  造成 p not in targets 誤判，連窗口內的 2N 張都被取消 → 0 單空窗 60 秒)
-        target_grid_ids: Set[int] = set()
-        # 同時也保留量化後的價格集合，供 open_prices 比對用
+        # ==== FIX-A-1: 建立嚴格帶方向的目標窗口 (Target Map: gid -> (side, price)) ====
+        target_orders: Dict[int, Tuple[GridOrderSide, Decimal]] = {}
         price_decimals = int(getattr(self.config, 'price_decimals', 2))
         quant = Decimal(10) ** (-price_decimals)
         target_prices_q: Set['Decimal'] = set()
         center_grid = None
         try:
-            center_grid = self.config.get_grid_index_by_price(current_price)
-            for d in range(1, window_each_side + 1):
-                g = max(1, center_grid - d)
-                target_grid_ids.add(g)
-                px = self.config.get_grid_price(g).quantize(quant)
-                target_prices_q.add(px)
-            for d in range(1, window_each_side + 1):
-                g = min(self.config.grid_count, center_grid + d)
-                target_grid_ids.add(g)
-                px = self.config.get_grid_price(g).quantize(quant)
-                target_prices_q.add(px)
+            is_long_type = self.config.grid_type in [
+                GridType.LONG, GridType.FOLLOW_LONG, GridType.MARTINGALE_LONG, GridType.NEUTRAL
+            ]
+            if is_long_type:
+                # 價格從下限 lower_price 向上遞增
+                k_floor = int((current_price - self.config.lower_price) // self.config.grid_interval) + 1
+                k_floor = max(1, min(self.config.grid_count - 1, k_floor))
+                # 現價下方買單格: 從 k_floor 往下取 window_each_side 格
+                for d in range(window_each_side):
+                    g = k_floor - d
+                    if 1 <= g <= self.config.grid_count:
+                        px = self.config.get_grid_price(g)
+                        if px < current_price:
+                            target_orders[g] = (GridOrderSide.BUY, px)
+                            target_prices_q.add(px.quantize(quant))
+                # 現價上方賣單格: 從 k_floor + 1 往上取 window_each_side 格
+                for d in range(1, window_each_side + 1):
+                    g = k_floor + d
+                    if 1 <= g <= self.config.grid_count:
+                        px = self.config.get_grid_price(g)
+                        if px > current_price:
+                            target_orders[g] = (GridOrderSide.SELL, px)
+                            target_prices_q.add(px.quantize(quant))
+                center_grid = k_floor
+            else:  # SHORT, FOLLOW_SHORT, MARTINGALE_SHORT
+                # 價格從上限 upper_price 向下遞減
+                k_floor = int((self.config.upper_price - current_price) // self.config.grid_interval) + 1
+                k_floor = max(1, min(self.config.grid_count - 1, k_floor))
+                # 現價上方賣單格 (價格 > current_price，即 index <= k_floor)
+                for d in range(window_each_side):
+                    g = k_floor - d
+                    if 1 <= g <= self.config.grid_count:
+                        px = self.config.get_grid_price(g)
+                        if px > current_price:
+                            target_orders[g] = (GridOrderSide.SELL, px)
+                            target_prices_q.add(px.quantize(quant))
+                # 現價下方買單格 (價格 < current_price，即 index > k_floor)
+                for d in range(1, window_each_side + 1):
+                    g = k_floor + d
+                    if 1 <= g <= self.config.grid_count:
+                        px = self.config.get_grid_price(g)
+                        if px < current_price:
+                            target_orders[g] = (GridOrderSide.BUY, px)
+                            target_prices_q.add(px.quantize(quant))
+                center_grid = k_floor
         except Exception:
             return
 
-        # ==== FIX-A-2: 建立 open_prices 時也對價格做同樣量化，並同時建立 grid_id 索引 ====
+        # ==== FIX-A-2: 讀取交易所掛單與本地掛單，依價格準確反推 gid 並歸類 ====
         pending_orders_local = self.get_pending_orders()
-        # 本地 pending 的 grid_id 集合（防重複掛單用）
-        local_pending_grid_ids = {
-            o.grid_id for o in pending_orders_local
-            if o.status == GridOrderStatus.PENDING
-        }
 
         if self._is_circuit_open():
             self.logger.debug(
@@ -2261,83 +2314,93 @@ class GridEngineImpl(IGridEngine):
                 self.logger.warning(f"⚠️ 活躍窗口無法取得交易所掛單，降級使用本地 pending: {e}")
                 raw_open = pending_orders_local
 
-        # open_by_grid: {grid_id: order}  (整數主鍵，不會有精度問題)
-        # open_prices_q: {量化價格: order} (保留給 backward 兼容)
-        open_by_grid: Dict[int, Any] = {}
-        open_prices_q: Dict['Decimal', Any] = {}
+        # open_by_grid: {grid_id: List[order]} (整數主鍵，由實際價格計算得出，避免舊 grid_id 干擾)
+        open_by_grid: Dict[int, List[Any]] = {}
         for o in raw_open:
             try:
-                px = o.price.quantize(quant)
-                # 用 grid_id 當主鍵：從價格反推 grid_id，若落在正確網格點，否則用價格做 fallback
-                gid = None
-                if hasattr(o, 'grid_id') and getattr(o, 'grid_id', None):
-                    gid = int(o.grid_id)
-                else:
-                    gid = self.config.get_grid_index_by_price(o.price)
+                # 依訂單實際價格精準反推 grid_id
+                gid = self.config.get_grid_index_by_price(o.price)
                 if gid is not None and 1 <= gid <= self.config.grid_count:
-                    # 同 grid_id 重複時保留其中一張（避免重複掛單），但記錄 warning
-                    if gid in open_by_grid:
-                        self.logger.warning(
-                            f"⚠️ [活躍窗口去重] Grid {gid} 出現 >1 張交易所掛單，"
-                            f"只保留 1 張，其餘稍後標記為取消")
-                    open_by_grid[gid] = o
-                open_prices_q[px] = o
+                    if gid not in open_by_grid:
+                        open_by_grid[gid] = []
+                    open_by_grid[gid].append(o)
             except Exception:
-                # 無法解析的訂單（不屬於任何網格），稍後會被取消
                 pass
 
-        # ==== FIX-B: 調整時序「先補缺失，再取消多餘」，杜絕 0 單真空期 ====
-        # Step 1: 先找出要補的（target_grid_ids 有，但 open_by_grid 沒有的）
-        missing_grid_ids = [g for g in sorted(target_grid_ids) if g not in open_by_grid]
-        # 額外過濾：本地 PENDING 中有的也不要重複掛
-        missing_grid_ids = [g for g in missing_grid_ids if g not in local_pending_grid_ids]
-
+        # ==== FIX-B: 調整時序「先補缺失，再取消多餘」====
+        # Step 1: 找出缺失的目標格（目標格在 target_orders 中，但在 open_by_grid 中沒有相同 side 的掛單）
         place_orders: List = []
-        for g in missing_grid_ids:
-            try:
-                p = self.config.get_grid_price(g)
-                side = GridOrderSide.BUY if p < current_price else GridOrderSide.SELL
-                amount = self.config.get_formatted_grid_order_amount(g)
-                order = GridOrder(
-                    order_id="",
-                    grid_id=g,
-                    side=side,
-                    price=p,
-                    amount=amount,
-                    status=GridOrderStatus.PENDING,
-                    created_at=datetime.now()
-                )
-                place_orders.append(order)
-            except Exception:
-                continue
+        for g, (target_side, target_price) in target_orders.items():
+            existing_orders = open_by_grid.get(g, [])
+            has_matching_open = any(
+                (getattr(o.side, 'value', str(o.side)) == getattr(target_side, 'value', str(target_side)))
+                for o in existing_orders
+            )
+            has_matching_local = any(
+                o.grid_id == g and (getattr(o.side, 'value', str(o.side)) == getattr(target_side, 'value', str(target_side)))
+                and o.status == GridOrderStatus.PENDING
+                for o in pending_orders_local
+            )
+            if not has_matching_open and not has_matching_local:
+                # 避開在現價 0.05 格距內下單（防止穿價/倒掛）
+                if abs(target_price - current_price) < (self.config.grid_interval * Decimal('0.05')):
+                    continue
+                try:
+                    amount = self.config.get_formatted_grid_order_amount(g)
+                    order = GridOrder(
+                        order_id="",
+                        grid_id=g,
+                        side=target_side,
+                        price=target_price,
+                        amount=amount,
+                        status=GridOrderStatus.PENDING,
+                        created_at=datetime.now()
+                    )
+                    place_orders.append(order)
+                except Exception:
+                    continue
 
         if place_orders:
             try:
                 self.logger.info(
                     f"🧩 活躍窗口補單: center_grid={center_grid}, "
-                    f"補 {len(place_orders)}/{len(target_grid_ids)} 格 "
-                    f"(Grids {missing_grid_ids})")
+                    f"補 {len(place_orders)}/{len(target_orders)} 格 "
+                    f"(Grids {[o.grid_id for o in place_orders]})")
                 await self.place_batch_orders(place_orders, current_price=current_price)
             except Exception as e:
-                # ==== FIX-C: 補單失敗不要靜默 pass，留 log 方便診斷 ====
                 self.logger.warning(
                     f"❌ 活躍窗口補單失敗 ({len(place_orders)} 張): {e}，"
                     f"預計下一輪 refresh 重試")
 
-        # Step 2: 再取消多餘的（open_by_grid 有，但不在 target_grid_ids 的）
-        #         注意：取消前再次確認 target 一定已在線（剛才補單失敗也要避免把舊的窗口內單取消）
+        # Step 2: 取消多餘、重複或方向倒掛的無效訂單
         to_cancel = []
-        for gid, o in open_by_grid.items():
-            if gid in target_grid_ids:
-                continue  # 在目標集合，絕對不能取消！
-            # 額外安全檢查：價格也在 target_prices_q 的 → 不要取消（雙重保險）
-            try:
-                px = o.price.quantize(quant)
-                if px in target_prices_q:
-                    continue
-            except Exception:
-                pass
-            to_cancel.append(o)
+        for gid, orders_at_g in open_by_grid.items():
+            if gid in target_orders:
+                target_side, target_price = target_orders[gid]
+                target_side_val = getattr(target_side, 'value', str(target_side))
+                kept_one = False
+                for o in orders_at_g:
+                    o_side_val = getattr(o.side, 'value', str(o.side))
+                    if o_side_val == target_side_val and not kept_one:
+                        # 正確方向的第一張訂單：保留！
+                        kept_one = True
+                    else:
+                        # 方向錯誤（如回落後殘留的買單在現價上方）或同格重複單：取消！
+                        to_cancel.append(o)
+            else:
+                # 非目標窗口格內的訂單
+                for o in orders_at_g:
+                    # 額外安全檢查（最近鄰單防撤保護）：若為離現價最近且方向正確的買/賣單（1.05 格距內），保留不撤
+                    try:
+                        p = o.price
+                        diff = abs(p - current_price)
+                        o_side_val = getattr(o.side, 'value', str(o.side))
+                        is_correct_side = (o_side_val == 'buy' and p < current_price) or (o_side_val == 'sell' and p > current_price)
+                        if diff <= (self.config.grid_interval * Decimal('1.05')) and is_correct_side:
+                            continue
+                    except Exception:
+                        pass
+                    to_cancel.append(o)
 
         for o in to_cancel:
             try:
@@ -2350,11 +2413,11 @@ class GridEngineImpl(IGridEngine):
             except Exception:
                 await asyncio.sleep(0.5)
 
-        if to_cancel or missing_grid_ids:
+        if to_cancel or place_orders:
             self.logger.info(
-                f"✅ 活躍窗口刷新完成: 保留窗口 {window_each_side*2} 格 "
-                f"(center={center_grid}, Grids {sorted(target_grid_ids)})，"
-                f"取消 {len(to_cancel)} 張（非窗口），"
+                f"✅ 活躍窗口刷新完成: 保留窗口 {len(target_orders)} 格 "
+                f"(center={center_grid}, Grids {sorted(target_orders.keys())})，"
+                f"取消 {len(to_cancel)} 張（非窗口/倒掛/重複），"
                 f"新補 {len(place_orders)} 張（缺失）"
             )
 

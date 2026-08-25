@@ -85,9 +85,11 @@ class GridCoordinator:
         strategy: IGridStrategy,
         engine: IGridEngine,
         tracker: IPositionTracker,
-        grid_state: GridState
+        grid_state: GridState,
+        config_path: Optional[str] = None
     ):
         self.config = config
+        self.config_path = config_path
         self.strategy = strategy
         self.engine = engine
         self.tracker = tracker
@@ -99,6 +101,7 @@ class GridCoordinator:
         self.logger = get_logger(f"GridCoordinator.{safe_symbol}")
 
         # 核心控制状态
+        self._running = False
         self._paused = False
         self._paused_reason = ""
         self._last_error: Optional[Exception] = None
@@ -172,6 +175,7 @@ class GridCoordinator:
                 self.logger.warning(f"⚠️ 执行引擎启动失败(已记录,继续运行): {e}")
 
             # 5. 启动后台监控任务
+            self._running = True
             asyncio.create_task(self._run_monitoring_loop())
             self.logger.info("后台监控任务启动完成")
 
@@ -208,14 +212,31 @@ class GridCoordinator:
         self.logger.info(f"🔔 收到訂單成交通知: {filled_order.order_id} | Grid: {filled_order.grid_id} | Price: {filled_order.price}")
 
         # 2. 更新本地状态中的订单信息
+        filled_price = filled_order.filled_price or filled_order.price
+        filled_amount = filled_order.filled_amount or filled_order.amount
         self.state.mark_order_filled(
             order_id=filled_order.order_id,
-            price=filled_order.filled_price,
-            amount=filled_order.filled_amount
+            filled_price=filled_price,
+            filled_amount=filled_amount
         )
+        if filled_order.order_id not in self.state.active_orders:
+            # 活躍窗口或外部撮合訂單：確保 state 計數與持倉也同步更新
+            if filled_order.is_buy_order():
+                self.state.filled_buy_count += 1
+                self.state.current_position += filled_amount
+            else:
+                self.state.filled_sell_count += 1
+                self.state.current_position -= filled_amount
+            if filled_order.grid_id in self.state.grid_levels:
+                self.state.grid_levels[filled_order.grid_id].mark_order_filled()
 
-        # 3. 统计更新
-        self.state.statistics.update_on_fill(filled_order)
+        # 3. 统计更新（從 tracker FIFO 撮合結果同步真實循環數與毛利）
+        if self.tracker:
+            self.tracker.record_filled_order(filled_order)
+            self.state.completed_cycles = self.tracker.completed_cycles
+            self.state.realized_profit = self.tracker.grid_profit
+            self.state.total_fees = self.tracker.total_fees
+            self.state.current_position = self.tracker.virtual_position
 
         # 4. 计算反向订单参数
         # 🔥 剥头皮模式下可能不挂反向订单
@@ -226,7 +247,7 @@ class GridCoordinator:
 
         reverse_params = self.strategy.calculate_reverse_order(
             filled_order=filled_order,
-            interval=self.config.grid_interval,
+            grid_interval=self.config.grid_interval,
             distance=self.config.reverse_order_grid_distance
         )
         if not reverse_params:
@@ -278,8 +299,24 @@ class GridCoordinator:
         
         # 1. 批量更新本地狀態
         for o in filled_orders:
-            self.state.mark_order_filled(o.order_id, o.filled_price, o.filled_amount)
-            self.state.statistics.update_on_fill(o)
+            fp = o.filled_price or o.price
+            fa = o.filled_amount or o.amount
+            self.state.mark_order_filled(o.order_id, fp, fa)
+            if o.order_id not in self.state.active_orders:
+                if o.is_buy_order():
+                    self.state.filled_buy_count += 1
+                    self.state.current_position += fa
+                else:
+                    self.state.filled_sell_count += 1
+                    self.state.current_position -= fa
+                if o.grid_id in self.state.grid_levels:
+                    self.state.grid_levels[o.grid_id].mark_order_filled()
+            if self.tracker:
+                self.tracker.record_filled_order(o)
+                self.state.completed_cycles = self.tracker.completed_cycles
+                self.state.realized_profit = self.tracker.grid_profit
+                self.state.total_fees = self.tracker.total_fees
+                self.state.current_position = self.tracker.virtual_position
 
         # 2. 計算批量反向訂單
         reverse_params = self.strategy.calculate_batch_reverse_orders(
@@ -337,8 +374,24 @@ class GridCoordinator:
 
         # 2. 為這些成交訂單，更新統計與計算反向訂單
         for o in orders_to_process:
-            self.state.mark_order_filled(o.order_id, o.filled_price, o.filled_amount)
-            self.state.statistics.update_on_fill(o)
+            fp = o.filled_price or o.price
+            fa = o.filled_amount or o.amount
+            self.state.mark_order_filled(o.order_id, fp, fa)
+            if o.order_id not in self.state.active_orders:
+                if o.is_buy_order():
+                    self.state.filled_buy_count += 1
+                    self.state.current_position += fa
+                else:
+                    self.state.filled_sell_count += 1
+                    self.state.current_position -= fa
+                if o.grid_id in self.state.grid_levels:
+                    self.state.grid_levels[o.grid_id].mark_order_filled()
+            if self.tracker:
+                self.tracker.record_filled_order(o)
+                self.state.completed_cycles = self.tracker.completed_cycles
+                self.state.realized_profit = self.tracker.grid_profit
+                self.state.total_fees = self.tracker.total_fees
+                self.state.current_position = self.tracker.virtual_position
 
         reverse_params = self.strategy.calculate_batch_reverse_orders(
             filled_orders=orders_to_process,
@@ -380,20 +433,21 @@ class GridCoordinator:
         self.logger.info(f"✨ 成功補掛了 {len(placed_orders)} 個反向訂單，重置期緩存立即成交訂單處理完畢！")
 
     async def _run_monitoring_loop(self):
-        """後台監跨循環"""
-        while not self._paused:
+        """後台監控循環"""
+        while self._running:
             try:
-                # 1. 更新並監控倉位
-                await self.position_monitor.check_positions()
-                
-                # 2. 定時檢查餘額與風控
-                await self.balance_monitor.check_balance_risk()
+                if not self._paused:
+                    # 1. 更新並監控倉位
+                    await self.position_monitor.check_positions()
+                    
+                    # 2. 定時檢查餘額與風控
+                    await self.balance_monitor.check_balance_risk()
 
-                # 3. 止損監控
-                await self.stop_loss_monitor.check_stop_loss()
+                    # 3. 止損監控
+                    await self.stop_loss_monitor.check_stop_loss()
 
-                # 4. 定時健康自檢 (補單/對齊/防漏掛防漏成交)
-                await self.health_self_check()
+                    # 4. 定時健康自檢 (補單/對齊/防漏掛防漏成交)
+                    await self.health_self_check()
 
                 await asyncio.sleep(self.config.monitoring_interval)
                 
@@ -415,25 +469,94 @@ class GridCoordinator:
         pass
 
     async def recover_old_orders(self):
-        """恢復歷史網格狀態（重啟時調用）"""
-        pass
+        """恢復歷史網格狀態（重啟時從持久化存儲恢復累計成交與盈虧）"""
+        try:
+            from runtime_repository import RuntimeSnapshotRepository
+            snapshots = RuntimeSnapshotRepository.instance().load_all()
+            target_path = getattr(self, "config_path", None)
+            matched = None
+            if target_path and target_path in snapshots:
+                matched, _ = snapshots[target_path]
+            else:
+                sym = getattr(self.config, "symbol", None)
+                for path, (payload, _) in snapshots.items():
+                    if payload.get("symbol") == sym:
+                        matched = payload
+                        break
+            if matched:
+                filled = matched.get("filled_orders") or {}
+                profit = matched.get("profit") or {}
+                buy_c = int(filled.get("buy", 0) or 0)
+                sell_c = int(filled.get("sell", 0) or 0)
+                cycles = int(filled.get("cycles", 0) or 0)
+                
+                # 計算網格套利利潤
+                grid_int = getattr(self.config, 'grid_interval', Decimal('0')) or Decimal('0')
+                order_amt = getattr(self.config, 'order_amount', Decimal('0')) or Decimal('0')
+                grid_profit = Decimal(str(profit.get("grid_profit", profit.get("realized", 0)) or 0))
+                if grid_profit == 0 and cycles > 0 and grid_int > 0 and order_amt > 0:
+                    grid_profit = Decimal(str(cycles)) * grid_int * order_amt
 
-    def pause(self, reason: str = ""):
+                # 判斷手續費率 (優先檢測配置與交易對規則，避免恢復歷史錯誤手續費)
+                fee_rate = getattr(self.config, 'fee_rate', None)
+                exchange = str(getattr(self.config, 'exchange', '')).lower()
+                symbol = str(getattr(self.config, 'symbol', '')).upper()
+                if fee_rate == 0 or (fee_rate is None and exchange == 'binance' and 'USDC' in symbol):
+                    fees = Decimal('0')
+                else:
+                    fees = Decimal(str(profit.get("fees", 0) or 0))
+
+                saved_pos_raw = matched.get("grid_position") if "grid_position" in matched else matched.get("current_position")
+                if saved_pos_raw is not None and Decimal(str(saved_pos_raw)) != 0:
+                    saved_pos = Decimal(str(saved_pos_raw))
+                elif (buy_c > 0 or sell_c > 0) and order_amt > 0:
+                    saved_pos = Decimal(str(buy_c - sell_c)) * order_amt
+                elif saved_pos_raw is not None:
+                    saved_pos = Decimal(str(saved_pos_raw))
+                else:
+                    saved_pos = Decimal('0')
+
+                saved_avg_cost = Decimal(str(matched.get("average_cost") or matched.get("grid_average_cost") or 0))
+
+                if self.tracker:
+                    self.tracker.buy_count = buy_c
+                    self.tracker.sell_count = sell_c
+                    self.tracker.completed_cycles = cycles
+                    self.tracker.grid_profit = grid_profit
+                    self.tracker.realized_pnl = grid_profit
+                    self.tracker.total_fees = fees
+                    self.tracker.sync_recovered_position(saved_pos, saved_avg_cost)
+
+                self.state.filled_buy_count = buy_c
+                self.state.filled_sell_count = sell_c
+                self.state.completed_cycles = cycles
+                self.state.realized_profit = grid_profit
+                self.state.total_fees = fees
+                self.state.current_position = saved_pos
+                self.logger.info(
+                    f"🔄 已從持久化快照恢復歷史累計數據: 買單={buy_c}, 賣單={sell_c}, "
+                    f"套利循環={cycles}格, 套利毛利={grid_profit}, 網格持倉={saved_pos}, 手續費={fees}"
+                )
+        except Exception as e:
+            self.logger.debug(f"恢復歷史網格數據略過或失敗: {e}")
+
+    async def pause(self, reason: str = ""):
         """暫停網格交易"""
         self._paused = True
         self._paused_reason = reason
         self.state.status = GridStatus.PAUSED
         self.logger.warning(f"⏸ 網格已暫停! 原因: {reason}")
 
-    def resume(self):
+    async def resume(self, auto: bool = False):
         """恢復網格交易"""
         self._paused = False
         self._paused_reason = ""
         self.state.status = GridStatus.RUNNING
-        self.logger.info("▶️ 網格交易已恢復運行")
+        self.logger.info(f"▶️ 網格交易已恢復運行{' (自動恢復)' if auto else ''}")
 
     async def stop(self):
         """Cancel open orders and stop the engine. Positions are left open."""
+        self._running = False
         self._paused = True
         self._paused_reason = "stop"
         try:
@@ -467,30 +590,58 @@ class GridCoordinator:
         # 2. 取 tracker 統計(本地 side)
         stats = self.tracker.get_statistics()
 
-        # 3. 嘗試以 WebSocket 緩存的真實持倉覆蓋(若 engine 支援)
+        # 2.1 同步 state 與 tracker 的成交與循環計數
+        stats.filled_buy_count = max(stats.filled_buy_count, self.state.filled_buy_count)
+        stats.filled_sell_count = max(stats.filled_sell_count, self.state.filled_sell_count)
+        stats.completed_cycles = self.tracker.completed_cycles
+        self.state.completed_cycles = self.tracker.completed_cycles
+        self.state.realized_profit = self.tracker.grid_profit
+
+        # 2.2 注入 BalanceMonitor 的即時資產權益（解決前端權益 $0.00 問題）
+        if self.balance_monitor:
+            try:
+                b_info = self.balance_monitor.get_balances()
+                stats.spot_balance = b_info.get('spot_balance', Decimal('0'))
+                stats.collateral_balance = b_info.get('collateral_balance', Decimal('0'))
+                stats.order_locked_balance = b_info.get('order_locked_balance', Decimal('0'))
+                stats.total_balance = b_info.get('total_balance', Decimal('0'))
+                if hasattr(self.tracker, 'update_balance'):
+                    self.tracker.update_balance(stats.spot_balance, stats.order_locked_balance)
+            except Exception as e:
+                self.logger.debug(f"讀取餘額狀態失敗: {e}")
+
+        # 2.3 注入 Engine 的即時掛單數量（解決活躍窗口掛單顯示 0 單問題）
+        try:
+            if hasattr(self.engine, 'get_pending_orders'):
+                engine_pending = self.engine.get_pending_orders()
+                if engine_pending:
+                    buy_cnt = sum(1 for o in engine_pending if getattr(o.side, "value", str(o.side)).lower() == "buy")
+                    sell_cnt = sum(1 for o in engine_pending if getattr(o.side, "value", str(o.side)).lower() == "sell")
+                    stats.pending_buy_orders = buy_cnt
+                    stats.pending_sell_orders = sell_cnt
+                    stats.total_pending_orders = len(engine_pending)
+        except Exception as e:
+            self.logger.debug(f"讀取引擎掛單失敗: {e}")
+
+        # 3. 獲取交易所全帳戶即時持倉（供全帳戶參考，不覆寫網格自身虛擬持倉）
         try:
             if hasattr(self.engine, 'get_real_time_position'):
                 position_data = await self.engine.get_real_time_position(self.config.symbol)
-                ws_position = position_data.get('size', Decimal('0'))
-                ws_entry_price = position_data.get('entry_price', Decimal('0'))
-                has_cache = position_data.get('has_cache', False)
-
-                if has_cache and getattr(self, '_position_ws_enabled', False):
-                    stats.current_position = ws_position
-                    stats.average_cost = ws_entry_price
-                    stats.position_data_source = "WebSocket缓存"
-                    if ws_position != 0 and current_price > 0:
-                        stats.unrealized_profit = ws_position * (
-                            current_price - ws_entry_price
-                        )
-                else:
-                    if getattr(self, '_position_ws_enabled', False):
-                        stats.position_data_source = "WebSocket回调"
+                if position_data.get('has_cache'):
+                    account_pos = position_data.get('size', Decimal('0'))
+                    account_entry = position_data.get('entry_price', Decimal('0'))
+                    stats.account_position = account_pos
+                    if account_pos != 0 and current_price > 0 and account_entry > 0:
+                        stats.account_unrealized_pnl = account_pos * (current_price - account_entry)
                     else:
-                        stats.position_data_source = "REST API备用"
+                        stats.account_unrealized_pnl = Decimal('0')
+                    stats.position_data_source = "StrategyLedger + ExchangeSync"
+                elif stats.account_position is None and hasattr(self.tracker, 'account_position'):
+                    stats.account_position = self.tracker.account_position
+                    stats.account_unrealized_pnl = getattr(self.tracker, 'account_unrealized_pnl', Decimal('0'))
         except Exception as e:
             stats.position_data_source = "PositionTracker"
-            self.logger.debug(f"獲取 WebSocket 持倉失敗,使用本地 tracker: {e}")
+            self.logger.debug(f"獲取交易所全帳戶持倉參考失敗: {e}")
 
         # 4. 監控模式(若 engine 支援)
         if hasattr(self.engine, 'get_monitoring_mode'):

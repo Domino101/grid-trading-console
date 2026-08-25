@@ -228,7 +228,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenGrid, onCreateNew, onUnauth
         <KpiCard
           label={snapshot?.account_mode === 'paper' ? 'PAPER 淨盈虧' : 'LIVE 淨盈虧'}
           value={aggregate ? money(aggregate.net_pnl) : '—'}
-          hint={`已實現 ${aggregate ? money(aggregate.realized_pnl) : '—'} · 未實現 ${aggregate ? money(aggregate.unrealized_pnl) : '—'}`}
+          hint={`網格毛利 ${aggregate ? money(aggregate.grid_profit ?? aggregate.realized_pnl) : '—'} · 浮動 ${aggregate ? money(aggregate.unrealized_pnl) : '—'}`}
           tone={(aggregate?.net_pnl ?? 0) >= 0 ? 'positive' : 'negative'}
           icon={<DollarSign size={16} />}
         />

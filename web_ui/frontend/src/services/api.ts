@@ -74,12 +74,14 @@ export interface GridStatsFilledOrders {
 }
 
 export interface GridStatsProfit {
+    grid_profit?: number | null;
     realized: number | null;
     unrealized: number | null;
     total: number | null;
     fees: number | null;
     net: number | null;
     rate: number | null;
+    account_unrealized?: number | null;
 }
 
 export interface GridStatsBalance {
@@ -101,6 +103,8 @@ export interface GridStats {
     stale: boolean;
     current_price: number | null;
     current_position: number | null;
+    grid_position?: number | null;
+    account_position?: number | null;
     average_cost: number | null;
     pending_orders: GridStatsPendingOrders | null;
     filled_orders: GridStatsFilledOrders | null;
@@ -118,6 +122,7 @@ export interface DashboardAggregate {
     running_grids: number;
     available_grids: number;
     stale_grids: number;
+    grid_profit?: number;
     realized_pnl: number;
     unrealized_pnl: number;
     fees: number;
@@ -140,9 +145,13 @@ export interface DashboardGridItem {
     last_updated_at: number | null;
     current_price: number | null;
     current_position: number | null;
+    grid_position?: number | null;
+    account_position?: number | null;
     equity: number | null;
+    grid_profit?: number | null;
     realized_pnl: number | null;
     unrealized_pnl: number | null;
+    account_unrealized_pnl?: number | null;
     fees: number | null;
     net_pnl: number | null;
     pnl_rate: number | null;

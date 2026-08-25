@@ -209,9 +209,13 @@ def build_grid_read_model(
         "last_updated_at": (runtime or {}).get("last_update"),
         "current_price": finite_number((runtime or {}).get("current_price")),
         "current_position": finite_number((runtime or {}).get("current_position")),
+        "grid_position": finite_number((runtime or {}).get("grid_position") if "grid_position" in (runtime or {}) else (runtime or {}).get("current_position")),
+        "account_position": finite_number((runtime or {}).get("account_position")),
         "equity": finite_number(balance.get("total")),
+        "grid_profit": finite_number(profit.get("grid_profit") if "grid_profit" in profit else profit.get("realized")),
         "realized_pnl": finite_number(profit.get("realized")),
         "unrealized_pnl": finite_number(profit.get("unrealized")),
+        "account_unrealized_pnl": finite_number(profit.get("account_unrealized")),
         "fees": finite_number(profit.get("fees")),
         "net_pnl": finite_number(profit.get("net")),
         "pnl_rate": finite_number(profit.get("rate")),
@@ -231,7 +235,7 @@ def build_grid_read_model(
 
 
 def _roll_aggregate(items: list[dict[str, Any]]) -> dict[str, Any]:
-    realized = unrealized = fees = volume = 0.0
+    grid_profit = realized = unrealized = fees = volume = 0.0
     cycles = available = stale = 0
     for item in items:
         if item.get("data_status") == "live":
@@ -240,6 +244,7 @@ def _roll_aggregate(items: list[dict[str, Any]]) -> dict[str, Any]:
             stale += 1
         if item.get("source") != "engine_runtime":
             continue
+        grid_profit += item.get("grid_profit") or item.get("realized_pnl") or 0.0
         realized += item.get("realized_pnl") or 0.0
         unrealized += item.get("unrealized_pnl") or 0.0
         fees += item.get("fees") or 0.0
@@ -250,10 +255,11 @@ def _roll_aggregate(items: list[dict[str, Any]]) -> dict[str, Any]:
         "running_grids": sum(1 for item in items if item.get("status") == "running"),
         "available_grids": available,
         "stale_grids": stale,
+        "grid_profit": grid_profit,
         "realized_pnl": realized,
         "unrealized_pnl": unrealized,
         "fees": fees,
-        "net_pnl": realized + unrealized - fees,
+        "net_pnl": grid_profit + unrealized - fees,
         "volume": volume,
         "completed_cycles": cycles,
     }

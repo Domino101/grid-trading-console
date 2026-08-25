@@ -5,7 +5,7 @@
 """
 
 from dataclasses import dataclass, field
-from typing import List, Dict
+from typing import List, Dict, Optional
 from decimal import Decimal
 from datetime import datetime, timedelta
 
@@ -132,6 +132,13 @@ class GridStatistics:
         default_factory=dict)  # 实时APR计算公式数据
     # 包含字段与cycle_apr_formula_data相同
 
+    # 🆕 三柱收益與虛擬持倉隔離指標
+    grid_profit: Decimal = Decimal('0')        # 網格套利利潤（理論毛利：completed_cycles * grid_interval * order_amount）
+    grid_position: Decimal = Decimal('0')      # 網格自身虛擬持倉（排除手動干預）
+    grid_average_cost: Decimal = Decimal('0')  # 網格自身持倉均價
+    account_position: Optional[Decimal] = None # 交易所全帳戶持倉（含手動干預）
+    account_unrealized_pnl: Optional[Decimal] = None # 交易所全帳戶未實現盈虧
+
     def to_display_dict(self) -> Dict:
         """转换为显示字典"""
         return {
@@ -144,7 +151,10 @@ class GridStatistics:
             'current_price': float(self.current_price),
             'current_grid_id': self.current_grid_id,
             'current_position': float(self.current_position),
+            'grid_position': float(self.grid_position) if self.grid_position is not None else float(self.current_position),
+            'account_position': float(self.account_position) if self.account_position is not None else None,
             'average_cost': float(self.average_cost),
+            'grid_average_cost': float(self.grid_average_cost) if self.grid_average_cost is not None else float(self.average_cost),
             'pending_orders': {
                 'buy': self.pending_buy_orders,
                 'sell': self.pending_sell_orders,
@@ -156,12 +166,14 @@ class GridStatistics:
                 'cycles': self.completed_cycles
             },
             'profit': {
+                'grid_profit': float(self.grid_profit),
                 'realized': float(self.realized_profit),
                 'unrealized': float(self.unrealized_profit),
                 'total': float(self.total_profit),
                 'fees': float(self.total_fees),
                 'net': float(self.net_profit),
-                'rate': float(self.profit_rate)
+                'rate': float(self.profit_rate),
+                'account_unrealized': float(self.account_unrealized_pnl) if self.account_unrealized_pnl is not None else None,
             },
             'grid_utilization': self.grid_utilization,
             'balance': {

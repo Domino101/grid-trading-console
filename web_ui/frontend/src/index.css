@@ -254,6 +254,13 @@ body {
   border: 1px solid var(--trading-green-border);
 }
 
+.badge-starting,
+.badge-stopping {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
 .badge-stopped,
 .badge-stale {
   background: rgba(100, 116, 139, 0.16);

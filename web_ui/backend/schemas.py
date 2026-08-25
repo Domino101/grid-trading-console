@@ -284,12 +284,14 @@ class GridStatsFilledOrders(BaseModel):
 
 
 class GridStatsProfit(BaseModel):
+    grid_profit: Optional[float] = Field(default=None, description="網格套利利潤（理論毛利）")
     realized: Optional[float] = Field(default=None, description="已實現盈虧")
     unrealized: Optional[float] = Field(default=None, description="未實現盈虧")
     total: Optional[float] = Field(default=None, description="總盈虧")
     fees: Optional[float] = Field(default=None, description="手續費支出")
     net: Optional[float] = Field(default=None, description="淨盈虧（扣除手續費）")
     rate: Optional[float] = Field(default=None, description="盈虧率 %")
+    account_unrealized: Optional[float] = Field(default=None, description="交易所全帳戶未實現盈虧")
 
 
 class GridStatsBalance(BaseModel):
@@ -313,6 +315,8 @@ class GridStatsResponse(BaseModel):
     stale: bool = Field(default=True, description="資料是否過期或尚未同步")
     current_price: Optional[float] = Field(default=None, description="當前市價；未知為 null")
     current_position: Optional[float] = Field(default=None, description="當前網格持倉數量；未知為 null")
+    grid_position: Optional[float] = Field(default=None, description="網格自身虛擬持倉；未知為 null")
+    account_position: Optional[float] = Field(default=None, description="交易所全帳戶持倉；未知為 null")
     average_cost: Optional[float] = Field(default=None, description="持倉均價")
     pending_orders: Optional[GridStatsPendingOrders] = None
     filled_orders: Optional[GridStatsFilledOrders] = None
@@ -396,6 +400,7 @@ class DashboardAggregate(BaseModel):
     running_grids: int
     available_grids: int
     stale_grids: int
+    grid_profit: float = 0.0
     realized_pnl: float
     unrealized_pnl: float
     fees: float
@@ -419,9 +424,13 @@ class DashboardGridItem(BaseModel):
     last_updated_at: Optional[float] = None
     current_price: Optional[float] = None
     current_position: Optional[float] = None
+    grid_position: Optional[float] = None
+    account_position: Optional[float] = None
     equity: Optional[float] = None
+    grid_profit: Optional[float] = None
     realized_pnl: Optional[float] = None
     unrealized_pnl: Optional[float] = None
+    account_unrealized_pnl: Optional[float] = None
     fees: Optional[float] = None
     net_pnl: Optional[float] = None
     pnl_rate: Optional[float] = None
