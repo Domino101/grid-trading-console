@@ -2,7 +2,40 @@
 
 本專案的重要變更記錄於此檔案，格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/)。
 
-## [Unreleased] — 2026-08-14
+## [Unreleased] — 2026-08-25
+
+### Added
+
+- **三支柱利潤與全帳戶持倉隔離架構 (Three-Pillar Profit & Position Isolation)**:
+  - 引入 `grid_position`（網格專屬持倉）與 `account_position`（交易所全帳戶持倉）雙軌分離，防止手動單或其他策略持倉干擾網格策略的浮動盈虧與成本計算。
+  - 引入 `grid_profit`（網格套利已實現毛利）與 `account_unrealized_pnl`（帳戶層級浮動盈虧）多維指標隔離。
+  - Web UI 前端 Mini KPI Bar、`GridCard`、`GridTable` 與 `GridDetail` 全面升級顯示「策略純淨收益 (Pure Net PnL)」與網格/帳戶雙持倉數據（格式化升級至 4 位小數精度）。
+- **雙軌稽核自動化標準 (Dual-Stage Audit Standard)**:
+  - 於 `AGENTS.md` 建立宏觀架構 (Graphify) 與微觀行級 (Open Code Review / `ocr`) 雙軌自動化審查標準，並新增 `open-code-review` 技能。
+- **狀態過渡視覺增強**:
+  - 前端與後端生命週期支援 `starting` (啟動中) 與 `stopping` (停止中) 專屬狀態徽章與樣式，消除非同步指令在引擎排程中的狀態閃爍。
+
+### Fixed
+
+- **網格收益、持倉與成交監控死鎖修復 (Grid Profit & Position Monitoring Deadlock Fix)**:
+  - **Coordinator 非同步/同步調用修復**: 將 `GridCoordinator.pause()` 與 `resume()` 重構為 `async def` 並支援 `auto: bool = False` 參數，徹底修復 `position_monitor` 與 `grid_engine_impl` 調用 `await coordinator.pause(...)` 時因同步回傳 `None` 拋出 `TypeError: object NoneType can't be used in 'await' expression` 的崩潰。
+  - **背景監控任務生命週期重構**: 修正 `GridCoordinator._run_monitoring_loop()` 的迴圈終止條件（由 `while not self._paused:` 改為受 `while self._running:` 控制），確保暫停期間監控 Task 保持存活，在網路連線恢復後能自動喚醒與恢復網格調度。
+  - **成交事件丟棄修復**: 解決策略暫停死鎖導致 `_on_order_filled()` 靜默丟棄所有交易所成交事件的問題，恢復 `PositionTracker` 與 `GridState` 正常累計成交買賣次數、套利循環格數 (`completed_cycles`)、毛利與淨利。
+  - **多網格失敗計數器實例隔離**: 將 `PositionMonitor` 的 `_global_consecutive_failures` 與 `GridEngineImpl` 的 `_global_price_failures` 從類別靜態變數重構為實例屬性，防止單一交易對暫態 API 抖動觸發全域連鎖暫停。
+  - **Binance WebSocket 持倉即時緩存**: 在 `binance_websocket.py` 新增 `_position_cache`，於收到 `ACCOUNT_UPDATE` 時解析 `P` 持倉陣列，並在 `binance.py` 導出緩存，使 Web UI 與策略統計能即時顯示幣安全帳戶持倉 (`account_position`)。
+  - **反手單參數名稱相容性修復**: 在 `GridStrategyImpl.calculate_reverse_order` 與 `calculate_batch_reverse_orders` 支援 `grid_interval`、`interval` 與 `**kwargs`，徹底修復 `GridCoordinator` 傳入 `interval` 引發 `TypeError` 導致成交後反手單 100% 丟失的致命錯誤。
+  - **幣安合約多資產保證金（Multi-Assets）餘額預檢修復**: 在 `_has_sufficient_balance` 與 `_get_cached_balances` 支援統計帳戶全域穩定幣總可用保證金（USDT + USDC），解決 `ETH/USDC:USDC` 交易對在錢包僅有 USDT 時買單遭本地預檢誤判為餘額不足而全數阻斷的問題。
+  - **Binance Batch API 批量下單修復**: 導出 `BinanceAdapter.rest` 屬性並修復 `binance_rest.py` 內批量下單調用未定義 `_adjust_min_notional` 的錯誤，打通 `batchOrders` 批量掛單鏈路（單次 REST 請求完成 4 格掛單）。
+  - **活躍窗口掛單去重精度修復**: 將 `place_batch_orders` 去重邏輯升級為 `(grid_id, side)` 二元組檢查，避免不同方向的舊訂單阻擋正確方向的目標補單。
+
+### Testing
+
+- 新增單元測試 `test_three_pillar_profit_isolation.py`、`test_fifo_arbitrage_and_window_protection.py`、`test_coordinator_stats_and_fills.py`。
+- 總計 127 項 Python 測試 100% 通過（含 Circuit Breaker、Position Tracker、FIFO Arbitrage 等）。
+- 前端 TypeScript (`tsc -b`) 與 Vite 生產環境 Bundle 建置 100% 通過。
+- 實機熱重啟 `multi-grid-engine` (PM2) 與 `web_ui` 後端，現場驗證無死鎖異常日誌，驗證 `ETH/USDC:USDC` 成功透過 Batch API 掛出 2 買 2 賣對稱活躍窗口掛單（Grid 49/50 買單、Grid 51/52 賣單）。
+
+## [0.3.0] — 2026-08-14
 
 ### Added
 

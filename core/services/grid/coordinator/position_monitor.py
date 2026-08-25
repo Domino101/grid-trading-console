@@ -29,12 +29,12 @@ class PositionMonitor:
     - 订单数据：WebSocket（快速且可靠）- 由其他模块处理
     """
 
-    # 🔥 类变量：全局失败计数器（在所有实例间共享，不会因重新初始化而重置）
-    _global_consecutive_failures = 0
-    _global_consecutive_successes = 0  # 🆕 连续成功次数（用于确认网络恢复）
-    _last_global_failure_time = 0  # 上次全局失败时间
-    _failure_reset_timeout = 30  # 超过30秒没有新失败则重置计数器
-    _success_required_to_reset = 3  # 🆕 连续成功N次后才重置失败计数器（确认网络稳定）
+    # 實例變數預設值（避免 __new__ mock 遺漏）
+    _consecutive_failures: int = 0
+    _consecutive_successes: int = 0
+    _last_failure_time: float = 0.0
+    _failure_reset_timeout: float = 30.0
+    _success_required_to_reset: int = 3
 
     def __init__(self, engine, tracker, config, coordinator):
         """
@@ -51,6 +51,13 @@ class PositionMonitor:
         self.tracker = tracker
         self.config = config
         self.coordinator = coordinator
+
+        # 故障計數器（實例隔離，避免多網格互相干擾）
+        self._consecutive_failures = 0
+        self._consecutive_successes = 0
+        self._last_failure_time = 0
+        self._failure_reset_timeout = 30
+        self._success_required_to_reset = 3
 
         # 🆕 REST查询配置
         # 🔥 优先使用WebSocket缓存，REST查询仅作为备用
@@ -209,14 +216,14 @@ class PositionMonitor:
                         self._rest_last_query_time = current_time
                         self._last_data_source = "WebSocket缓存"  # 🔥 标记数据来源
 
-                        # 更新全局成功计数
-                        if PositionMonitor._global_consecutive_failures > 0:
-                            PositionMonitor._global_consecutive_successes += 1
-                            if PositionMonitor._global_consecutive_successes >= PositionMonitor._success_required_to_reset:
+                        # 更新成功计数
+                        if self._consecutive_failures > 0:
+                            self._consecutive_successes += 1
+                            if self._consecutive_successes >= self._success_required_to_reset:
                                 self.logger.info(
-                                    "✅ 网络恢复，重置全局失败计数器（WebSocket缓存）")
-                                PositionMonitor._global_consecutive_failures = 0
-                                PositionMonitor._global_consecutive_successes = 0
+                                    "✅ 网络恢复，重置失败计数器（WebSocket缓存）")
+                                self._consecutive_failures = 0
+                                self._consecutive_successes = 0
 
                         return True
 
@@ -272,25 +279,25 @@ class PositionMonitor:
                         )
 
                 # 🆕 REST查询成功
-                # 🔥 重置全局失败计数器（关键修改）
-                if PositionMonitor._global_consecutive_failures > 0:
+                # 🔥 重置失败计数器
+                if self._consecutive_failures > 0:
                     # 🆕 累积连续成功次数
-                    PositionMonitor._global_consecutive_successes += 1
+                    self._consecutive_successes += 1
 
                     # 只有连续成功N次后才重置失败计数器（确保网络真正稳定）
-                    if PositionMonitor._global_consecutive_successes >= PositionMonitor._success_required_to_reset:
+                    if self._consecutive_successes >= self._success_required_to_reset:
                         self.logger.info(
-                            f"✅ 网络恢复，重置全局失败计数器"
-                            f"（之前失败{PositionMonitor._global_consecutive_failures}次，"
-                            f"连续成功{PositionMonitor._global_consecutive_successes}次）"
+                            f"✅ 网络恢复，重置失败计数器"
+                            f"（之前失败{self._consecutive_failures}次，"
+                            f"连续成功{self._consecutive_successes}次）"
                         )
-                        PositionMonitor._global_consecutive_failures = 0
-                        PositionMonitor._global_consecutive_successes = 0
-                        PositionMonitor._last_global_failure_time = 0
+                        self._consecutive_failures = 0
+                        self._consecutive_successes = 0
+                        self._last_failure_time = 0
                     else:
                         self.logger.info(
-                            f"⚠️ 网络部分恢复，连续成功{PositionMonitor._global_consecutive_successes}/"
-                            f"{PositionMonitor._success_required_to_reset}次"
+                            f"⚠️ 网络部分恢复，连续成功{self._consecutive_successes}/"
+                            f"{self._success_required_to_reset}次"
                             f"（需要更多成功才能重置失败计数器）"
                         )
 
@@ -356,25 +363,25 @@ class PositionMonitor:
             self._last_position_price = entry_price
 
             # 🆕 REST查询成功
-            # 🔥 重置全局失败计数器（关键修改）
-            if PositionMonitor._global_consecutive_failures > 0:
+            # 🔥 重置失败计数器
+            if self._consecutive_failures > 0:
                 # 🆕 累积连续成功次数
-                PositionMonitor._global_consecutive_successes += 1
+                self._consecutive_successes += 1
 
                 # 只有连续成功N次后才重置失败计数器（确保网络真正稳定）
-                if PositionMonitor._global_consecutive_successes >= PositionMonitor._success_required_to_reset:
+                if self._consecutive_successes >= self._success_required_to_reset:
                     self.logger.info(
-                        f"✅ 网络恢复，重置全局失败计数器"
-                        f"（之前失败{PositionMonitor._global_consecutive_failures}次，"
-                        f"连续成功{PositionMonitor._global_consecutive_successes}次）"
+                        f"✅ 网络恢复，重置失败计数器"
+                        f"（之前失败{self._consecutive_failures}次，"
+                        f"连续成功{self._consecutive_successes}次）"
                     )
-                    PositionMonitor._global_consecutive_failures = 0
-                    PositionMonitor._global_consecutive_successes = 0
-                    PositionMonitor._last_global_failure_time = 0
+                    self._consecutive_failures = 0
+                    self._consecutive_successes = 0
+                    self._last_failure_time = 0
                 else:
                     self.logger.info(
-                        f"⚠️ 网络部分恢复，连续成功{PositionMonitor._global_consecutive_successes}/"
-                        f"{PositionMonitor._success_required_to_reset}次"
+                        f"⚠️ 网络部分恢复，连续成功{self._consecutive_successes}/"
+                        f"{self._success_required_to_reset}次"
                         f"（需要更多成功才能重置失败计数器）"
                     )
 
@@ -577,26 +584,26 @@ class PositionMonitor:
         self._rest_is_available = False
         current_time = time.time()
 
-        # 🔥 检查是否需要重置全局计数器（超时重置机制）
-        if (PositionMonitor._last_global_failure_time > 0 and
-                current_time - PositionMonitor._last_global_failure_time > PositionMonitor._failure_reset_timeout):
-            if PositionMonitor._global_consecutive_failures > 0:
+        # 🔥 检查是否需要重置计数器（超时重置机制）
+        if (self._last_failure_time > 0 and
+                current_time - self._last_failure_time > self._failure_reset_timeout):
+            if self._consecutive_failures > 0:
                 self.logger.info(
-                    f"⏰ 距离上次失败已超过{PositionMonitor._failure_reset_timeout}秒，"
-                    f"重置全局失败计数器（之前失败{PositionMonitor._global_consecutive_failures}次）"
+                    f"⏰ 距离上次失败已超过{self._failure_reset_timeout}秒，"
+                    f"重置失败计数器（之前失败{self._consecutive_failures}次）"
                 )
-                PositionMonitor._global_consecutive_failures = 0
+                self._consecutive_failures = 0
 
-        # 🔥 更新全局失败计数器
-        PositionMonitor._global_consecutive_failures += 1
-        PositionMonitor._global_consecutive_successes = 0  # 🆕 失败时清零成功计数器
-        PositionMonitor._last_global_failure_time = current_time
+        # 🔥 更新失败计数器
+        self._consecutive_failures += 1
+        self._consecutive_successes = 0  # 🆕 失败时清零成功计数器
+        self._last_failure_time = current_time
 
         # 同时更新实例计数器（用于向后兼容和日志）
-        self._rest_failure_count = PositionMonitor._global_consecutive_failures
+        self._rest_failure_count = self._consecutive_failures
 
         # 连续失败达到阈值：判定为网络故障
-        if PositionMonitor._global_consecutive_failures >= self._rest_max_failures:
+        if self._consecutive_failures >= self._rest_max_failures:
             # 🔥 首次判定为网络故障
             if not self._network_is_down:
                 self._network_is_down = True

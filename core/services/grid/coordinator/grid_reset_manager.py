@@ -88,6 +88,8 @@ class GridResetManager:
 
             # 5. 引擎批次下單
             placed_orders = await self.engine.place_batch_orders(initial_orders)
+            for po in placed_orders:
+                self.state.add_order(po)
             self.logger.info(
                 f"✅ 成功掛出 {len(placed_orders)}/{len(initial_orders)} 個初始訂單"
             )

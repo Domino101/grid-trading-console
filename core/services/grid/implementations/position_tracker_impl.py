@@ -40,17 +40,28 @@ class PositionTrackerImpl(IPositionTracker):
         self.config = config
         self.state = grid_state
 
-        # 持仓信息
-        self.current_position = Decimal('0')      # 当前持仓数量
+        # 網格自身虛擬持倉（僅受網格自身掛單成交影響，隔離手動干預）
+        self.virtual_position = Decimal('0')      # 網格自身持倉數量
+        self.virtual_average_cost = Decimal('0')  # 網格自身加權成本
+        self.current_position = Decimal('0')      # 兼容舊屬性（指向虛擬持倉）
         self.position_cost = Decimal('0')         # 持仓总成本
         self.average_cost = Decimal('0')          # 平均成本
 
         # 盈亏统计
-        self.realized_pnl = Decimal('0')          # 已实现盈亏
+        self.grid_profit = Decimal('0')           # 網格套利毛利
+        self.realized_pnl = Decimal('0')          # 已实现盈亏（兼容舊屬性）
         self.total_fees = Decimal('0')            # 总手续费
+
+        # 交易所全帳戶資訊（可選）
+        self.account_position = None              # 交易所全帳戶持倉
+        self.account_unrealized_pnl = None        # 交易所全帳戶未實現盈虧
 
         # 交易历史（最近1000条）
         self.trade_history: Deque[Dict] = deque(maxlen=1000)
+
+        # 🔥 FIFO 未撮合單隊列（用於真實網格套利配對與真實利潤計算，取代 min(buy, sell) 估算）
+        self._unmatched_buys: Deque[Dict] = deque()
+        self._unmatched_sells: Deque[Dict] = deque()
 
         # 统计信息
         self.buy_count = 0
@@ -65,28 +76,11 @@ class PositionTrackerImpl(IPositionTracker):
         self.start_time = datetime.now()
         self.last_trade_time = datetime.now()
 
-        self.logger.info("持仓跟踪器初始化完成")
+        self.logger.info("持仓跟踪器初始化完成 (支援虛擬持倉與手動干預隔離，啟用 FIFO 真實套利撮合)")
 
     def record_filled_order(self, order: GridOrder):
         """
-        🔥 记录订单成交（仅用于交易历史和统计，不更新持仓）
-
-        修改说明：
-        - 持仓数据：完全来自 position_monitor 的REST查询（sync_initial_position方法）
-        - 交易历史：仍然通过此方法记录，用于终端UI显示"最近成交"
-        - 统计数据：买入/卖出次数、已实现盈亏、手续费（仅供显示）
-
-        不再做的事：
-        ❌ 不再更新 current_position（持仓由REST同步）
-        ❌ 不再更新 average_cost（成本由REST同步）
-        ❌ 不再更新 position_cost（由REST同步时计算）
-
-        仅用于显示：
-        ✅ realized_pnl（已实现盈亏统计）
-        ✅ total_fees（手续费统计）
-
-        Args:
-            order: 成交订单
+        記錄網格訂單成交，並以 FIFO 真實撮合維護獨立虛擬持倉與套利毛利。
         """
         if not order.is_filled():
             self.logger.warning(f"订单{order.order_id}未成交，跳过记录")
@@ -95,57 +89,139 @@ class PositionTrackerImpl(IPositionTracker):
         filled_price = order.filled_price or order.price
         filled_amount = order.filled_amount or order.amount
 
-        # 用于记录交易历史的盈亏
-        profit = None
-
-        # 🔥 统计计数和盈亏计算（仅用于显示）
+        # 1. 維護網格策略自身的獨立虛擬持倉 (Virtual Position)
         if order.is_buy_order():
             self.buy_count += 1
-            self.logger.debug(
-                f"买入记录: {filled_amount}@{filled_price}"
-            )
+            old_pos = self.virtual_position
+            self.virtual_position += filled_amount
+            if self.virtual_position > 0:
+                if old_pos > 0 and self.virtual_average_cost > 0:
+                    self.virtual_average_cost = (old_pos * self.virtual_average_cost + filled_amount * filled_price) / self.virtual_position
+                else:
+                    self.virtual_average_cost = filled_price
+            self.logger.debug(f"買入記錄: {filled_amount}@{filled_price}, 虛擬持倉: {self.virtual_position}")
         else:
             self.sell_count += 1
+            old_pos = self.virtual_position
+            self.virtual_position -= filled_amount
+            if self.virtual_position < 0:
+                if old_pos < 0 and self.virtual_average_cost > 0:
+                    self.virtual_average_cost = (abs(old_pos) * self.virtual_average_cost + filled_amount * filled_price) / abs(self.virtual_position)
+                else:
+                    self.virtual_average_cost = filled_price
+            self.logger.debug(f"賣出記錄: {filled_amount}@{filled_price}, 虛擬持倉: {self.virtual_position}")
 
-            # 📊 计算已实现盈亏（仅用于统计显示，不影响业务逻辑）
-            # 使用REST同步的average_cost来计算
-            if self.current_position > 0 and self.average_cost > 0:
-                # 做多网格的卖出，计算盈亏
-                sell_cost = self.average_cost * filled_amount
-                sell_value = filled_price * filled_amount
-                profit = sell_value - sell_cost
-                self.realized_pnl += profit
+        if self.virtual_position == 0:
+            self.virtual_average_cost = Decimal('0')
 
-                self.logger.debug(
-                    f"卖出记录: {filled_amount}@{filled_price}, "
-                    f"成本: {self.average_cost}, 盈亏: {profit}"
-                )
-            elif self.current_position < 0 and self.average_cost > 0:
-                # 做空网格的卖出（建仓），暂不计算盈亏
-                self.logger.debug(
-                    f"做空卖出记录: {filled_amount}@{filled_price}"
-                )
+        self.current_position = self.virtual_position
+        self.average_cost = self.virtual_average_cost
 
-        # 📊 计算手续费（仅用于统计显示）
-        fee = filled_price * filled_amount * self.config.fee_rate
+        # 2. 計算手續費（優先使用訂單實際手續費，若無則依交易對與配置解析）
+        order_fee = getattr(order, 'fee', None)
+        if order_fee is not None:
+            fee = Decimal(str(order_fee))
+        else:
+            fee_rate = self.resolve_fee_rate()
+            fee = filled_price * filled_amount * fee_rate
         self.total_fees += fee
 
-        # 更新完成循环次数
-        self.completed_cycles = min(self.buy_count, self.sell_count)
+        # 3. 🔥 真實 FIFO 訂單配對撮合（計算真實套利輪迴數與真實價差毛利）
+        matched_profit = Decimal('0')
+        matched_any = False
+        rem_amount = filled_amount
 
-        # 🔥 记录交易历史（用于终端UI显示）
-        self._record_trade(order, filled_price, filled_amount, profit)
+        if order.is_buy_order():
+            # 買單成交：若有未撮合的賣單（空頭網格或中性網格先賣後買），以 FIFO 撮合
+            while rem_amount > Decimal('1e-8') and self._unmatched_sells:
+                sell_lot = self._unmatched_sells[0]
+                match_qty = min(rem_amount, sell_lot['amount'])
+                lot_profit = (sell_lot['price'] - filled_price) * match_qty
+                matched_profit += lot_profit
+                self.grid_profit += lot_profit
+                self.realized_pnl = self.grid_profit
+                self.completed_cycles += 1
+                matched_any = True
+
+                sell_lot['amount'] -= match_qty
+                rem_amount -= match_qty
+                if sell_lot['amount'] <= Decimal('1e-8'):
+                    self._unmatched_sells.popleft()
+
+            if rem_amount > Decimal('1e-8'):
+                self._unmatched_buys.append({
+                    'order_id': order.order_id,
+                    'price': filled_price,
+                    'amount': rem_amount,
+                    'time': order.filled_at or datetime.now()
+                })
+        else:
+            # 賣單成交：若有未撮合的買單（多頭網格或中性網格先買後賣），以 FIFO 撮合
+            while rem_amount > Decimal('1e-8') and self._unmatched_buys:
+                buy_lot = self._unmatched_buys[0]
+                match_qty = min(rem_amount, buy_lot['amount'])
+                lot_profit = (filled_price - buy_lot['price']) * match_qty
+                matched_profit += lot_profit
+                self.grid_profit += lot_profit
+                self.realized_pnl = self.grid_profit
+                self.completed_cycles += 1
+                matched_any = True
+
+                buy_lot['amount'] -= match_qty
+                rem_amount -= match_qty
+                if buy_lot['amount'] <= Decimal('1e-8'):
+                    self._unmatched_buys.popleft()
+
+            if rem_amount > Decimal('1e-8'):
+                self._unmatched_sells.append({
+                    'order_id': order.order_id,
+                    'price': filled_price,
+                    'amount': rem_amount,
+                    'time': order.filled_at or datetime.now()
+                })
+
+        # 4. 記錄交易歷史
+        profit_for_record = matched_profit if matched_any else None
+        self._record_trade(order, filled_price, filled_amount, fee, profit_for_record)
 
         # 更新最后交易时间
         self.last_trade_time = datetime.now()
 
         self.logger.info(
-            f"记录成交: {order.side.value} {filled_amount}@{filled_price}, "
-            f"已实现盈亏: {self.realized_pnl}, 手续费: {self.total_fees} "
-            f"(持仓由REST同步)"
+            f"記錄成交: {order.side.value} {filled_amount}@{filled_price}, "
+            f"套利配對: {matched_any} (本次獲利={matched_profit}), "
+            f"累計套利={self.completed_cycles}格, 套利毛利={self.grid_profit}, 手續費={self.total_fees}"
         )
 
-    def _record_trade(self, order: GridOrder, price: Decimal, amount: Decimal, profit: Decimal = None):
+    def resolve_fee_rate(self) -> Decimal:
+        """
+        解析交易對手續費率（優先依據用戶配置，若無或為None則依交易所與交易對規則自動判斷）
+        """
+        cfg_fee = getattr(self.config, 'fee_rate', None)
+        if cfg_fee is not None:
+            return Decimal(str(cfg_fee))
+
+        exchange = str(getattr(self.config, 'exchange', '')).lower()
+        symbol = str(getattr(self.config, 'symbol', '')).upper()
+
+        if exchange == 'binance':
+            # 幣安合約 USDC 保證金交易對享有 0 掛單手續費 (Zero Maker Fee Promotion)
+            if 'USDC' in symbol:
+                return Decimal('0')
+            # 幣安 USDT 合約標準 Maker 費率 0.02%
+            return Decimal('0.0002')
+        elif exchange == 'lighter':
+            return Decimal('0.00002')
+        elif exchange == 'hyperliquid':
+            return Decimal('0.0001')
+        elif exchange == 'okx':
+            return Decimal('0.0002')
+        elif exchange == 'paper':
+            return Decimal('0')
+
+        return Decimal('0')
+
+    def _record_trade(self, order: GridOrder, price: Decimal, amount: Decimal, fee: Decimal = Decimal('0'), profit: Decimal = None):
         """
         记录交易到历史
 
@@ -153,17 +229,19 @@ class PositionTrackerImpl(IPositionTracker):
             order: 订单
             price: 成交价格
             amount: 成交数量
-            profit: 利润（卖单才有）
+            fee: 交易手续费
+            profit: 利润（套利配对成功才有）
         """
         trade_record = {
             'time': order.filled_at or datetime.now(),
             'order_id': order.order_id,
             'grid_id': order.grid_id,
-            'side': order.side.value,
+            'side': order.side.value if hasattr(order.side, 'value') else str(order.side),
             'price': float(price),
             'amount': float(amount),
             'value': float(price * amount),
-            'profit': float(profit) if profit else None,
+            'fee': float(fee) if fee is not None else 0.0,
+            'profit': float(profit) if profit is not None else None,
             'position_after': float(self.current_position),
             'realized_pnl': float(self.realized_pnl)
         }
@@ -190,7 +268,7 @@ class PositionTrackerImpl(IPositionTracker):
 
     def calculate_unrealized_pnl(self, current_price: Decimal) -> Decimal:
         """
-        计算未实现盈亏
+        計算網格自身虛擬持倉的未實現盈虧（完全隔離手動干預）
 
         Args:
             current_price: 当前价格
@@ -198,27 +276,28 @@ class PositionTrackerImpl(IPositionTracker):
         Returns:
             未实现盈亏
         """
-        if self.current_position == 0:
+        pos = self.virtual_position if self.virtual_position != 0 else self.current_position
+        cost = self.virtual_average_cost if self.virtual_average_cost != 0 else self.average_cost
+        if pos == 0 or cost == 0:
             return Decimal('0')
 
-        # 未实现盈亏 = (当前价格 - 平均成本) * 持仓数量
-        unrealized_pnl = (current_price - self.average_cost) * \
-            self.current_position
-
-        return unrealized_pnl
+        if pos > 0:
+            return (current_price - cost) * pos
+        else:
+            return (cost - current_price) * abs(pos)
 
     def get_realized_pnl(self) -> Decimal:
         """
-        获取已实现盈亏
+        获取网格套利毛利（已实现盈亏）
 
         Returns:
             已实现盈亏
         """
-        return self.realized_pnl
+        return self.grid_profit or self.realized_pnl
 
     def get_total_pnl(self, current_price: Decimal) -> Decimal:
         """
-        获取总盈亏（已实现+未实现）
+        获取总盈亏（网格毛利 + 虚拟未实现盈亏）
 
         Args:
             current_price: 当前价格
@@ -227,11 +306,11 @@ class PositionTrackerImpl(IPositionTracker):
             总盈亏
         """
         unrealized = self.calculate_unrealized_pnl(current_price)
-        return self.realized_pnl + unrealized
+        return (self.grid_profit or self.realized_pnl) + unrealized
 
     def get_statistics(self) -> GridStatistics:
         """
-        获取统计数据
+        获取统计数据（三柱收益体系）
 
         Returns:
             网格统计数据
@@ -239,9 +318,20 @@ class PositionTrackerImpl(IPositionTracker):
         # 获取当前价格
         current_price = self.state.current_price or self.config.get_first_order_price()
 
-        # 计算未实现盈亏
+        # 防禦性檢查：若有完成循環但尚未計算毛利，自動補算
+        if self.grid_profit == 0 and self.completed_cycles > 0:
+            grid_int = getattr(self.config, 'grid_interval', Decimal('0')) or Decimal('0')
+            order_amt = getattr(self.config, 'order_amount', Decimal('0')) or Decimal('0')
+            self.grid_profit = Decimal(str(self.completed_cycles)) * grid_int * order_amt
+            self.realized_pnl = self.grid_profit
+
+        # 若當前交易對為 0 手續費率（如幣安 USDC 合約），確保手續費為 0
+        if self.resolve_fee_rate() == Decimal('0'):
+            self.total_fees = Decimal('0')
+
+        # 计算未实现盈亏与净收益
         unrealized_pnl = self.calculate_unrealized_pnl(current_price)
-        total_pnl = self.realized_pnl + unrealized_pnl
+        total_pnl = self.grid_profit + unrealized_pnl
         net_profit = total_pnl - self.total_fees
 
         # 计算收益率
@@ -264,15 +354,15 @@ class PositionTrackerImpl(IPositionTracker):
             price_range=(self.config.lower_price, self.config.upper_price),
             current_price=current_price,
             current_grid_id=self.state.current_grid_id or 1,
-            current_position=self.current_position,
-            average_cost=self.average_cost,
+            current_position=self.virtual_position,
+            average_cost=self.virtual_average_cost,
             pending_buy_orders=self.state.pending_buy_orders,
             pending_sell_orders=self.state.pending_sell_orders,
             total_pending_orders=self.state.pending_buy_orders + self.state.pending_sell_orders,
             filled_buy_count=self.buy_count,
             filled_sell_count=self.sell_count,
             completed_cycles=self.completed_cycles,
-            realized_profit=self.realized_pnl,
+            realized_profit=self.grid_profit,
             unrealized_profit=unrealized_pnl,
             total_profit=total_pnl,
             total_fees=self.total_fees,
@@ -285,7 +375,12 @@ class PositionTrackerImpl(IPositionTracker):
             total_balance=total_balance,
             capital_utilization=capital_utilization,
             running_time=running_time,
-            last_trade_time=self.last_trade_time
+            last_trade_time=self.last_trade_time,
+            grid_profit=self.grid_profit,
+            grid_position=self.virtual_position,
+            grid_average_cost=self.virtual_average_cost,
+            account_position=self.account_position,
+            account_unrealized_pnl=self.account_unrealized_pnl
         )
 
         return statistics
@@ -310,7 +405,7 @@ class PositionTrackerImpl(IPositionTracker):
             self.config.grid_count * current_price
         if initial_capital > 0:
             metrics.profit_rate = (
-                metrics.total_profit / initial_capital) * 100
+                metrics.total_profit / initial_capital * 100)
 
         # 交易统计
         metrics.total_trades = self.buy_count + self.sell_count
@@ -321,27 +416,26 @@ class PositionTrackerImpl(IPositionTracker):
             metrics.win_rate = (metrics.win_trades /
                                 (metrics.total_trades / 2)) * 100  # 一买一卖算一次
 
-        # 计算日均收益
-        running_days = (datetime.now() - self.start_time).days
-        if running_days > 0:
+        # 手续费
+        metrics.total_fees = self.total_fees
+
+        # 运行天数
+        running_time = datetime.now() - self.start_time
+        metrics.running_days = max(1, running_time.days)
+
+        # 日均收益
+        if metrics.running_days > 0:
             metrics.daily_profit = metrics.total_profit / \
-                Decimal(str(running_days))
-            metrics.running_days = running_days
+                Decimal(str(metrics.running_days))
 
         # 计算平均每笔收益
         if self.completed_cycles > 0:
             metrics.avg_profit_per_trade = self.realized_pnl / \
                 Decimal(str(self.completed_cycles))
 
-        # 手续费统计
-        metrics.total_fees = self.total_fees
-        if metrics.total_profit != 0:
-            metrics.fee_rate = (
-                self.total_fees / abs(metrics.total_profit)) * 100
-
         # 持仓统计
-        metrics.max_position = abs(self.current_position)  # 简化处理
-        metrics.avg_position = abs(self.current_position)
+        metrics.max_position = abs(self.virtual_position)  # 简化处理
+        metrics.avg_position = abs(self.virtual_position)
 
         return metrics
 
@@ -372,12 +466,17 @@ class PositionTrackerImpl(IPositionTracker):
 
     def reset(self):
         """重置跟踪器"""
+        self.virtual_position = Decimal('0')
+        self.virtual_average_cost = Decimal('0')
         self.current_position = Decimal('0')
         self.position_cost = Decimal('0')
         self.average_cost = Decimal('0')
+        self.grid_profit = Decimal('0')
         self.realized_pnl = Decimal('0')
         self.total_fees = Decimal('0')
         self.trade_history.clear()
+        self._unmatched_buys.clear()
+        self._unmatched_sells.clear()
         self.buy_count = 0
         self.sell_count = 0
         self.completed_cycles = 0
@@ -386,52 +485,57 @@ class PositionTrackerImpl(IPositionTracker):
 
         self.logger.info("持仓跟踪器已重置")
 
+    def sync_recovered_position(self, virtual_position: Decimal, virtual_cost: Decimal):
+        """
+        從歷史快照恢復虛擬持倉時，同步重建未撮合隊列，確保重啟後的第一筆反向單能正確撮合。
+        """
+        self.virtual_position = virtual_position
+        self.current_position = virtual_position
+        self.virtual_average_cost = virtual_cost
+        self.average_cost = virtual_cost
+        self._unmatched_buys.clear()
+        self._unmatched_sells.clear()
+        if virtual_position > 0:
+            self._unmatched_buys.append({
+                'order_id': 'recovered_position',
+                'price': virtual_cost if virtual_cost > 0 else Decimal('0'),
+                'amount': virtual_position,
+                'time': datetime.now()
+            })
+        elif virtual_position < 0:
+            self._unmatched_sells.append({
+                'order_id': 'recovered_position',
+                'price': virtual_cost if virtual_cost > 0 else Decimal('0'),
+                'amount': abs(virtual_position),
+                'time': datetime.now()
+            })
+
     def sync_initial_position(self, position: Decimal, entry_price: Decimal):
         """
-        🔥 同步持仓（持仓数据的唯一来源）
-
-        从REST API查询的交易所实际持仓同步到tracker。
-        这是更新tracker持仓的唯一方法，不再通过WebSocket订单成交事件更新。
-
-        数据流：
-        1. position_monitor每秒通过REST API查询交易所持仓
-        2. 调用此方法将结果同步到tracker
-        3. 所有模块从tracker读取持仓数据
-
-        优点：
-        - 持仓数据100%准确（来自交易所）
-        - 避免WebSocket和REST两个数据源冲突
-        - 消除竞态条件
+        記錄交易所實際全帳戶持倉（供全帳戶參考，不污染網格自身虛擬持倉）
 
         Args:
-            position: 持仓数量（正数=多仓，负数=空仓）
+            position: 交易所持仓数量（正数=多仓，负数=空仓）
             entry_price: 平均入场价格
         """
-        old_position = self.current_position
-        self.current_position = position
-        self.average_cost = entry_price
+        old_position = self.account_position
+        self.account_position = position
+        self.account_average_cost = entry_price
 
-        # 计算持仓总成本
-        if position != 0:
-            self.position_cost = abs(position) * entry_price
-        else:
-            self.position_cost = Decimal('0')
-
-        # 只在首次同步或持仓变化时输出info，其他时候用debug（避免终端刷屏）
+        # 只在首次同步或持仓变化时输出info
         if old_position != position:
             self.logger.info(
-                f"🔄 同步持仓变化: {old_position} → {position}, "
-                f"成本=${entry_price}, 总成本=${self.position_cost}"
+                f"🔄 交易所全帳戶持倉參考: {old_position} → {position}, "
+                f"成本=${entry_price} (網格自身虛擬持倉: {self.virtual_position})"
             )
         else:
             self.logger.debug(
-                f"🔄 同步持仓: 数量={position}, "
-                f"成本=${entry_price}, 总成本=${self.position_cost}"
+                f"🔄 交易所全帳戶持倉: 數量={position}, 成本=${entry_price}"
             )
 
     def __repr__(self) -> str:
         return (
-            f"PositionTracker(position={self.current_position}, "
-            f"avg_cost={self.average_cost}, "
-            f"realized_pnl={self.realized_pnl})"
+            f"PositionTracker(grid_pos={self.virtual_position}, "
+            f"grid_profit={self.grid_profit}, "
+            f"account_pos={self.account_position})"
         )

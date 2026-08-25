@@ -3,10 +3,10 @@ grid_system:
   symbol: ETH/USDC:USDC
   grid_type: neutral
   price_range:
-    lower_price: 1814.16
-    upper_price: 1975.13
-  grid_interval: 7.67
-  order_amount: 0.013
+    lower_price: 1845.49
+    upper_price: 3300.0
+  grid_interval: 9.8
+  order_amount: 0.01
   quantity_precision: 3
   price_decimals: 2
   leverage: 125

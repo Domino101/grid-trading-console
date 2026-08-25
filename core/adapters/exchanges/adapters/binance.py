@@ -33,6 +33,17 @@ class BinanceAdapter(ExchangeAdapter):
         self._rest = BinanceRest(config, self.logger)
         # 🔥 确保WebSocket使用相同的logger
         self._websocket = BinanceWebSocket(config, self.logger)
+        self._position_cache = self._websocket._position_cache
+
+    @property
+    def rest(self) -> BinanceRest:
+        """获取 REST 适配器"""
+        return self._rest
+
+    @property
+    def websocket(self) -> BinanceWebSocket:
+        """获取 WebSocket 适配器"""
+        return self._websocket
         
         # 验证logger设置
         if self.logger:
@@ -213,7 +224,15 @@ class BinanceAdapter(ExchangeAdapter):
 
     async def get_positions(self, symbols: Optional[List[str]] = None) -> List[PositionData]:
         """获取持仓信息"""
-        return await self._rest.get_positions(symbols)
+        positions = await self._rest.get_positions(symbols)
+        for pos in positions:
+            self._position_cache[pos.symbol] = {
+                'size': pos.size if getattr(pos.side, "value", str(pos.side)).lower() == 'long' else -pos.size,
+                'entry_price': pos.entry_price or Decimal('0'),
+                'unrealized_pnl': pos.unrealized_pnl or Decimal('0'),
+                'timestamp': datetime.now()
+            }
+        return positions
 
     # ==================== 交易接口实现 ====================
 

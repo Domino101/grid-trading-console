@@ -87,6 +87,9 @@ class BinanceWebSocket(BinanceBase):
         self._stream_id_counter = 1
         self._futures_stream_id_counter = 1
         
+        # 持仓缓存（供 GridCoordinator / StrategyLedger 即時查詢）
+        self._position_cache: Dict[str, Dict[str, Any]] = {}
+        
         # 重连配置
         self.reconnect_interval = 5
         self.max_reconnect_attempts = 10
@@ -699,12 +702,30 @@ class BinanceWebSocket(BinanceBase):
                 self.logger.error(f"❌ 处理K线数据失败: {str(e)}")
     
     async def _handle_balance_update(self, data: Dict[str, Any]):
-        """处理余额更新"""
+        """处理余额更新与持仓更新"""
         try:
-            # 处理账户余额更新
+            # 处理账户余额更新与持仓更新
             account_data = data.get('a', {})
             balances = account_data.get('B', [])
+            positions = account_data.get('P', [])
             
+            # 更新持仓缓存
+            for p in positions:
+                raw_sym = p.get('s', '')
+                if not raw_sym:
+                    continue
+                sym = self.map_symbol_from_binance(raw_sym.lower())
+                pos_amt = self._safe_decimal(p.get('pa'))
+                entry_price = self._safe_decimal(p.get('ep'))
+                unrealized_pnl = self._safe_decimal(p.get('up'))
+                if pos_amt is not None:
+                    self._position_cache[sym] = {
+                        'size': pos_amt,
+                        'entry_price': entry_price or Decimal('0'),
+                        'unrealized_pnl': unrealized_pnl or Decimal('0'),
+                        'timestamp': datetime.now()
+                    }
+
             # 调用用户数据回调
             if 'balance' in self._user_subscriptions:
                 callback = self._user_subscriptions['balance']
@@ -712,7 +733,7 @@ class BinanceWebSocket(BinanceBase):
                 
         except Exception as e:
             if self.logger:
-                self.logger.error(f"❌ 处理余额更新失败: {str(e)}")
+                self.logger.error(f"❌ 处理余额/持仓更新失败: {str(e)}")
     
     async def _handle_order_update(self, data: Dict[str, Any]):
         """处理订单更新"""

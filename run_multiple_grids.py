@@ -299,7 +299,8 @@ async def run_single_grid_task(config_path: str, adapter_pool, logger, running_g
             strategy=strategy,
             engine=engine,
             tracker=tracker,
-            grid_state=grid_state
+            grid_state=grid_state,
+            config_path=config_path
         )
 
         # 註冊到全域運行字典，以便動態調度停止與監控
@@ -360,7 +361,10 @@ async def run_single_grid_task(config_path: str, adapter_pool, logger, running_g
                         stats_dict = {
                             "current_price": float(stats.current_price),
                             "current_position": float(stats.current_position),
+                            "grid_position": float(getattr(stats, "grid_position", stats.current_position)),
+                            "account_position": float(stats.account_position) if getattr(stats, "account_position", None) is not None else None,
                             "profit": {
+                                "grid_profit": float(getattr(stats, "grid_profit", stats.realized_profit)),
                                 "realized": float(stats.realized_profit),
                                 "unrealized": float(stats.unrealized_profit),
                                 "fees": float(stats.total_fees),
@@ -381,6 +385,21 @@ async def run_single_grid_task(config_path: str, adapter_pool, logger, running_g
                                 "status": getattr(order.status, "value", str(order.status)),
                             }
                             for order in pending[:50]
+                        ]
+                    except Exception:
+                        pass
+                    try:
+                        trades = coordinator.tracker.get_trade_history(limit=50)
+                        stats_dict["recent_fills"] = [
+                            {
+                                "side": t.get("side"),
+                                "price": float(t["price"]) if t.get("price") is not None else None,
+                                "amount": float(t["amount"]) if t.get("amount") is not None else None,
+                                "fee": float(t.get("fee") or 0.0),
+                                "time": t.get("time").isoformat() if hasattr(t.get("time"), "isoformat") else str(t.get("time")),
+                                "profit": float(t["profit"]) if t.get("profit") is not None else None,
+                            }
+                            for t in trades
                         ]
                     except Exception:
                         pass

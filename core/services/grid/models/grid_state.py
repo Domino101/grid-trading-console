@@ -207,12 +207,12 @@ class GridState:
         # 更新统计
         if order.is_buy_order():
             self.filled_buy_count += 1
-            self.pending_buy_orders -= 1
+            self.pending_buy_orders = max(0, self.pending_buy_orders - 1)
             # 更新持仓
             self.current_position += filled_amount
         else:
             self.filled_sell_count += 1
-            self.pending_sell_orders -= 1
+            self.pending_sell_orders = max(0, self.pending_sell_orders - 1)
             # 更新持仓
             self.current_position -= filled_amount
 

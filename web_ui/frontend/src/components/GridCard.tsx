@@ -49,18 +49,25 @@ const GridCard: React.FC<GridCardProps> = ({ grid, busy, onOpen, onStart, onStop
         </div>
 
         <div className="badges-group">
-          <span className={`badge badge-${grid.mode}`}>{grid.mode}</span>
-          <span className={`badge badge-${grid.data_status}`}>{grid.data_status}</span>
+          <span className={`badge badge-${grid.mode}`}>{grid.mode.toUpperCase()}</span>
+          <span className={`badge badge-${grid.status}`}>
+            {isRunning ? '運行中' : isStarting ? '啟動中' : isStopping ? '停止中' : grid.status === 'stopped' ? '已停止' : grid.status}
+          </span>
         </div>
       </header>
 
       {/* PnL Hero */}
       <div className="strategy-pnl-hero">
         <div className="pnl-hero-left">
-          <span className="pnl-label">淨盈虧 (Net PnL)</span>
+          <span className="pnl-label">策略純淨收益 (Pure Net PnL)</span>
           <span className={`pnl-amount font-mono ${netPnl === null ? '' : isPositivePnl ? 'positive' : 'negative'}`}>
             {money(netPnl)}
           </span>
+          <div className="pnl-breakdown-sub" style={{ fontSize: '0.78rem', color: 'var(--text-muted, #8b949e)', marginTop: '2px' }}>
+            <span>毛利: <strong className="positive">{money(grid.grid_profit ?? grid.realized_pnl)}</strong></span>
+            <span style={{ margin: '0 4px' }}>·</span>
+            <span>浮動: <strong className={(grid.unrealized_pnl ?? 0) >= 0 ? 'positive' : 'negative'}>{money(grid.unrealized_pnl)}</strong></span>
+          </div>
         </div>
         {grid.pnl_rate != null && (
           <div className={`pnl-rate-badge ${grid.pnl_rate >= 0 ? 'positive' : 'negative'}`}>
@@ -97,8 +104,15 @@ const GridCard: React.FC<GridCardProps> = ({ grid, busy, onOpen, onStart, onStop
       {/* Metrics Matrix */}
       <dl className="strategy-metrics-matrix">
         <div className="metric-cell">
-          <dt>權益 / 持倉</dt>
-          <dd title={money(grid.equity)}>{money(grid.equity)} <small className="text-muted">({number(grid.current_position)})</small></dd>
+          <dt>網格持倉 / 帳戶持倉</dt>
+          <dd title={`網格持倉: ${number(grid.grid_position ?? grid.current_position, 4)}, 交易所全帳戶: ${number(grid.account_position, 4)}`}>
+            <span>{number(grid.grid_position ?? grid.current_position, 4)}</span>
+            {grid.account_position != null && (
+              <small className="text-muted" style={{ marginLeft: '4px' }}>
+                (全帳戶: {number(grid.account_position, 4)})
+              </small>
+            )}
+          </dd>
         </div>
         <div className="metric-cell">
           <dt>成交 (買/賣) / 套利</dt>
