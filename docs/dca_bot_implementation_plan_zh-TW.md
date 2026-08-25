@@ -20,8 +20,8 @@ DCA 與網格的核心差異，也是本專案所有設計決策的出發點：
 | 掛單觸發 | 啟動即掛 | 僅在**入場條件成立**後才下基礎單 + 安全單 |
 | 訂單結構 | 對稱網格層級 | 單向遞減（做多）/遞增（做空）**安全單階梯** |
 | 獲利方式 | 區間往返套利 | 攤平成本後，以**單一止盈單**一次性了結 |
-| 監控需求 | 價格 + 訂單 | 價格 + 訂單 + **技術指標（MACD/RSI/BB/Price Change）** |
-| 生命週期 | 長期常駐 | 循環：待命 → 觸發 → 攤平 → 止盈 → （可選）回到待命 |
+| 監控需求 | 價格 + 訂單 | 價格 + 訂單 + **技術指標（MACD/RSI/BB/Price Change，共用 K 線管線，見 §4.3）** |
+| 生命週期 | 長期常駐 | **循環**：待命 → 觸發 → 攤平 → 止盈 → 冷卻 → 回到待命（預設啟用，決策 D-3） |
 
 **「平常不顯示」的工程定義（本計畫最重要的可驗證性質）**：
 機器人處於 `armed` 狀態時，交易所端 `get_open_orders(symbol)` 對該機器人的 client-id 命名空間**必須回傳 0 筆**。UI 仍會在 DCA 分頁顯示這台機器人與其「監控中」狀態，但**不存在任何真實掛單**。此性質在 Phase 2 與 Phase 7 均有專屬稽核項目（P0）。
@@ -35,9 +35,9 @@ DCA 與網格的核心差異，也是本專案所有設計決策的出發點：
 | # | 使用者需求 | 規格條目 | 對應 Phase |
 |---|---|---|---|
 | 1 | 選擇交易對 | `exchange` + `symbol`，沿用 `GET /api/v1/market/info/{symbol}` 精度/最小名目校驗 | P4, P6 |
-| 2 | 多 / 空 / 雙向 | `direction: long \| short \| both`；`both` 展開為兩條獨立 leg（§4.4） | P1, P2, P6 |
+| 2 | 多 / 空 / 雙向 | `direction: long \| short \| both`；`both` = **同一時刻單一方向互斥**，先觸發者獨佔本輪（§4.4，決策 D-2） | P1, P2, P6 |
 | 3A | 入場條件：從開單開始起算 | `entry.mode = immediate` | P1, P2 |
-| 3B | 入場條件：符合特定指標 | `entry.mode = indicator`，支援 MACD / RSI / BB / Price Change，**四者皆有預設值且可自行更動** | P1, P2, P6 |
+| 3B | 入場條件：符合特定指標 | `entry.mode = indicator`，支援 MACD / RSI / BB / Price Change，**四者皆有完整參數預設值且可自行更動**（時框、取樣根數、週期、門檻、判定方式，見 §4.3） | P1, P2, P6 |
 | 4 | max dca orders | `max_safety_orders` | P1 |
 | 4 | price deviation | `price_deviation_percent`（+ `price_deviation_multiplier`） | P1 |
 | 4 | order size multiplier | `order_size_multiplier` | P1 |
@@ -145,7 +145,7 @@ DCA 與網格的核心差異，也是本專案所有設計決策的出發點：
 | 檔名格式 | `dca-{exchange}-{direction}-{symbol}-{yyyymmddHHMMSS}.yaml` | `dca-` 前綴保證 `bot_id` 與 `grid_id` 永不碰撞 |
 | `bot_id` | `Path(config_path).stem` | 與既有 `grid_id` 推導規則一致，可直接複用 command/runtime repository |
 | 控制檔 | `config/active_dca.json`（`{config_path: bool}`） | 與 `config/active_grids.json` 對稱；已被 `.gitignore` 的 `data/` 規則外，需**新增 `config/active_dca.json` 到 `.gitignore`** |
-| Leg（雙向模式） | `bot_id` + `#long` / `#short` 後綴，僅存在於 runtime 與 UI，不產生第二個 YAML | 使用者心智模型是「一台雙向機器人」 |
+| 方向（雙向模式） | 不使用 leg 後綴。`direction=both` 仍是**一台 bot、一個命名空間**；本輪方向記錄於 runtime 的 `active_direction`（決策 D-2 單方向互斥，§4.4） | 同時只有一個部位，無需拆分命名空間 |
 | 客戶端訂單 ID | `dca_{bot_id_hash8}_{leg}_{slot}`（`slot`: `base` / `so01`..`soNN` / `tp` / `sl`） | 使「armed 狀態下該命名空間掛單數 = 0」成為可機器驗證的斷言 |
 
 ### 4.2 `DcaConfig` 完整欄位表
@@ -158,7 +158,7 @@ DCA 與網格的核心差異，也是本專案所有設計決策的出發點：
 |---|---|---|---|---|
 | `exchange` | str | — | `binance`/`lighter`/`backpack`/`hyperliquid` | 沿用 `yaml_generator.VALID_EXCHANGES` |
 | `symbol` | str | — | 非空 | 如 `ETH/USDC:USDC` |
-| `direction` | enum | `long` | `long`/`short`/`both` | `both` 展開為兩條 leg |
+| `direction` | enum | `long` | `long`/`short`/`both` | `both` = 同一時刻單一方向互斥（§4.4） |
 | `account_mode` | enum | `paper` | `paper`/`live` | LIVE 需 `GRID_LIVE_TRADING_ENABLED=true` |
 | `leverage` | int | 10 | 1–125 | 合約適用 |
 | `margin_mode` | enum | `isolated` | `cross`/`isolated` | |
@@ -198,57 +198,234 @@ DCA 與網格的核心差異，也是本專案所有設計決策的出發點：
 | `take_profit_order_type` | enum | `limit` | `limit`/`market` | `limit` 為 maker，預設 |
 | `stop_loss_percent` | Decimal? | null | > 0 或 null | 以最終均價為基準；null = 停用 |
 | `max_position_notional` | Decimal? | null | > 0 或 null | 硬性曝險上限，超過即拒絕再攤平 |
-| `repeat_after_take_profit` | bool | `false` | — | 止盈後是否回到 `armed` 重新循環 |
-| `cooldown_seconds` | int | 300 | ≥ 0 | 止盈後回到 `armed` 前的冷卻 |
-| `max_cycles` | int? | null | > 0 或 null | 循環次數上限 |
+| `repeat_after_take_profit` | bool | **`true`** | — | **決策 D-3**：止盈後回到 `armed` 重新循環 |
+| `cooldown_seconds` | int | 300 | ≥ 0 | 止盈後回到 `armed` 前的冷卻，防止同一段行情立即重進 |
+| `max_cycles` | int? | null | > 0 或 null | 循環次數上限；null = 無限（受 `stop` 指令控制） |
+| `both_tiebreak` | enum | `long_first` | `long_first`/`short_first` | 僅 `direction=both`；同根雙向皆成立時的優先方向（§4.4） |
 
 **E. 運行參數**
 
-| 欄位 | 型別 | 預設 | 說明 |
-|---|---|---|---|
-| `monitoring_interval` | int | 15（秒） | 主迴圈間隔 |
-| `indicator_refresh_interval` | int | 60（秒） | 指標重算間隔（受 `OhlcvCache` 節流保護） |
-| `order_health_check_interval` | int | 300（秒） | 掛單與交易所對帳間隔 |
-
-### 4.3 指標規格與預設值（使用者要求「有預設值可自行更動」）
-
-四種指標**全部支援 long 與 short 兩套語意**；`direction=both` 時 long leg 用 long 語意、short leg 用 short 語意。
-
-| 指標 | 參數 | 預設 | Long 觸發條件（預設） | Short 觸發條件（預設） |
+| 欄位 | 型別 | 預設 | 約束 | 說明 |
 |---|---|---|---|---|
-| **RSI** | `period` | 14 | `RSI ≤ oversold` | `RSI ≥ overbought` |
-| | `oversold` | 30 | | |
-| | `overbought` | 70 | | |
-| **MACD** | `fast` / `slow` / `signal` | 12 / 26 / 9 | `histogram` 由負轉正（黃金交叉） | `histogram` 由正轉負（死亡交叉） |
-| | `condition` | `cross` | 可選 `cross` / `above_zero` / `below_zero` | |
-| **Bollinger Bands** | `period` / `std_dev` | 20 / 2.0 | `close ≤ lower_band` | `close ≥ upper_band` |
-| | `condition` | `touch_lower`(long) / `touch_upper`(short) | 可選 `touch` / `break_and_return` | |
-| **Price Change** | `lookback_bars` | 24 | `change% ≤ threshold`（跌破） | `change% ≥ threshold`（漲破） |
-| | `threshold_percent` | -3.0（long）/ +3.0（short） | | |
+| `active_safety_orders_window` | int | **`5`** | 1–50 | **決策 D-4**：同時掛在交易所的安全單張數上限；其餘為虛擬階梯，成交後遞補 |
+| `monitoring_interval` | int | 15（秒） | 5–300 | 主迴圈間隔 |
+| `indicator_refresh_interval` | int | 60（秒） | ≥ 30 | 指標重算間隔（受 `OhlcvCache` 節流保護） |
+| `order_health_check_interval` | int | 300（秒） | ≥ 60 | 掛單與交易所對帳間隔 |
 
-> **Price Change 的索引定義（必須逐字實作，此處極易 off-by-one）**：
-> `change% = (close[i] − close[i − lookback_bars]) / close[i − lookback_bars] × 100`
-> 即 `lookback_bars=24` 是「往回**第 24 根**」（`close[119]` 對 `close[95]`），**不是** Python 的 `close[-24]`（那是往回第 23 根）。
-> 本計畫在撰寫階段以兩份獨立實作交叉驗證時，正是在此處捕獲一次 off-by-one；Phase 1 測試必須同時斷言 `lookback=24` 與 `lookback=1` 兩組值以鎖死此語意。
+> **`active_safety_orders_window` 的語意（決策 D-4）**：`max_safety_orders=20` + `window=5` 表示邏輯階梯有 20 層，但交易所同時只掛最靠近現價的 5 張。第 1 張成交後，補掛第 6 張，維持窗口為 5。
+>
+> 理由：20 張 × 多台 bot 會撞交易所單一交易對掛單上限，且遠端未觸及的掛單長期佔用保證金。此設計沿用網格既有的 `active_window_each_side` 概念（見 `config/grid/defaults.yaml`）。
+>
+> **代價與緩解**：極端急跌單根 K 棒可能穿透超過 5 層，導致部分階層未成交。緩解方式為主迴圈的補單邏輯——偵測到現價已低於窗口最低價時，立刻以現價重新對齊窗口並補掛（Phase 2 稽核項 2.3b）。此行為必須記錄 `window_realigned` 事件，讓使用者知道發生過急跌穿透。
+
+### 4.3 指標規格與預設值（完整計算定義）
+
+#### 4.3.0 所有指標共用的資料管線
+
+四種指標共用**同一條 K 線管線**，這是控制 API 權重的關鍵（見 §2.1 缺口表）：
+
+```
+交易所 get_ohlcv(symbol, timeframe, limit=300)
+   → OhlcvCache（key = exchange+symbol+timeframe，TTL = min(timeframe, 60s)）
+   → 丟棄最後一根未收線 K 棒        ← 關鍵步驟，見約定 1
+   → closes[] （長度 299）
+   → 四種指標各自從同一份 closes[] 計算
+```
+
+| 共用參數 | 欄位 | 預設 | 可選值 | 說明 |
+|---|---|---|---|---|
+| **時框** | `entry.timeframe` | `15m` | `1m`/`5m`/`15m`/`30m`/`1h`/`4h`/`1d` | **所有啟用的指標共用同一時框**（理由見下） |
+| **取樣根數** | `entry.fetch_limit` | `300` | 100–500 | 每次拉取的 K 棒數，見 §4.3.5 |
+| **價格來源** | `entry.price_source` | `close` | `close`/`hlc3`/`ohlc4` | `hlc3=(H+L+C)/3`；預設收盤價 |
+| **組合邏輯** | `entry.logic` | `all` | `all`(AND)/`any`(OR) | 多指標之間 |
+| **確認根數** | `entry.confirm_bars` | `1` | 1–5 | 連續 N 根成立才觸發 |
+
+> **為何強制共用單一時框**：若允許 RSI 用 `5m`、MACD 用 `1h`，每台 bot 就需要拉 N 個時框的 K 線，10 台 bot × 3 時框 = 30 組獨立輪詢，會直接複製 `docs/gemini_legacy_reports/diagnosis_binance_ip_ban_and_apikey_20260503.md` 的 IP BAN 事故。單一時框讓 `OhlcvCache` 能把「同 symbol 同時框」的所有 bot 合併成 1 次 REST 呼叫。若日後確有多時框需求，再以獨立計畫評估。
+
+#### 4.3.1 RSI（相對強弱指標）
+
+| 參數 | 預設 | 範圍 | 說明 |
+|---|---|---|---|
+| `period` | `14` | 2–100 | 取樣週期（Wilder 標準值） |
+| `oversold` | `30` | 1–50 | 超賣線，做多用 |
+| `overbought` | `70` | 50–99 | 超買線，做空用 |
+| `condition` | `level` | `level`/`cross_in`/`cross_out` | 見下表 |
+
+**計算式（Wilder 平滑，非簡單移動平均）**：
+
+```
+Δ_i      = close_i − close_{i−1}
+gain_i   = max(Δ_i, 0)          loss_i = max(−Δ_i, 0)
+
+初始（第 period 根）:
+  avgGain = mean(gain_1 .. gain_period)
+  avgLoss = mean(loss_1 .. loss_period)
+
+遞迴（第 period+1 根之後）:
+  avgGain = (avgGain × (period−1) + gain_i) / period
+  avgLoss = (avgLoss × (period−1) + loss_i) / period
+
+RS  = avgGain / avgLoss
+RSI = 100 − 100 / (1 + RS)          若 avgLoss = 0 則 RSI = 100
+```
+
+| `condition` | 做多觸發 | 做空觸發 |
+|---|---|---|
+| `level`（預設） | `RSI ≤ oversold` | `RSI ≥ overbought` |
+| `cross_in` | RSI 由上向下**穿越** `oversold` | RSI 由下向上**穿越** `overbought` |
+| `cross_out` | RSI 由下向上穿回 `oversold`（超賣反彈確認） | RSI 由上向下穿回 `overbought` |
+
+> `level` 在超賣區會**持續**為真；`cross_in` 只在穿越當根為真。若搭配 `repeat_after_take_profit=true`，建議用 `cross_in` 避免同一段行情反覆立即進場。
+
+#### 4.3.2 MACD（指數平滑異同移動平均）
+
+| 參數 | 預設 | 範圍 | 說明 |
+|---|---|---|---|
+| `fast` | `12` | 2–100 | 快線 EMA 週期 |
+| `slow` | `26` | 3–200 | 慢線 EMA 週期（須 > `fast`） |
+| `signal` | `9` | 2–50 | 訊號線 EMA 週期 |
+| `condition` | `cross` | `cross`/`hist_sign`/`zero_cross` | 見下表 |
+
+**計算式**：
+
+```
+EMA(x, n):  k = 2/(n+1)
+            種子 = 前 n 根的 SMA          ← 種子定義會影響數值，必須一致
+            EMA_i = x_i × k + EMA_{i−1} × (1−k)
+
+MACD line = EMA(close, fast) − EMA(close, slow)
+signal    = EMA(MACD line 的有效值序列, signal)      ← 在 line 上再做 EMA
+histogram = MACD line − signal
+```
+
+| `condition` | 做多觸發 | 做空觸發 |
+|---|---|---|
+| `cross`（預設） | histogram 由 `≤0` 轉 `>0`（黃金交叉） | histogram 由 `≥0` 轉 `<0`（死亡交叉） |
+| `hist_sign` | `histogram > 0`（持續狀態） | `histogram < 0` |
+| `zero_cross` | MACD line 由負轉正（穿越零軸） | MACD line 由正轉負 |
+
+#### 4.3.3 Bollinger Bands（布林通道）
+
+| 參數 | 預設 | 範圍 | 說明 |
+|---|---|---|---|
+| `period` | `20` | 2–200 | 移動平均與標準差的取樣週期 |
+| `std_dev` | `2.0` | 0.5–5.0 | 標準差倍數 |
+| `condition` | `touch` | `touch`/`break`/`return` | 見下表 |
+
+**計算式**：
+
+```
+mid   = SMA(close, period)
+σ     = 母體標準差(最近 period 根 close)      ← 除以 n，不是 n−1
+upper = mid + std_dev × σ
+lower = mid − std_dev × σ
+%B    = (close − lower) / (upper − lower)     ← UI 顯示用
+```
+
+| `condition` | 做多觸發 | 做空觸發 |
+|---|---|---|
+| `touch`（預設） | `close ≤ lower` | `close ≥ upper` |
+| `break` | 前一根 `> lower` 且當根 `≤ lower`（跌破當下） | 前一根 `< upper` 且當根 `≥ upper` |
+| `return` | 前一根 `≤ lower` 且當根 `> lower`（跌破後收回） | 前一根 `≥ upper` 且當根 `< upper` |
+
+> **母體標準差（`n`）vs 樣本標準差（`n−1`）**：TradingView 與多數交易平台使用母體標準差。以 `period=20` 為例，兩者差異約 2.6%，會讓通道寬度不同進而改變觸發時機。本專案**固定用母體標準差**，Phase 1 鎖定向量已據此計算。
+
+#### 4.3.4 Price Change（區間漲跌幅）
+
+| 參數 | 預設 | 範圍 | 說明 |
+|---|---|---|---|
+| `lookback_bars` | `24` | 1–500 | 往回比較的 K 棒數 |
+| `threshold_percent` | `-3.0`（多）/ `+3.0`（空） | −100 ~ +100 | 觸發門檻 |
+
+**計算式**：
+
+```
+change% = (close_i − close_{i − lookback_bars}) / close_{i − lookback_bars} × 100
+```
+
+| 做多觸發 | 做空觸發 |
+|---|---|
+| `change% ≤ threshold_percent`（跌幅達標） | `change% ≥ threshold_percent`（漲幅達標） |
+
+> **索引定義（必須逐字實作，此處極易 off-by-one）**：`lookback_bars=24` 指「往回**第 24 根**」，即 `close[119]` 對 `close[95]`，**不是** Python 的 `close[-24]`（那是往回第 23 根）。本計畫撰寫時以兩份獨立實作交叉驗證，正是在此捕獲一次 off-by-one。Phase 1 必須同時斷言 `lookback=24 → −11.782277` 與 `lookback=23 → −12.373066` 以鎖死語意。
+>
+> `lookback_bars` 的實際時間長度 = `lookback_bars × timeframe`。例：`24 × 15m = 6 小時`。UI 必須顯示換算後的時間，否則使用者無法判斷 24 是多久。
+
+#### 4.3.5 取樣根數（`fetch_limit`）與 IIR 收斂 — 為何預設 300
+
+RSI 與 MACD 都是 **IIR（無限脈衝響應）** 濾波器：每根 K 棒的值都遞迴依賴前一根，因此**初始種子的誤差會隨根數指數衰減但永不歸零**。抓取根數不足，算出來的指標值就是錯的。
+
+實測（真實波動序列 σ=0.4%/bar，基準 = 2500 根歷史）：
+
+| `fetch_limit` | RSI(14) 偏差 | MACD signal 偏差 | 判定 |
+|---:|---:|---:|:--|
+| 50 | `5.3e-01` | `2.2e+00` | ❌ 不足（訊號可能完全相反） |
+| 100 | `1.7e-02` | `3.7e-03` | ❌ 不足 |
+| 150 | `9.1e-05` | `5.4e-04` | ⚠️ 邊緣 |
+| 200 | `3.2e-06` | `1.2e-05` | ✅ 可用 |
+| **300** | **`6.1e-11`** | **`5.3e-10`** | ✅ **預設** |
+| 500 | `0` | `0` | ✅ 過剩 |
+
+理論最小需求（衰減至 `1e-6`）：
+
+| 指標 | 衰減率/根 | 理論最小根數 |
+|---|---|---:|
+| RSI(14) | `1 − 1/14` | 202 |
+| MACD(12,26,9) | `EMA26` + `EMA9` 疊加 | 268 |
+| BB(20) | FIR（有限窗） | 20（精確） |
+| PriceChange(24) | FIR | 25（精確） |
+
+**結論**：`fetch_limit=300` 同時滿足四種指標且有餘裕。成本上，Binance klines 的 weight 在 `limit ≤ 100` 為 1、`101–500` 為 2 — 只多 1 個權重單位，卻換到完全收斂，是明確划算的取捨。
+
+**額外驗證**：`limit=300` 與 `limit=301` 的結果差異 < `4e-9`，證明已完全收斂、抓取長度不再影響訊號。此為 Phase 1 稽核項 1.5c。
 
 **運算約定（凍結，Phase 1 必須完全遵守）**：
 
-1. **只使用已收線 K 棒**。最後一根未收線 K 棒一律丟棄，否則指標會在同一根 K 棒內反覆抖動導致重複觸發。
-2. RSI 使用 **Wilder 平滑**（非簡單平均）；首值為前 `period` 根的算術平均。
-3. MACD 的 EMA 種子值為前 `period` 根的 SMA；signal 線在 MACD line 有效值序列上再做 EMA。
-4. Bollinger 使用**母體標準差**（除以 `n`，非 `n-1`）。
-5. 資料不足（有效值為 `None`）時，該指標評估結果為 **`False` 且標記 `insufficient_data`**，絕不可視為 `True`。
+1. **只使用已收線 K 棒**。最後一根未收線一律丟棄，否則指標會在同一根 K 棒內反覆抖動造成重複觸發。
+2. RSI 使用 **Wilder 平滑**；首值為前 `period` 根的算術平均。
+3. MACD 的 EMA 種子為前 `n` 根的 SMA；signal 在 MACD line 的有效值序列上再做 EMA。
+4. Bollinger 使用**母體標準差**（除以 `n`）。
+5. 資料不足時，該指標結果為 **`False` 且標記 `insufficient_data`**，絕不可視為 `True`。
+6. 暖機期不足（有效根數 < 指標最小需求）時同上處理，並在 UI 顯示「暖機中 x/y 根」。
+7. **所有指標值在 UI 顯示時保留 2 位小數，但比較判斷使用完整精度**，避免 `RSI=30.004` 顯示成 `30.00` 卻不觸發造成使用者困惑。
 
-### 4.4 `direction = both` 的語意
+### 4.4 `direction = both` 的語意（單方向互斥）
 
-`both` **不是**淨部位對沖，而是**兩條完全獨立的 leg**：
+> **決策 D-2（使用者確認）**：`both` **不是**同時持有多空兩個部位，而是**同一時刻只會有一個方向**——先觸發的方向獨佔該輪，另一方向在本輪結束前不得進場。
 
-- Long leg：向下攤平，止盈在均價上方。
-- Short leg：向上攤平，止盈在均價下方。
-- 兩條 leg 各有獨立的 `DcaState`、獨立的入場評估、獨立的階梯與止盈單。
-- **P0 前置條件**：交易所帳戶必須為 hedge / dual-position 模式。若 `get_positions()` 顯示為 one-way 模式，建立時即拒絕（HTTP 422），不得在執行期才失敗。
-- `max_position_notional` 分別套用於每條 leg。
-- 資金試算 = long leg 所需資金 + short leg 所需資金（不做淨額抵銷）。
+典型情境（使用者原話）：RSI 跌太低 → 開始低接（做多）；漲太高 → 開始做空。兩種情況都要做，但**不會同時發生**。
+
+**執行語意**：
+
+- `armed` 狀態下，**同時**評估 long 與 short 兩套入場條件。
+- 任一方向先成立 → **鎖定該方向**（`active_direction`），狀態轉 `triggering`，該輪只做這個方向。
+- 進入 `triggering` 之後，另一方向的條件即使成立也**完全忽略**，不評估、不下單。
+- 本輪 `completed`（止盈/止損）→ 解除鎖定 → 回到 `armed` → 重新同時評估兩個方向。
+- **同一根 K 棒兩個方向同時成立**時（罕見但可能，例如指標設定衝突）：依 `both_tiebreak` 決定，預設 `long_first`；並記錄 `both_directions_matched` 警告事件供使用者檢視設定。
+
+**這個設計的三個好處**：
+
+| 面向 | 單方向互斥（採用） | 雙 leg 並存（否決） |
+|---|---|---|
+| 交易所帳戶模式 | **one-way 即可**，無額外前置條件 | 必須開 hedge/dual-position，多數使用者未開 |
+| 資金需求 | `max(long, short)` 一份 | `long + short` 兩份 |
+| 風險 | 單一部位，曝險明確 | 兩個部位可能互相抵銷，PNL 與保證金難以解讀 |
+
+**新增設定欄位**：
+
+| 欄位 | 型別 | 預設 | 說明 |
+|---|---|---|---|
+| `both_tiebreak` | enum | `long_first` | `long_first`/`short_first`；僅 `direction=both` 且同根雙向成立時使用 |
+
+**執行期欄位**（`DcaState`，不進 YAML）：
+
+| 欄位 | 型別 | 說明 |
+|---|---|---|
+| `active_direction` | `long`/`short`/`null` | 本輪鎖定的方向；`armed` 時為 `null` |
+
+**資金試算**：`required = max(long 階梯資金, short 階梯資金)`，**不是相加**（因為不會同時發生）。UI 需同時顯示兩個方向各自的階梯，並標明「實際只會執行其中一個」。
+
+> **P0 不變式 INV-6**：任何時刻，同一台 bot 在交易所的淨持倉方向數 ≤ 1。不得同時存在多單與空單。
 
 ### 4.5 階梯數學（凍結公式 + 鎖定測試向量）
 
@@ -314,37 +491,41 @@ max_drawdown%  = (E − P_N) / E × 100           （做空為 (P_N − E) / E �
 ### 4.6 狀態機（凍結）
 
 ```
-                       ┌──────────────────────────────────────┐
-                       ▼                                      │
-draft ──start──► armed ──條件成立──► triggering ──基礎單成交──► averaging
-                  │  ▲                    │                     │  │
-                  │  │                    │下單失敗              │  │安全單成交
-                  │  │cooldown 結束        ▼                     │  └──► averaging（重掛 TP）
-                  │  └──── cooling ◄── completed ◄──止盈成交─────┘
-                  │                        ▲
-                  │                        │ stop_loss 成交 / max_cycles 達成
-                  ├──stop──► stopping ──► stopped
+                        ┌─────────────────────────────────────────────┐
+                        ▼                                             │
+draft ──start──► armed ──任一方向條件成立──► triggering ──基礎單成交──► averaging
+                  │  ▲   （鎖定 active_direction）  │                   │  │
+                  │  │                              │下單失敗            │  │安全單成交
+                  │  │cooldown 結束                  ▼                   │  └─► averaging
+                  │  └──── cooling ◄── completed ◄──止盈/止損成交────────┘    （重掛 TP + 遞補窗口）
+                  │       （解除鎖定）      │
+                  │                        │ max_cycles 達成
+                  ├──stop──► stopping ──► stopped ◄────────────────────────┘
                   └──致命錯誤──► failed
 ```
 
-| 狀態 | 交易所掛單 | 持倉 | UI 徽章 | 語意 |
-|---|---|---|---|---|
-| `armed` | **0 筆（P0 不變式）** | 0 | 🟡 監控中 | 評估入場條件，不下任何單 |
-| `triggering` | 0→1 | 0→有 | 🔵 進場中 | 條件成立，正在下基礎單 |
-| `averaging` | 安全單 N 筆 + TP 1 筆 | 有 | 🟢 攤平中 | 主要運行狀態 |
-| `completed` | 0 | 0 | ⚪ 本輪完成 | 止盈或止損成交 |
-| `cooling` | 0 | 0 | 🕐 冷卻中 | `repeat_after_take_profit=true` 時的過渡 |
-| `stopping` | 撤單中 | 不變 | 🟠 停止中 | 命令已受理，引擎執行中 |
-| `stopped` | 0 | **預設不平倉**（與網格一致） | ⚫ 已停止 | |
-| `failed` | 盡力撤單 | 不變 | 🔴 失敗 | 需人工介入 |
+> **循環（決策 D-3，預設啟用）**：`completed → cooling → armed` 為預設路徑。`cooling` 期間解除 `active_direction`，冷卻結束後重新同時評估多空兩個方向——因此第 2 輪可能是與第 1 輪相反的方向。
+> 只有在 `max_cycles` 達成或使用者主動 `stop` 時才進入 `stopped`。
+
+| 狀態 | 交易所掛單 | 持倉 | `active_direction` | UI 徽章 | 語意 |
+|---|---|---|---|---|---|
+| `armed` | **0 筆（P0 不變式）** | 0 | `null`（雙向同時評估） | 🟡 監控中 | 評估入場條件，不下任何單 |
+| `triggering` | 0→1 | 0→有 | **已鎖定** | 🔵 進場中 | 條件成立，正在下基礎單 |
+| `averaging` | 安全單 ≤ `window` 筆 + TP 1 筆 | 有 | 已鎖定 | 🟢 攤平中 | 主要運行狀態 |
+| `completed` | 0 | 0 | 即將解除 | ⚪ 本輪完成 | 止盈或止損成交 |
+| `cooling` | 0 | 0 | `null`（已解除） | 🕐 冷卻中 | 循環模式的過渡（預設啟用） |
+| `stopping` | 撤單中 | 不變 | 不變 | 🟠 停止中 | 命令已受理，引擎執行中 |
+| `stopped` | 0 | **預設不平倉**（與網格一致） | `null` | ⚫ 已停止 | |
+| `failed` | 盡力撤單 | 不變 | 不變 | 🔴 失敗 | 需人工介入 |
 
 **不變式（每一條都是 P0 稽核項）**：
 
 - **INV-1**：`armed` / `cooling` / `stopped` 狀態下，該 bot client-id 命名空間的交易所掛單數 = 0。
 - **INV-2**：`averaging` 狀態下，TP 掛單**恰好 1 筆**，且其價格 = `avg_current × (1 ± tp/100)`（依精度 quantize 後比對）。
-- **INV-3**：已下的安全單張數 ≤ `max_safety_orders`；任何情況下不得超發。
+- **INV-3**：已下的安全單張數 ≤ `max_safety_orders`；**同時掛在交易所的安全單 ≤ `active_safety_orders_window`**；任何情況下不得超發。
 - **INV-4**：`Σ 已下單名目` ≤ `required`（由設定推導的上界），且若設 `max_position_notional`，`持倉名目 ≤ max_position_notional`。
 - **INV-5**：狀態轉移只能沿上圖箭頭；任何非法轉移必須拋例外並轉 `failed`，不得靜默修正。
+- **INV-6**（決策 D-2）：任何時刻同一 bot 的淨持倉方向數 ≤ 1；`triggering`/`averaging` 期間 `active_direction` 不可變更。
 
 ### 4.7 API 契約
 
@@ -398,7 +579,8 @@ core/services/dca/models/dca_state.py         # DcaState / DcaStatus / SafetyOrd
 core/services/dca/models/dca_order.py         # DcaOrder / DcaOrderRole(base|safety|take_profit|stop_loss)
 core/services/dca/models/dca_statistics.py    # to_display_dict()（欄位與 GridStatistics 對齊，供 runtime_repository 複用）
 core/services/dca/indicators/__init__.py
-core/services/dca/indicators/base.py          # IndicatorResult(value, triggered, insufficient_data, as_of)
+core/services/dca/indicators/base.py          # IndicatorResult(value, triggered, insufficient_data, warmup_have/need, as_of)
+core/services/dca/indicators/config.py        # IndicatorConfig 預設值（§4.3 表格的唯一真相來源）
 core/services/dca/indicators/rsi.py           # Wilder
 core/services/dca/indicators/macd.py
 core/services/dca/indicators/bollinger.py     # 母體標準差
@@ -438,6 +620,9 @@ git diff --stat -- requirements.txt          # 必須為空
 | 1.4 | 做空階梯對稱性 | P0 | 同參數下 short 的 `P_i` 相對 `E` 的偏移量 = long 的鏡像（容差 `1e-9`） |
 | 1.5 | 指標鎖定向量 | P0 | 以 `f(i) = round(100 + 10·sin(i/7) + 0.15·i, 4), i=0..119` 為輸入，最後一根（i=119）：`RSI(14)=21.977841`、`MACD line=-2.240581`、`signal=-0.784542`、`hist=-1.456039`、`BB(20,2) lower=105.193225 / mid=116.876210 / upper=128.559195`、`priceChange(24)=-11.782277`；容差 `1e-6`。（此組向量已由兩份獨立實作交叉驗證） |
 | 1.5b | Price Change 索引語意 | P0 | `lookback=24` → `-11.782277`（`close[119]` vs `close[95]`）；`lookback=23` → `-12.373066`。兩者皆須斷言，以鎖死 off-by-one |
+| 1.5c | IIR 收斂（`fetch_limit`） | P0 | 以 300 根與 301 根輸入計算 RSI(14) 與 MACD signal，差異 < `1e-6`；以 50 根計算則差異 > `1e-2`（證明短序列確實不足，測試須斷言此對比） |
+| 1.5d | 指標判定方式全覆蓋 | P1 | RSI 的 `level`/`cross_in`/`cross_out`、MACD 的 `cross`/`hist_sign`/`zero_cross`、BB 的 `touch`/`break`/`return` 各至少 1 個測試，且 long/short 語意皆覆蓋 |
+| 1.5e | 指標參數預設值 | P0 | `IndicatorConfig` 預設值與 §4.3 表格逐欄位相符：RSI(14/30/70/level)、MACD(12/26/9/cross)、BB(20/2.0/touch)、PriceChange(24/∓3.0)、timeframe=15m、fetch_limit=300、price_source=close |
 | 1.6 | 指標暖機期正確 | P0 | 首個非 `None` 索引：RSI=14、MACD line=25、MACD signal=33、BB=19；暖機期內 `insufficient_data=True` 且 `triggered=False` |
 | 1.7 | 資料不足不得誤判 | P0 | 傳入長度 < `period` 的序列，`triggered` 必為 `False`（不可為 `True`，不可拋例外） |
 | 1.8 | 未收線 K 棒被丟棄 | P0 | 傳入 `n` 根與 `n+1` 根（最後一根未收線）產生相同指標值 |
@@ -471,7 +656,7 @@ core/services/dca/coordinator/__init__.py
 core/services/dca/coordinator/dca_coordinator.py  # 主狀態機（start/stop/主迴圈/成交回調）
 core/services/dca/coordinator/entry_monitor.py    # armed 期間的指標輪詢（含 OHLCV 取得介面，實作在 P3）
 core/services/dca/coordinator/take_profit_manager.py # TP 掛單的建立/取消/重掛
-core/services/dca/coordinator/leg_manager.py      # direction=both 的雙 leg 協調
+core/services/dca/coordinator/direction_lock.py   # direction=both 的單方向互斥鎖定（active_direction）
 tests/test_dca_coordinator.py                     # FakeExchange 驅動的狀態機測試
 tests/test_dca_executor.py
 scripts/ci.sh                                     # 追加兩個模組
@@ -498,21 +683,24 @@ python3 -m unittest discover -s tests -p "test_dca_*.py" -v
 |---|---|---|---|
 | 2.1 | **INV-1 armed 不掛單** | P0 | 啟動 bot → `entry.mode=indicator` 且條件不成立 → 迴圈跑滿 20 輪 → `FakeExchange.create_order` 呼叫次數 **= 0**，`get_open_orders()` = 0 筆 |
 | 2.2 | 觸發後才下基礎單 | P0 | 指標轉為成立 → 下一輪內恰好 1 次 `create_order`，`role=base`，數量 = `V₀/E` quantize 後值 |
-| 2.3 | 基礎單成交 → 掛安全單 + TP | P0 | 基礎單 filled 事件後，掛單總數 = `min(active_window, N)` 安全單 + **恰好 1 筆 TP** |
+| 2.3 | 基礎單成交 → 掛安全單 + TP | P0 | 基礎單 filled 後，交易所掛單 = `min(active_safety_orders_window, N)` 筆安全單 + **恰好 1 筆 TP**；預設即 `5 + 1 = 6` 筆 |
+| 2.3b | **活躍窗口遞補** | P0 | 第 1 張安全單成交 → 自動補掛第 6 張，窗口維持 5 筆；累計成交 3 張後，交易所掛單仍為 5 筆安全單 + 1 筆 TP |
+| 2.3c | 急跌穿透窗口重對齊 | P0 | 單根 K 棒跌破窗口最低價（一次穿透 > 5 層）→ 以現價重新對齊窗口並補掛，記錄 `window_realigned` 事件；已跳過的階層不得重複計入 `max_safety_orders` 配額 |
 | 2.4 | **INV-2 TP 唯一且價格正確** | P0 | 任意時刻 `role=take_profit` 的活躍掛單數 ≤ 1；其價格 == `ladder.take_profit_price(avg_current)` quantize 後值 |
 | 2.5 | 安全單成交 → TP 重掛 | P0 | 每次安全單 filled，觀察到 `cancel(old_tp)` 先於 `create(new_tp)`；新 TP 價格對應新均價 |
 | 2.6 | TP cancel 成功但 place 失敗 | P0 | 注入 `create_order` 例外 → 狀態轉 `degraded`，下一輪自動重試成功；期間不得回報 `running/正常` |
 | 2.7 | **INV-3 不超發安全單** | P0 | 連續下跌穿透全部階梯 → `role=safety` 的下單總次數 **== `max_safety_orders`**，第 N+1 次不發生 |
 | 2.8 | **INV-4 曝險上限** | P0 | 設 `max_position_notional` 低於階梯總額 → 觸及上限後停止再攤平，並記錄 `position_cap_reached` 事件 |
 | 2.9 | TP 成交 → completed | P0 | TP filled → 狀態 `completed`，所有殘餘安全單被撤銷（`cancel_all` 或逐筆），掛單數歸 0 |
-| 2.10 | `repeat_after_take_profit` 循環 | P1 | `true` + `cooldown_seconds=0` → `completed → cooling → armed`；`false` → `completed → stopped` |
+| 2.10 | `repeat_after_take_profit` 循環（預設 `true`） | P0 | `true` + `cooldown_seconds=0` → `completed → cooling → armed` 且 `active_direction` 已解除為 `null`；`false` → `completed → stopped` |
 | 2.11 | `max_cycles` 上限 | P1 | `max_cycles=2` → 第 2 輪止盈後進 `stopped`，不再回 `armed` |
 | 2.12 | 停止語意 | P0 | `stop()` → 所有掛單撤銷、**持倉不動**（與網格一致）、狀態 `stopped`、`publish_lifecycle('stopped')` |
 | 2.13 | 停止的冪等性 | P0 | 連續呼叫 `stop()` 三次 → `cancel` 不重複發送，不拋例外 |
 | 2.14 | 熔斷守衛 | P0 | 模擬熔斷開啟 → `triggering` 延後（不下單、不轉 `failed`）；熔斷關閉後自動續行 |
 | 2.15 | 精度與最小名目 | P0 | 價格依 `price_decimals`、數量依 `quantity_precision` quantize；低於 `min_notional` 的安全單被拒絕並記錄，不送交易所 |
 | 2.16 | 成交事件去重 | P0 | 同一 `order_id` 由 WS 與 REST 各回報一次 → `_on_order_filled` 業務邏輯只執行一次（均價只更新一次） |
-| 2.17 | `direction=both` 雙 leg 獨立 | P0 | long leg 觸發不影響 short leg 狀態；兩 leg 的 client-id 命名空間不重疊；兩 leg 各自有 1 筆 TP |
+| 2.17 | **INV-6 `both` 單方向互斥** | P0 | `direction=both` 且多空條件同時可成立 → 只有一個方向進場；`triggering`/`averaging` 期間另一方向條件成立被完全忽略（斷言 `create_order` 無反向單）；同根雙向成立時依 `both_tiebreak` 決定並記錄 `both_directions_matched` 事件 |
+| 2.17b | `both` 跨輪換向 | P1 | 第 1 輪做多止盈 → `cooling` → `armed`（`active_direction=null`）→ 第 2 輪可鎖定 short；換向過程無殘留掛單 |
 | 2.18 | 狀態轉移全覆蓋 | P1 | §4.6 圖上每一條箭頭都有對應測試；非法轉移拋例外 |
 | 2.19 | task 無洩漏 | P1 | `start()` 後 `stop()`，`asyncio.all_tasks()` 中屬於該 coordinator 的 task 數歸 0 |
 | 2.20 | 不阻塞 event loop | P1 | `grep -n "time.sleep" core/services/dca/` 為 0 命中；所有等待用 `await asyncio.sleep` |
@@ -618,7 +806,7 @@ scripts/ci.sh
 - `GET /api/v1/market/indicators/{symbol}` 需有 60 秒記憶體快取（比照 `_market_cache`），且 `ccxt` 同步呼叫要 `run_in_executor` 包裝（比照 `_lookup_market_from_ccxt_sync`），避免阻塞 event loop。
 - 安全護欄擴充：`MAX_CONCURRENT_DCA_BOTS`（預設 5），且**總量檢查需涵蓋網格 + DCA**（`active_grids + active_dca ≤ 10`），否則兩個上限各自為政等於沒有上限。
 - LIVE 建立需比照 `create_grid`：feature flag → `_lookup_market_from_ccxt_sync` 市場規則校驗 → `min_notional` 檢查（對**每一張安全單**檢查，不只基礎單，因為 `order_size_multiplier < 1` 時尾端安全單可能低於最小名目——雖然目前約束 ≥ 1.0，仍需防禦）。
-- `direction=both` 建立時需查 `get_positions()` 確認 hedge 模式，否則 422。
+- `direction=both` **不需要** hedge 模式檢查（決策 D-2 為單方向互斥，one-way 帳戶即可）。改為驗證 `both_tiebreak` 為合法值，並在 preview 回應中同時回傳 long/short 兩組階梯與 `required = max(兩者)`。
 
 **驗收指令**
 
@@ -652,7 +840,7 @@ curl -s localhost:8001/api/v1/dca/snapshot -o /dev/null -w '%{http_code}\n'   # 
 | 4.11 | 刪除限制 | P0 | 對 `running` 或有 `pending_engine` 命令的 bot 呼叫 DELETE → 409 且附明確原因 |
 | 4.12 | LIVE feature flag | P0 | `GRID_LIVE_TRADING_ENABLED` 未設時 `POST /dca {account_mode:"live"}` → 403 |
 | 4.13 | 市場規則校驗 | P0 | LIVE 建立時，`min_notional` 對基礎單**與每一張安全單**都檢查；不通過 → 422 並列出違規的 slot |
-| 4.14 | `both` hedge 檢查 | P0 | one-way 模式帳戶建立 `direction=both` → 422，訊息說明需開啟雙向持倉 |
+| 4.14 | `both` 資金試算取 max | P0 | `direction=both` 的 preview 回傳 `ladder_long` 與 `ladder_short` 兩組，且 `required == max(long.required, short.required)`，**不是相加** |
 | 4.15 | 併發總量上限 | P0 | 網格 + DCA 合計達上限後再建 → 400/429 並說明目前佔用；**不得**只檢查 DCA 自己的數量 |
 | 4.16 | 寫入頻率限制 | P1 | 短時間連續建立 → 429（複用 `WriteRateLimiter`） |
 | 4.17 | 稽核日誌 | P0 | 每次 create/start/stop/delete 都在 `audit_log` 產生一筆，含 `source`/`params`/`result`；失敗也要記錄 |
@@ -784,10 +972,12 @@ cd ../.. && python3 -m unittest tests.test_dca_frontend_contract -v
 | 6.2 | **Summary 不自算** | P0 | `grep -nE "price_deviation_multiplier|Math.pow|\*\*" src/components/DcaLadderPreview.tsx` 在計算路徑上為 0 命中；所有數值取自 preview 回應 |
 | 6.3 | 前後端數值一致 | P0 | 以向量 A 參數填表 → UI 顯示 `所需資金 420.00 USD`、`最大覆蓋跌幅 80.13%`，與 curl preview 回應完全相同 |
 | 6.4 | 需求 1：交易對 | P0 | 可選交易所 + 交易對，且送出前已呼叫 `market/info` 取得精度；找不到交易對 → 明確錯誤 |
-| 6.5 | 需求 2：多/空/雙向 | P0 | 三個選項皆可選；選 `both` 時 Summary 顯示兩條 leg 的資金合計；不支援 hedge 時送出得到 422 並在 UI 顯示原因 |
+| 6.5 | 需求 2：多/空/雙向 | P0 | 三個選項皆可選；選 `both` 時 Summary 同時顯示多空兩組階梯，並明確標示「同一時刻只會執行其中一個方向」與 `required = max(兩者)`；不得顯示為相加 |
 | 6.6 | 需求 3A：Immediate | P0 | 選 `Immediate` → 指標區塊隱藏；送出的 payload `entry.mode="immediate"` 且無 `indicators` |
 | 6.7 | 需求 3B：四種指標 | P0 | MACD / RSI / BB / Price Change 四者皆可獨立啟用，**每個參數都有預設值且可編輯**（§4.3 表格逐項核對） |
-| 6.8 | 指標預設值正確 | P0 | 開啟每個指標時，欄位預填值與 §4.3 完全一致（RSI 14/30/70、MACD 12/26/9、BB 20/2.0、PriceChange 24/-3.0） |
+| 6.8 | 指標預設值正確 | P0 | 開啟每個指標時欄位預填值與 §4.3 完全一致：RSI(period14/oversold30/overbought70/condition=level)、MACD(12/26/9/cross)、BB(20/2.0/touch)、PriceChange(24/-3.0)；共用區 timeframe=15m、fetch_limit=300、price_source=close、logic=all、confirm_bars=1 |
+| 6.8b | 指標可調參數完整 | P0 | 每個指標的**所有**參數皆可在 UI 編輯（含 condition 判定方式下拉、時框、取樣根數），非唯讀 |
+| 6.8c | lookback 時間換算 | P2 | Price Change 的 `lookback_bars` 旁顯示換算時間（如 `24 根 × 15m = 6 小時`），隨時框連動更新 |
 | 6.9 | 指標即時值 | P1 | 指標面板顯示當前值與「成立/不成立」判定；資料不足時顯示「資料不足」而非 `0` |
 | 6.10 | 需求 4：四個核心參數 | P0 | `Max DCA orders`、`Price deviation`、`Order size multiplier`、`Take profit target(%)` 四者皆可編輯，且改動即時反映到 Summary |
 | 6.11 | 其他參數完整 | P1 | `Price dev. multiplier`、`DCA Mode`、`Averaging method`、`Amount per trade` + 單位、止損、循環設定皆存在 |
@@ -917,7 +1107,7 @@ curl .../api/v1/system/audit?action=create_dca
 | R-4 | `armed` 狀態誤掛單 | P0 | P2 | INV-1 專屬測試；client-id 命名空間可機器驗證 | 稽核項 2.1/7.1 |
 | R-5 | 安全單超發 → 曝險失控 | P0 | P2 | `max_safety_orders` 硬上限 + `max_position_notional` | 稽核項 2.7/2.8 |
 | R-6 | 前後端試算數字不一致，使用者依錯誤資金決策 | P0 | P4/P6 | Summary 只用後端 preview；共用 `ladder.py` | 稽核項 4.2/6.2/6.3 |
-| R-7 | `direction=both` 在 one-way 帳戶造成互相平倉 | P0 | P4 | 建立時查 `get_positions()` 驗證 hedge 模式 | 稽核項 4.14 |
+| R-7 | `direction=both` 同時開多空造成互相平倉 | P0 | P2 | 決策 D-2 改為單方向互斥（INV-6）；`active_direction` 鎖定期間忽略反向訊號 | 稽核項 2.17 |
 | R-8 | 未收線 K 棒導致重複觸發 | P1 | P1 | 丟棄最後一根 + `confirm_bars` | 稽核項 1.8/1.10 |
 | R-9 | 引擎重啟後 `averaging` 中的 bot 狀態遺失 | P1 | P7 | 從交易所掛單重建狀態；無法確認時標 `degraded` 要求人工確認 | 稽核項 7.11 |
 | R-10 | DCA 併發數繞過總量上限 | P1 | P4 | 總量檢查涵蓋網格 + DCA | 稽核項 4.15 |
@@ -959,16 +1149,28 @@ curl .../api/v1/system/audit?action=create_dca
 
 ---
 
-## 10. 開工前需確認的決策點
+## 10. 決策紀錄（已於 2026-08-25 由使用者確認，全部凍結）
 
-以下四點會影響 Phase 1 的模型定義，建議在 Phase 1 開工前確認：
-
-| # | 問題 | 建議預設 | 影響範圍 |
+| # | 問題 | **確認結果** | 已落實於 |
 |---|---|---|---|
-| D-1 | 「平常不顯示」是指**不掛單**（UI 仍顯示機器人與監控狀態），還是**連 UI 卡片都隱藏**至觸發後才出現？ | **不掛單**；UI 顯示「監控中」卡片，並提供「僅顯示已觸發」篩選 | §4.6 狀態機、Phase 5 稽核 5.7 |
-| D-2 | `direction=both` 是兩條獨立 leg（各自攤平各自止盈），還是單一淨部位對沖？ | **兩條獨立 leg**（§4.4） | Phase 1/2/4 |
-| D-3 | 止盈後預設是否自動循環？ | **否**（`repeat_after_take_profit=false`），避免非預期的無限重複下單 | §4.2-D |
-| D-4 | 安全單是**全部預掛**在交易所，還是採「活躍窗口」只掛最近 N 張（比照網格 `active_window_each_side`）？ | **活躍窗口（預設 5 張）**：20 張全掛 × 多台 bot 會撞交易所單一交易對掛單上限，且長期佔用保證金 | Phase 2 稽核 2.3、§4.2-E 需新增 `active_safety_orders_window` 欄位 |
+| D-1 | 「平常不顯示」的定義 | **不掛單；UI 顯示「監控中」卡片** | §0 執行摘要、§4.6 狀態機、Phase 5 稽核 5.7 |
+| D-2 | `direction=both` 語意 | **同一時刻單一方向互斥**。同時評估多空條件，先成立者鎖定本輪；本輪結束後解除、重新評估。不需 hedge 模式 | §4.4 全節改寫、INV-6、`active_direction` 欄位、`both_tiebreak` 欄位 |
+| D-3 | 止盈後是否循環 | **是**，`repeat_after_take_profit` 預設改為 `true`；`cooldown_seconds=300` 防止立即重進 | §4.2-D、§4.6 狀態機 |
+| D-4 | 安全單掛單策略 | **活躍窗口，只掛最近 5 張**（`active_safety_orders_window=5`） | §4.2-E、INV-3、Phase 2 稽核 2.3/2.3b |
+| D-5 | 指標如何計算與預設 | **見 §4.3 完整規格**：共用時框/取樣根數管線 + 四種指標各自的計算式、參數預設、判定方式；`fetch_limit=300` 經 IIR 收斂實測決定 | §4.3.0–4.3.5 全新章節 |
+
+### 10.1 D-2 對實作的具體影響（Phase 1/2 必讀）
+
+因為改為單方向互斥，以下設計相對初版計畫**簡化**：
+
+- ❌ 移除：`leg_manager.py`（雙 leg 協調器）— 不再需要
+- ❌ 移除：hedge 模式前置檢查（原 Phase 4 稽核 4.14）— one-way 帳戶即可運行
+- ❌ 移除：leg 級別的 client-id 命名空間（`#long`/`#short` 後綴）
+- ✅ 新增：`DcaState.active_direction` 欄位與鎖定/解除邏輯
+- ✅ 新增：`both_tiebreak` 設定與 `both_directions_matched` 警告事件
+- ✅ 修正：資金試算由「兩方向相加」改為 **`max(long, short)`**
+
+**淨效果**：Phase 2 工作量下降約 15%（少一個協調器與一組並發測試），Phase 4 少一項前置檢查。
 
 ---
 
@@ -1101,8 +1303,75 @@ print('DCA indicator vectors: PASS')
 
 ---
 
+`fetch_limit=300` 的收斂驗證（對應稽核項 1.5c）：
+
+```python
+# scripts/verify_dca_convergence.py（Phase 1 交付時一併提供）
+import math, random
+from statistics import mean
+
+
+def realistic(n, seed=42):
+    """GBM 隨機遊走，波動度接近真實加密貨幣 15m K 線。"""
+    random.seed(seed)
+    p, out = 2500.0, []
+    for _ in range(n):
+        p *= math.exp(random.gauss(0, 0.004))
+        out.append(round(p, 4))
+    return out
+
+
+def ema_seq(xs, n):
+    k, out, e = 2 / (n + 1), [], None
+    for i, x in enumerate(xs):
+        if i < n - 1:
+            out.append(None)
+        elif i == n - 1:
+            e = sum(xs[:n]) / n
+            out.append(e)
+        else:
+            e = x * k + e * (1 - k)
+            out.append(e)
+    return out
+
+
+def rsi_last(xs, P=14):
+    d = [xs[i] - xs[i - 1] for i in range(1, len(xs))]
+    ag = mean(max(x, 0) for x in d[:P])
+    al = mean(max(-x, 0) for x in d[:P])
+    for x in d[P:]:
+        ag = (ag * (P - 1) + max(x, 0)) / P
+        al = (al * (P - 1) + max(-x, 0)) / P
+    return 100.0 if al == 0 else 100 - 100 / (1 + ag / al)
+
+
+def macd_sig_last(xs):
+    e12, e26 = ema_seq(xs, 12), ema_seq(xs, 26)
+    line = [a - b if (a is not None and b is not None) else None
+            for a, b in zip(e12, e26)]
+    return ema_seq([x for x in line if x is not None], 9)[-1]
+
+
+FULL = realistic(3000)
+
+# 300 vs 301 根：已收斂，差異應可忽略
+a, b = FULL[-300:], FULL[-301:]
+assert abs(rsi_last(a) - rsi_last(b)) < 1e-6
+assert abs(macd_sig_last(a) - macd_sig_last(b)) < 1e-6
+
+# 50 根：明顯未收斂 —— 反向斷言，證明測試本身有鑑別力
+ref_r, ref_s = rsi_last(FULL[-2500:]), macd_sig_last(FULL[-2500:])
+assert abs(rsi_last(FULL[-50:]) - ref_r) > 1e-2
+assert abs(macd_sig_last(FULL[-50:]) - ref_s) > 1e-2
+
+print('DCA indicator convergence (fetch_limit=300): PASS')
+```
+
+---
+
 ## 12. 版本與變更
 
 | 版本 | 日期 | 變更 |
 |---|---|---|
 | 1.0 | 2026-08-25 | 初版：架構、資料契約、7 個 Phase 與各自稽核標準、風險登錄簿 |
+| 1.1 | 2026-08-25 | 依使用者決策 D-1～D-5 更新：<br>• **D-2**：`both` 改為**單方向互斥**（新增 INV-6、`active_direction`、`both_tiebreak`；移除 `leg_manager` 與 hedge 前置檢查；資金試算改 `max`）<br>• **D-3**：`repeat_after_take_profit` 預設改 `true`，循環成為預設路徑<br>• **D-4**：新增 `active_safety_orders_window=5`，含遞補與急跌重對齊規格<br>• **D-5**：§4.3 全面改寫為完整指標規格（共用 K 線管線、四種指標計算式與判定方式、`fetch_limit=300` 之 IIR 收斂實證）<br>• 稽核項由 148 增至 158 項 |
