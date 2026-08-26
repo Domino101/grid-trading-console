@@ -14,7 +14,12 @@ python -m unittest \
   tests.test_paper_grid_lifecycle_e2e \
   tests.test_frontend_format_contract \
   tests.test_dashboard_snapshot \
-  tests.test_web_ui_http_contract
+  tests.test_web_ui_http_contract \
+  tests.test_dca_ladder \
+  tests.test_dca_indicators \
+  tests.test_dca_config_and_state \
+  tests.test_dca_executor \
+  tests.test_dca_coordinator
 
 if [[ "${SKIP_FRONTEND:-}" == "1" ]]; then
   exit 0

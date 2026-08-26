@@ -2,10 +2,28 @@
 
 本專案的重要變更記錄於此檔案，格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/)。
 
+## [Unreleased] — 2026-08-26
+
+### Added
+
+- **DCA 機器人 Phase 2 — 執行引擎與狀態機（armed → triggering → averaging → completed 迴圈）**:
+  - **下單執行層（`core/services/dca/interfaces/` + `execution/`）**: `IDcaOrderExecutor` 抽象介面 + `DcaOrderExecutor` 包裝 ExchangeInterface；下單前查 `BinanceRest._is_adapter_circuit_open()` 與 `GridEngineImpl._shared_api_circuit_until` 雙熔斷源（唯讀複用，G-1/G-2 未觸）；熔斷中回 `DEFERRED_CIRCUIT_OPEN` 絕不送交易所寫入；價格 ROUND_HALF_EVEN / 數量 ROUND_DOWN quantize；低於 `min_notional` 直接拒絕並記錄（不送交易所）；失敗分類 `PLACED / REJECTED_MIN_NOTIONAL / DEFERRED_CIRCUIT_OPEN / ERROR`。
+  - **主協調器（`core/services/dca/coordinator/`）**: `DcaCoordinator` 驅動完整狀態機；armed 期間交易所零掛單（INV-1）；基礎單成交後建階梯 → TP 先行掛出（倉位即刻受保護）→ min(window, N) 安全單遞補窗口；安全單成交 → 原子重掛 TP（嚴格 cancel-then-place）；急跌穿透窗口時以現價重新對齊剩餘槽位並記錄 `window_realigned`（跳過層不重置配額，INV-3 下單總次數 ≤ N）；曝險上限 `max_position_notional` 以「已成交成本 + 在掛安全單名目 + 本張計畫名目」計口徑，觸及記錄 `position_cap_reached` 且停止再攤平；成交統一漏斗（WS 推送 + REST 對帳雙路，`order_id` 去重）；`max_cycles` / `repeat_after_take_profit` / `cooldown_seconds` 循環語意。
+  - **降級狀態（DEGRADED）**: TP cancel 成功但 place 失敗 → 轉 `degraded` 並逐輪自動重試（期間絕不回報正常狀態）；成功後自動回 `averaging`。狀態機新增 `degraded` 合法轉移（`averaging ⇄ degraded`）。
+  - **工程約束**: 全部 `async def`（含 `pause()/resume()/stop()`，吸取網格教訓）；監控迴圈以 `while self._running` 終止；`start()` 建立的 task 全註冊 `self._tasks`、`stop()` 逐一 cancel + await（歸零驗證）；`stop()` 撤單不平倉且冪等；套件零 `print(`、零同步 sleep（靜態掃描測試把關）；direction=both 經 `DirectionLock` 單向互斥＋`both_tiebreak`，跨輪可換向（`both_directions_matched` 事件）。
+  - **測試**: `tests/test_dca_{executor,coordinator}.py` 共 40 項測試（FakeExchange 確定性驅動，覆蓋計畫 Phase 2 稽核 2.1–2.21 全部斷言點，含 INV-1 全實管線 20 輪零掛單）；登入 `scripts/ci.sh` 與 `docs/github-actions-ci.yml`。全量後端 CI 157 項測試全綠，網格既有測試零回歸（稽核 2.22）。
+
 ## [Unreleased] — 2026-08-25
 
 ### Added
 
+- **DCA 機器人 Phase 1 — 領域模型與指標引擎（純函式核心，零 I/O）**: 依據 `docs/dca_bot_implementation_plan_zh-TW.md` 建立 `core/services/dca/` 子系統，為後續 6 個 Phase 的正確性地基：
+  - **階梯數學（`ladder.py`）**: §4.5 凍結公式全 Decimal 實作（prec=28，localcontext 隔離），含 `build_ladder()` / `required_capital()` / `take_profit_price()` / `stop_loss_price()` 與 `quantize_price`（ROUND_HALF_EVEN）/ `quantize_quantity`（ROUND_DOWN）；鎖定向量 A/B 九個 + 四個值於 1e-6 容差全數對上；direction=both 資金試算依決策 D-2 取 max(long, short)。
+  - **指標引擎（`indicators/`）**: RSI（Wilder 平滑）/ MACD（EMA 種子=SMA）/ Bollinger（母體標準差）/ Price Change（凍結索引語意）四指標純 stdlib 實作，鎖定向量（RSI 21.977841、MACD −2.240581/−0.784542/−1.456039、BB 105.193225/116.876210/128.559195、PC −11.782277/−12.373066）於 1e-6 容差對上；未收線 K 棒丟棄、暖機期 `insufficient_data`、IIR 收斂（300 vs 301 根 < 1e-6）皆有測試凍結。
+  - **入場評估器（`entry/evaluator.py`）**: `immediate` 模式零指標呼叫（mock 斷言）、`indicator` 模式支援 all/any 組合邏輯與 `confirm_bars`（1–5）抗插針連續確認。
+  - **領域模型（`models/`）**: `DcaConfig`（§4.2 欄位表 A–E 全欄位 + 全中文驗證訊息，`__post_init__` 彙整所有錯誤一次拋出）、`DcaState`（§4.6 凍結狀態機轉移表 + `InvalidDcaTransition`，INV-5；active_direction 鎖定語意，INV-6 前置）、`DcaOrder`（§4.1 `dca_{hash8}_{leg}_{slot}` 客戶端 ID 命名空間）、`DcaStatistics`（`to_display_dict()` 對齊 GridStatistics，未知值一律 None）。
+  - **測試與驗證**: 三個 unittest 模組（77 項測試）登入 `scripts/ci.sh` 與 `docs/github-actions-ci.yml`；§11 附錄三支獨立驗證腳本落地於 `scripts/verify_dca_{vectors,indicators,convergence}.py` 供稽核現場直接執行。
+  - **隔離保證**: 零新依賴（requirements.txt 無異動）、零 I/O（grep 驗證）、`core/services/grid/` 與 `run_grid_trading.py` 零異動（G-1/G-2）。
 - **三支柱利潤與全帳戶持倉隔離架構 (Three-Pillar Profit & Position Isolation)**:
   - 引入 `grid_position`（網格專屬持倉）與 `account_position`（交易所全帳戶持倉）雙軌分離，防止手動單或其他策略持倉干擾網格策略的浮動盈虧與成本計算。
   - 引入 `grid_profit`（網格套利已實現毛利）與 `account_unrealized_pnl`（帳戶層級浮動盈虧）多維指標隔離。
