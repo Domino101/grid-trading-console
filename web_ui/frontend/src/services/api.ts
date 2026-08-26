@@ -386,6 +386,184 @@ export interface GridCommand {
     updated_at: number;
 }
 
+// ── DCA 機器人（Phase 4 後端契約 → Phase 5 分頁資料來源）──────────────
+// 未知值一律 null（禁止 0 代替，G-5）；所有金額顯示走 utils/format.ts。
+
+export interface DcaIndicatorView {
+    type?: string;
+    period?: number | null;
+    oversold?: number | null;
+    overbought?: number | null;
+    fast?: number | null;
+    slow?: number | null;
+    signal?: number | null;
+    std_dev?: number | null;
+    lookback_bars?: number | null;
+    long_threshold_percent?: number | null;
+    short_threshold_percent?: number | null;
+    condition?: string | null;
+}
+
+export interface DcaPosition {
+    quantity: number | null;
+    average_cost: number | null;
+    total_cost: number | null;
+}
+
+export interface DcaLadderState {
+    max_safety_orders: number | null;
+    filled_safety_orders: number | null;
+    active_safety_orders: number | null;
+    take_profit_orders: number | null;
+}
+
+export interface DcaProfit {
+    realized: number | null;
+    unrealized: number | null;
+    fees: number | null;
+}
+
+export interface DcaSnapshotItem {
+    bot_id: string;
+    config_path: string;
+    symbol: string | null;
+    exchange: string | null;
+    direction: 'long' | 'short' | 'both' | (string & {}) | null;
+    mode: 'live' | 'paper' | 'unknown' | (string & {});
+    status: string;
+    desired_running: boolean;
+    command_id: string | null;
+    command_status: string | null;
+    data_status: DataStatus;
+    source: string | null;
+    last_updated_at: number | null;
+    current_price: number | null;
+    active_direction: 'long' | 'short' | null;
+    position: DcaPosition | null;
+    ladder: DcaLadderState | null;
+    cycles: number | null;
+    profit: DcaProfit | null;
+    base_order_amount: number | null;
+    max_safety_orders: number | null;
+    take_profit_percent: number | null;
+    stop_loss_percent: number | null;
+    // Phase 5 卡片欄位（入場設定與執行期導出值）
+    entry_mode: 'immediate' | 'indicator' | (string & {}) | null;
+    entry_logic: 'all' | 'any' | (string & {}) | null;
+    entry_timeframe: string | null;
+    entry_indicators: DcaIndicatorView[];
+    entry_price: number | null;
+    next_safety_order_price: number | null;
+    take_profit_price: number | null;
+    stop_loss_price: number | null;
+    armed_since: number | null;
+    start_blocked_reason: string | null;
+}
+
+export interface DcaSnapshotAggregate {
+    total_bots: number;
+    running_bots: number;
+    available_bots: number;
+    stale_bots: number;
+    realized_pnl: number;
+    unrealized_pnl: number;
+    fees: number;
+    net_pnl: number;
+    filled_safety_orders: number;
+    completed_cycles: number;
+}
+
+export interface DcaSnapshotResponse {
+    generated_at: number;
+    data_status: DataStatus;
+    account_mode: 'live' | 'paper' | 'mixed' | 'unknown';
+    aggregate: DcaSnapshotAggregate;
+    aggregate_live: DcaSnapshotAggregate | null;
+    aggregate_paper: DcaSnapshotAggregate | null;
+    bots: DcaSnapshotItem[];
+}
+
+export interface DcaActionResponse {
+    bot_id: string;
+    action: string;
+    status: string;
+    message: string;
+    command_id: string | null;
+}
+
+export interface DcaPreviewLevel {
+    index: number;
+    deviation_percent: number | null;
+    price: number;
+    notional: number;
+    quantity: number;
+    avg_price: number;
+    take_profit_price: number | null;
+}
+
+export interface DcaPreviewLadder {
+    direction: string;
+    entry_price: number;
+    required_capital: number;
+    max_drawdown_percent: number;
+    final_average_price: number;
+    final_take_profit_price: number;
+    levels: DcaPreviewLevel[];
+}
+
+export interface DcaPreviewResponse {
+    direction: string | null;
+    required_capital: number;
+    ladder: DcaPreviewLadder | null;
+    ladder_long: DcaPreviewLadder | null;
+    ladder_short: DcaPreviewLadder | null;
+    data_status: string;
+}
+
+export interface DcaEntryRequest {
+    mode?: 'immediate' | 'indicator';
+    logic?: 'all' | 'any';
+    timeframe?: string;
+    fetch_limit?: number;
+    price_source?: 'close' | 'hlc3' | 'ohlc4';
+    confirm_bars?: number;
+    max_wait_seconds?: number | null;
+    indicators?: Array<Partial<DcaIndicatorView> & { type: string }>;
+}
+
+export interface DcaPreviewRequest {
+    symbol: string;
+    exchange: string;
+    direction: 'long' | 'short' | 'both';
+    entry_price: number;
+    base_order_amount: number;
+    amount_unit?: 'quote' | 'base';
+    dca_mode?: 'order' | 'position';
+    averaging_method?: 'fixed_value' | 'fixed_coin';
+    max_safety_orders?: number;
+    price_deviation_percent?: number;
+    price_deviation_multiplier?: number;
+    order_size_multiplier?: number;
+    take_profit_percent?: number;
+    take_profit_order_type?: 'limit' | 'market';
+    stop_loss_percent?: number | null;
+    max_position_notional?: number | null;
+    fee_rate?: number | null;
+    leverage?: number;
+    margin_mode?: 'cross' | 'isolated';
+    quantity_precision?: number | null;
+    price_decimals?: number | null;
+    repeat_after_take_profit?: boolean;
+    cooldown_seconds?: number;
+    max_cycles?: number | null;
+    both_tiebreak?: 'long_first' | 'short_first';
+    active_safety_orders_window?: number;
+    monitoring_interval?: number;
+    indicator_refresh_interval?: number;
+    order_health_check_interval?: number;
+    entry?: DcaEntryRequest;
+}
+
 const authHeaders = (idempotencyKey?: string): Headers => {
     const headers = new Headers();
     headers.set('Content-Type', 'application/json');
@@ -594,6 +772,45 @@ export const api = {
             { method: 'DELETE', headers: authHeaders() },
             `Failed to delete grid ${gridId}`,
         );
+    },
+
+    // ── DCA 機器人（Phase 5；同源相對 URL，禁止 localhost/127.0.0.1）──
+
+    async getDcaSnapshot(signal?: AbortSignal): Promise<DcaSnapshotResponse> {
+        return requestJson('/v1/dca/snapshot', { headers: authHeaders(), signal }, '無法讀取 DCA 總覽');
+    },
+
+    async startDca(botId: string, source: string = 'dashboard', idempotencyKey = crypto.randomUUID()): Promise<DcaActionResponse> {
+        return requestJson(
+            `/v1/dca/${encodeURIComponent(botId)}/start?source=${encodeURIComponent(source)}`,
+            { method: 'POST', headers: authHeaders(idempotencyKey) },
+            `無法啟動 DCA ${botId}`,
+        );
+    },
+
+    async stopDca(botId: string, source: string = 'dashboard', idempotencyKey = crypto.randomUUID()): Promise<DcaActionResponse> {
+        return requestJson(
+            `/v1/dca/${encodeURIComponent(botId)}/stop?source=${encodeURIComponent(source)}`,
+            { method: 'POST', headers: authHeaders(idempotencyKey) },
+            `無法停止 DCA ${botId}`,
+        );
+    },
+
+    async deleteDca(botId: string, source: string = 'dashboard', force: boolean = true): Promise<DcaActionResponse> {
+        const forceParam = force ? '&force=true' : '';
+        return requestJson(
+            `/v1/dca/${encodeURIComponent(botId)}?source=${encodeURIComponent(source)}${forceParam}`,
+            { method: 'DELETE', headers: authHeaders() },
+            `無法刪除 DCA ${botId}`,
+        );
+    },
+
+    async previewDca(request: DcaPreviewRequest): Promise<DcaPreviewResponse> {
+        return requestJson('/v1/dca/preview', {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify(request),
+        }, '無法試算 DCA 階梯');
     },
 };
 

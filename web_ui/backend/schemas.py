@@ -711,6 +711,16 @@ class DcaSnapshotItem(BaseModel):
     max_safety_orders: Optional[int] = None
     take_profit_percent: Optional[float] = None
     stop_loss_percent: Optional[float] = None
+    # Phase 5（卡片欄位表）：入場設定與執行期導出值；未知一律 None（G-5）。
+    entry_mode: Optional[str] = None
+    entry_logic: Optional[str] = None
+    entry_timeframe: Optional[str] = None
+    entry_indicators: List[DcaIndicatorConfig] = Field(default_factory=list)
+    entry_price: Optional[float] = None
+    next_safety_order_price: Optional[float] = None
+    take_profit_price: Optional[float] = None
+    stop_loss_price: Optional[float] = None
+    armed_since: Optional[float] = None
     start_blocked_reason: Optional[str] = None
 
 

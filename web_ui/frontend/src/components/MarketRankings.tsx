@@ -13,7 +13,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 
-import { api, type MarketRankingItem, type MarketRankingsResponse } from '../services/api';
+import { api, ApiError, type MarketRankingItem, type MarketRankingsResponse } from '../services/api';
 
 interface MarketRankingsProps {
   onSelectSymbol: (item: MarketRankingItem, period: string) => void;
@@ -34,8 +34,8 @@ const MarketRankings: React.FC<MarketRankingsProps> = ({ onSelectSymbol, onUnaut
     try {
       const res = await api.getMarketRankings(targetExchange, targetPeriod, 25);
       setData(res);
-    } catch (err: any) {
-      if (err?.status === 401 && onUnauthorized) {
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401 && onUnauthorized) {
         onUnauthorized();
         return;
       }

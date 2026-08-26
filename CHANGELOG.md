@@ -6,6 +6,14 @@
 
 ### Added
 
+- **DCA 機器人 Phase 5 — 前端 DCA 分頁（總覽 + 卡片 + 表格）**:
+  - **API client 擴充（`web_ui/frontend/src/services/api.ts`）**: `DcaSnapshot`/`DcaBot`/`DcaLadder`/`DcaPosition`/`DcaProfit`/`DcaAggregate`/`DcaActionResponse` 型別與 `getDcaSnapshot()`/`startDca()`/`stopDca()`/`deleteDca()`/`previewDca()`；每次刷新恰好 1 次 `/api/v1/dca/snapshot`（稽核 5.4，無 N+1）；全同源相對 URL（稽核 5.3）。
+  - **總覽頁（`DcaDashboard.tsx`）**: LIVE/PAPER 雙 aggregate 不混算、symbol/狀態/關鍵字篩選、卡片/表格切換（`localStorage` 記憶）、10 秒輪詢（`inFlight` guard + `AbortController` + `nextPollDelay` 退避 + 頁面隱藏降頻，稽核 5.5/5.6）、stale 資料橫幅與最後同步時間（稽核 5.10）、每卡獨立 action state（稽核 5.13）。
+  - **卡片/表格/徽章（`DcaCard.tsx`/`DcaTable.tsx`/`DcaStatusBadge.tsx`）**: `DCA_STATUS_META` 十狀態（armed/triggering/averaging/completed/cooling/stopping/stopped/failed + running/degraded/starting）中文文案、文字＋顏色雙重編碼（稽核 5.11/5.15）；armed 卡顯示「監控中 · 尚未掛單」且**不顯示**任何掛單數字或止盈價（稽核 5.7）；未知值一律 `—` 絕不 `$0.00`（稽核 5.8）；階梯 `filled / max` 進度條＋下一張安全單價格與距離%；入場區只呈現指標設定（前端零階梯運算）；LIVE/PAPER 文字＋顏色雙重標記（稽核 5.9）；停止/刪除走 `ConfirmDialog`，確認文案含 bot 名稱、mode、與「撤單但不平倉」（稽核 5.12）。
+  - **純函式（`utils/dca.ts`）**: `getDcaProgress()`/`getDcaStatusLabel()`/`getDcaStatusDescription()`/`getDcaTriggerDistancePercent()` 等，全部 `undefined`-safe（稽核 5.16）。
+  - **App 整合（`App.tsx` + `App.css`）**: tab 型別擴充＋側邊欄「DCA 機器人」＋「建立 DCA」（Phase 6 前占位頁）；網格元件零變更、`git diff` 0 行（稽核 5.18）；DCA 分頁只呼叫 `/api/v1/dca/*` 與共用 `/healthz`、絕不呼叫網格端點，反之亦然（稽核 5.2）；新增 CSS 只用既有 `--*` token（稽核 5.19，新增區塊 6-digit hex = 0）。
+  - **測試**: `web_ui/frontend/tests/dca.test.ts`（13 項，node --test）＋ `tests/test_dca_frontend_contract.py`（Python 鏡像：狀態文案/running 集合與後端一致、armed 隱藏掛單唯一、`filled/max` null-safe、距離符號、ROI 不補零、wait 分桶；另斷言 DCA 元件不 import 網格服務、網格元件不含 DCA 端點、api.ts 無硬編碼外部 origin）登錄 `scripts/ci.sh` 與 `docs/github-actions-ci.yml`。
+
 - **DCA 機器人 Phase 4 — 後端 API 層（CRUD + 生命週期 + snapshot + preview + 指標端點）**:
   - **DCA YAML 生成器（`web_ui/backend/dca_yaml_generator.py`）**: API JSON → `config/dca/dca-*.yaml`（`dca:` 區段），產出可被 `load_dca_config()` 解析（稽核 4.8）；`validate_params()` 彙整 `DcaConfig` 全欄位驗證；`is_valid_bot_id()` 提供路徑穿越防護（稽核 4.22）。
   - **DCA REST 路由（`web_ui/backend/routes/dca.py`）**: §4.7 全部端點；`POST /preview` 直接呼叫 `core.services.dca.ladder.build_ladder()`（稽核 4.2），`direction=both` 回傳 `ladder_long`/`ladder_short` 且 `required=max(...)`（稽核 4.14）；`GET /snapshot` 走單次 `active_dca.json → YAML → RuntimeSnapshotRepository.load_all()` 一次讀模型（稽核 4.5）；未知值一律 `null`、`data_status=unavailable`（稽核 4.6）；LIVE/PAPER aggregate 不混算（稽核 4.7）；LIVE 建立比照 grid：feature flag（4.12）→ 市場規則 `min_notional` 對基礎單與每張安全單檢查（4.13）；create/start/stop/delete 皆寫審計日誌且不洩密（4.17/4.18）；冪等鍵（4.10）、刪除 409（4.11）、路徑穿越（4.22）。
@@ -26,10 +34,15 @@
   - **工程約束**: 全部 `async def`（含 `pause()/resume()/stop()`，吸取網格教訓）；監控迴圈以 `while self._running` 終止；`start()` 建立的 task 全註冊 `self._tasks`、`stop()` 逐一 cancel + await（歸零驗證）；`stop()` 撤單不平倉且冪等；套件零 `print(`、零同步 sleep（靜態掃描測試把關）；direction=both 經 `DirectionLock` 單向互斥＋`both_tiebreak`，跨輪可換向（`both_directions_matched` 事件）。
   - **測試**: `tests/test_dca_{executor,coordinator}.py` 共 40 項測試（FakeExchange 確定性驅動，覆蓋計畫 Phase 2 稽核 2.1–2.21 全部斷言點，含 INV-1 全實管線 20 輪零掛單）；登入 `scripts/ci.sh` 與 `docs/github-actions-ci.yml`。全量後端 CI 157 項測試全綠，網格既有測試零回歸（稽核 2.22）。
 
+### Fixed
+
+- **DCA 熱插拔啟動全面失敗（Phase 5 live 驗證發現）**: `run_multiple_grids.py` 的 `run_single_dca_task()` 誤以 `await auto_fill_dca_precision(...)` 呼叫同步函式（`core/services/dca/config_loader.py`，回傳 `None`），導致**每一筆** DCA 熱插拔啟動都立即崩潰 `object NoneType can't be used in 'await' expression`（Phase 3 稽核只測 standby，paper E2E 又直接呼叫 coordinator，故未觸及）。移除 `await`；新增回歸測試 `tests/test_dca_paper_e2e.py::SupervisorPoolTests::test_run_single_dca_task_reaches_averaging_without_await_none`（真實 `run_single_dca_task` + 真實 PAPER adapter + 真實 YAML：斷言達到 AVERAGING、INV-2 TP 恰 1 張、持倉 > 0）。
+
 ### Testing
 
 - 新增 `tests/test_dca_config_loader.py`（稽核 3.1–3.4）、`tests/test_dca_ohlcv_cache.py`（稽核 3.6–3.9/3.11）、`tests/test_dca_paper_e2e.py`（稽核 3.10/3.11/3.19，PAPER 全迴路 armed → 觸發 → 基礎單 → ≥2 安全單 → TP → completed，斷言 INV-1..INV-4）。
 - `scripts/ci.sh` 與 `docs/github-actions-ci.yml` 已登錄三個新模組。
+- Phase 5 新增 `tests/test_dca_frontend_contract.py`（前後端契約鏡像，8 項）與 `web_ui/frontend/tests/dca.test.ts`（13 項）；全量後端 CI 212 項全綠（含 `run_single_dca_task` 回歸測試），前端 `npm test` 19/19、`tsc -b` 零錯誤。
 
 ## [Unreleased] — 2026-08-25
 

@@ -700,6 +700,25 @@ class DcaCoordinator:
 
     # ══════════════════ 統計（INV 稽核計數口徑） ══════════════════
 
+    def _next_safety_price(self, state: DcaState) -> Optional[Decimal]:
+        """
+        下一張將成交的安全單價（Phase 5 卡片「下一張安全單價格」）。
+
+        - long：取未成交槽位中**最高**價（最接近現價、最先成交）
+        - short：取未成交槽位中**最低**價
+        - 無鎖定方向或無未成交槽位 → None（不得回傳 0，G-5）
+        """
+        if state.active_direction not in ("long", "short"):
+            return None
+        pending = [
+            (s.actual_price or s.planned_price)
+            for s in state.safety_slots
+            if s.status in (SlotStatus.ACTIVE, SlotStatus.WAITING)
+        ]
+        if not pending:
+            return None
+        return max(pending) if state.active_direction == "long" else min(pending)
+
     def build_statistics(self, last_price: Optional[Decimal] = None) -> DcaStatistics:
         state = self.state
         active_tp = sum(
@@ -715,6 +734,8 @@ class DcaCoordinator:
             position_quantity=state.position_quantity,
             average_cost=state.average_cost,
             total_cost=state.total_cost,
+            entry_price=state.entry_price,
+            next_safety_order_price=self._next_safety_price(state),
             max_safety_orders=self._config.max_safety_orders,
             filled_safety_orders=state.filled_safety_count(),
             active_safety_orders=self._active_safety_count(),

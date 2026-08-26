@@ -1788,3 +1788,164 @@
 }
 
 
+
+/* ════════════════════════════════════════════════════════════════
+   DCA 機器人之頁（Phase 5）
+   規則：只使用既有 --* 設計 token，不新增平行樣式系統（稽核 5.19）。
+   狀態徽章語意與 §4.6 狀態機一致；文字＋顏色雙重編碼（稽核 5.15）。
+   ════════════════════════════════════════════════════════════════ */
+
+/* ── DCA 狀態徽章（armed/triggering/averaging/completed/cooling/
+      degraded；stopping/stopped/failed/starting 複用既有 .badge-*）── */
+.badge-dca-armed {
+  background: var(--accent-amber-bg);
+  color: var(--accent-amber);
+  border: 1px solid var(--accent-amber-border);
+}
+
+.badge-dca-triggering {
+  background: var(--paper-blue-bg);
+  color: var(--paper-blue);
+  border: 1px solid var(--paper-blue-border);
+}
+
+.badge-dca-averaging {
+  background: var(--trading-green-bg);
+  color: var(--trading-green);
+  border: 1px solid var(--trading-green-border);
+}
+
+.badge-dca-completed {
+  background: rgba(100, 116, 139, 0.16);
+  color: var(--text-secondary);
+  border: 1px solid rgba(100, 116, 139, 0.28);
+}
+
+.badge-dca-cooling {
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+}
+
+.badge-degraded {
+  background: var(--trading-red-bg);
+  color: var(--trading-red);
+  border: 1px solid var(--trading-red-border);
+}
+
+/* ── armed 監控中橫幅（稽核 5.7）── */
+.dca-armed-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.85rem;
+  font-size: 0.82rem;
+}
+
+.dca-command-error {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.78rem;
+}
+
+/* ── 入場區塊指標 chips ── */
+.dca-entry-matrix .metric-cell dd {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.dca-indicator-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.dca-indicator-chip {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+  padding: 0.12rem 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+/* ── 安全單進度條 ── */
+.dca-ladder-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.6rem 0.85rem;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.dca-ladder-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.82rem;
+}
+
+.dca-ladder-progress {
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+}
+
+.dca-ladder-progress-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: linear-gradient(90deg, var(--accent-primary) 0%, var(--accent-cyan) 100%);
+  transition: width var(--transition-smooth);
+}
+
+/* ── 詳情占位橫幅（Phase 7 前）── */
+.dca-detail-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1.25rem;
+  background: var(--bg-surface-glass);
+  border: 1px solid var(--border-highlight);
+  border-radius: var(--radius-md);
+  font-size: 0.88rem;
+}
+
+/* ── 建立 DCA 占位頁（Phase 6 前）── */
+.dca-create-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 3.5rem 1.5rem;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.dca-create-placeholder h2 {
+  font-size: 1.35rem;
+  color: var(--text-primary);
+}
+
+.dca-create-placeholder p {
+  max-width: 30rem;
+  line-height: 1.7;
+  font-size: 0.9rem;
+}
+
+/* ── RWD：DCA 專屬元件（卡片網格沿用既有 .strategy-grid auto-fill 響應式）── */
+@media (max-width: 480px) {
+  .dca-detail-strip {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

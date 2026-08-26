@@ -34,6 +34,10 @@ class DcaStatistics:
     average_cost: Optional[Decimal] = None
     total_cost: Decimal = Decimal("0")
 
+    # 入場與階梯執行期欄位（Phase 5：DCA 卡片需要；未知一律 None，G-5）
+    entry_price: Optional[Decimal] = None          # 本輪基礎單成交價（armed/cooling 為 None）
+    next_safety_order_price: Optional[Decimal] = None  # 下一張將成交的安全單價（無未成交槽位為 None）
+
     # 階梯進度
     max_safety_orders: int = 0
     filled_safety_orders: int = 0
@@ -58,6 +62,8 @@ class DcaStatistics:
                 "average_cost": _to_float(self.average_cost),
                 "total_cost": float(self.total_cost),
             },
+            "entry_price": _to_float(self.entry_price),
+            "next_safety_order_price": _to_float(self.next_safety_order_price),
             "ladder": {
                 "max_safety_orders": self.max_safety_orders,
                 "filled_safety_orders": self.filled_safety_orders,

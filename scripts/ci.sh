@@ -25,7 +25,8 @@ python -m unittest \
   tests.test_dca_paper_e2e \
   tests.test_dca_yaml_generator \
   tests.test_dca_http_contract \
-  tests.test_dca_snapshot
+  tests.test_dca_snapshot \
+  tests.test_dca_frontend_contract
 
 if [[ "${SKIP_FRONTEND:-}" == "1" ]]; then
   exit 0

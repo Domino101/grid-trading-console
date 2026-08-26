@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useState, useEffect } from 'react';
-import { Activity, Menu, PlusCircle, BarChart3, Trophy, X, LogOut, Terminal } from 'lucide-react';
+import { Activity, Menu, PlusCircle, BarChart3, Trophy, X, LogOut, Terminal, Repeat, Wand2 } from 'lucide-react';
 import Dashboard from './components/Dashboard';
+import DcaDashboard from './components/DcaDashboard';
 import GridForm, { type InitialGridConfig } from './components/GridForm';
 import MarketRankings from './components/MarketRankings';
 import LoginPage from './components/LoginPage';
@@ -9,8 +10,11 @@ import { clearStoredToken, getStoredToken, storeToken } from './utils/auth';
 
 const GridDetail = lazy(() => import('./components/GridDetail'));
 
+// 分頁型別集中定義（R-11：新增分頁需同步此處，tsc -b 為 gate）
+type AppTab = 'dashboard' | 'market' | 'configs' | 'detail' | 'dca' | 'dca-create';
+
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'market' | 'configs' | 'detail'>('dashboard');
+  const [activeTab, setActiveTab] = useState<AppTab>('dashboard');
   const [selectedGridId, setSelectedGridId] = useState<string | null>(null);
   const [prefilledGridConfig, setPrefilledGridConfig] = useState<InitialGridConfig | null>(null);
   const [hasToken, setHasToken] = useState(() => Boolean(getStoredToken()));
@@ -45,7 +49,7 @@ const App: React.FC = () => {
     setAuthError(message ?? null);
   };
 
-  const go = (tab: 'dashboard' | 'market' | 'configs') => {
+  const go = (tab: 'dashboard' | 'market' | 'configs' | 'dca' | 'dca-create') => {
     if (tab !== 'configs') {
       setPrefilledGridConfig(null);
     }
@@ -62,7 +66,8 @@ const App: React.FC = () => {
       grid_interval: item.grid_interval,
       order_amount: item.recommended_order_amount,
       initialGridCount: item.grid_count,
-      initialPeriod: period as any,
+      // 收窄到 GridForm 接受的時框聯集，避免 any（Phase 5 lint 修正）
+      initialPeriod: period === '30d' || period === '180d' ? period : '7d',
       estimatedApr: item.estimated_apr,
     });
     setActiveTab('configs');
@@ -154,6 +159,25 @@ const App: React.FC = () => {
             <PlusCircle size={17} />
             <span>建立策略</span>
           </button>
+
+          {/* DCA 機器人分頁（與網格完全隔離的獨立分頁） */}
+          <button
+            className={`btn ${activeTab === 'dca' ? 'active' : ''}`}
+            type="button"
+            onClick={() => go('dca')}
+          >
+            <Repeat size={17} />
+            <span>DCA 機器人</span>
+          </button>
+
+          <button
+            className={`btn ${activeTab === 'dca-create' ? 'active' : ''}`}
+            type="button"
+            onClick={() => go('dca-create')}
+          >
+            <Wand2 size={17} />
+            <span>建立 DCA</span>
+          </button>
         </nav>
 
         <div className="sidebar-footer">
@@ -224,6 +248,30 @@ const App: React.FC = () => {
               onUnauthorized={() => lock('Token 無效或已過期，請重新登入。')}
             />
           </Suspense>
+        )}
+
+        {activeTab === 'dca' && (
+          <DcaDashboard
+            onCreateNew={() => go('dca-create')}
+            onUnauthorized={() => lock('Token 無效或已過期，請重新登入。')}
+          />
+        )}
+
+        {activeTab === 'dca-create' && (
+          <main className="dca-dashboard">
+            <div className="glass-panel dca-create-placeholder">
+              <Wand2 size={28} style={{ color: 'var(--text-accent)' }} />
+              <h2>建立 DCA 機器人精靈</h2>
+              <p>
+                4 步精靈（General / Entry / DCA / Summary）與即時階梯試算將於 Phase 6 提供。
+                目前可先從「DCA 機器人」分頁查看與管理現有機器人。
+              </p>
+              <button className="btn btn-primary" type="button" onClick={() => go('dca')}>
+                <Repeat size={15} />
+                <span>回到 DCA 機器人</span>
+              </button>
+            </div>
+          </main>
         )}
       </div>
     </div>

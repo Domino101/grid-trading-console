@@ -532,7 +532,9 @@ async def run_single_dca_task(config_path: str, adapter_pool, logger,
 
         # 共享 Adapter 池（稽核 3.16）：與網格同 exchange 共用實例
         adapter = await adapter_pool.get(config_path)
-        await auto_fill_dca_precision(config, adapter, logger)
+        # auto_fill_dca_precision 為同步函式（讀取 adapter 已載入的 ccxt markets），
+        # 不可 await（Phase 5 live 驗證捕獲：await None → TypeError）。
+        auto_fill_dca_precision(config, adapter, logger)
 
         # 每 exchange 一個共享 OhlcvCache：同 symbol+timeframe 去重（稽核 3.6）
         cache = dca_ohlcv_caches.get(exchange)
