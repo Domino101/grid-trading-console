@@ -2,25 +2,27 @@ import React from 'react';
 import { RefreshCcw, ShieldCheck, ShieldAlert, Cpu, Activity } from 'lucide-react';
 
 interface TopBarProps {
-  dataStatus?: string;
-  enginePid?: number | null;
-  engineRunning?: boolean;
-  circuitOpen?: boolean;
-  lastSync?: number | null;
-  accountMode?: string;
-  onRefresh: () => void;
-  loading?: boolean;
+    dataStatus?: string;
+    enginePid?: number | null;
+    engineRunning?: boolean;
+    circuitOpen?: boolean;
+    lastSync?: number | null;
+    accountMode?: string;
+    onRefresh: () => void;
+    loading?: boolean;
+    title?: string;
 }
 
 const TopBar: React.FC<TopBarProps> = ({
-  dataStatus,
-  enginePid,
-  engineRunning,
-  circuitOpen,
-  lastSync,
-  accountMode,
-  onRefresh,
-  loading,
+    dataStatus,
+    enginePid,
+    engineRunning,
+    circuitOpen,
+    lastSync,
+    accountMode,
+    onRefresh,
+    loading,
+    title = '網格總控台',
 }) => {
   const mode = accountMode || 'unknown';
 
@@ -29,7 +31,7 @@ const TopBar: React.FC<TopBarProps> = ({
       <div className="topbar-left">
         <div className="topbar-title">
           <span className={`status-dot ${dataStatus === 'live' ? 'is-live' : dataStatus === 'stale' ? 'is-warning' : ''}`} />
-          <span>網格總控台</span>
+          <span>{title}</span>
         </div>
         <span className={`badge badge-${mode}`}>
           {mode.toUpperCase()}

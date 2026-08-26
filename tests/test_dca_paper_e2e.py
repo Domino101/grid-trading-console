@@ -138,6 +138,102 @@ class SupervisorPoolTests(unittest.IsolatedAsyncioTestCase):
             mg.create_exchange_adapter = original
 
 
+    async def test_run_single_dca_task_reaches_averaging_without_await_none(self):
+        """Phase 5 回歸：run_single_dca_task 對同步函式 auto_fill_dca_precision
+        誤用 await（await None → TypeError）曾使每台 PAPER DCA 一啟動即 failed。
+
+        以真實 PaperExchangeAdapter + 真實 YAML 跑完整 task：
+        必須註冊進 running_ref 且狀態機進入運行狀態（immediate 入場 →
+        基礎單即成交 → averaging），而非在 auto_fill 行異常終止。
+        """
+        import run_multiple_grids as mg
+
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        rel_path = "config/dca/dca-test-phase5-supervisor.yaml"
+        abs_path = os.path.join(project_root, rel_path)
+        yaml_text = (
+            "dca:\n"
+            "  exchange: binance\n"
+            f"  symbol: {SYMBOL}\n"
+            "  direction: long\n"
+            "  account_mode: paper\n"
+            "  quantity_precision: 6\n"
+            "  price_decimals: 2\n"
+            "  base_order_amount: '20'\n"
+            "  max_safety_orders: 5\n"
+            "  price_deviation_percent: '1.0'\n"
+            "  price_deviation_multiplier: '1.1'\n"
+            "  order_size_multiplier: '1.0'\n"
+            "  take_profit_percent: '1.0'\n"
+            "  active_safety_orders_window: 2\n"
+            "  monitoring_interval: 5\n"
+            "  repeat_after_take_profit: false\n"
+            "  entry:\n"
+            "    mode: immediate\n"
+        )
+
+        paper = create_paper_adapter(
+            {"grid_system": {"exchange": "binance", "symbol": SYMBOL,
+                             "account_mode": "paper"}},
+            ticker_provider=lambda _s: D("2500"),
+        )
+        await paper.connect()
+
+        class _FakePool:
+            async def get(self, _config_path):
+                return paper
+
+        running_ref = {}
+        logger = logging.getLogger("test_dca_supervisor_p5")
+        task = None
+        try:
+            with open(abs_path, "w", encoding="utf-8") as f:
+                f.write(yaml_text)
+            task = asyncio.create_task(
+                mg.run_single_dca_task(rel_path, _FakePool(), logger, running_ref, {})
+            )
+            deadline = asyncio.get_event_loop().time() + 15
+            while rel_path not in running_ref and asyncio.get_event_loop().time() < deadline:
+                await asyncio.sleep(0.05)
+            self.assertIn(rel_path, running_ref, "DCA task 未註冊（疑在 auto_fill 行異常終止）")
+
+            coordinator = running_ref[rel_path]["coordinator"]
+            # immediate 入場 + PAPER 即成交 → 應在數個監控週期內進入 averaging
+            deadline = asyncio.get_event_loop().time() + 25
+            while coordinator.state.status is not DcaStatus.AVERAGING \
+                    and asyncio.get_event_loop().time() < deadline:
+                if task.done():
+                    break
+                await asyncio.sleep(0.05)
+            self.assertEqual(
+                coordinator.state.status, DcaStatus.AVERAGING,
+                f"狀態機未進入 averaging: {coordinator.state.status} "
+                f"（last_error={coordinator.state.last_error!r}）",
+            )
+            # INV-2：averaging 中恰好 1 筆 TP；基礎單已成交（部位 > 0）
+            tp_count = sum(
+                1 for o in coordinator._active.values()
+                if o.role.name == "TAKE_PROFIT"
+            )
+            self.assertEqual(tp_count, 1)
+            self.assertGreater(coordinator.state.position_quantity, 0)
+        finally:
+            if rel_path in running_ref:
+                try:
+                    await running_ref[rel_path]["coordinator"].stop()
+                except Exception:
+                    pass
+            if task is not None:
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
+            if os.path.exists(abs_path):
+                os.remove(abs_path)
+            await paper.disconnect()
+
+
 class DcaRuntimeSnapshotPublishTests(unittest.TestCase):
     """稽核 3.17：publish_runtime() 後 snapshot 含 config/dca 鍵且 JSON 可還原。"""
 

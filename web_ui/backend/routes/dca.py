@@ -80,7 +80,7 @@ from schemas import (
     DcaStatsResponse,
 )
 from core.services.dca.config_loader import dca_account_mode_from_yaml
-from core.services.dca.ladder import build_ladder
+from core.services.dca.ladder import build_ladder, stop_loss_price, take_profit_price
 from core.services.dca.models.dca_config import DcaDirection
 
 logger = logging.getLogger("GridAPI.Dca")
@@ -202,6 +202,51 @@ def _build_dca_read_model(
     ladder = (runtime or {}).get("ladder") or {}
     profit = (runtime or {}).get("profit") or {}
 
+    # ── Phase 5 卡片欄位：入場設定（YAML）＋ 執行期導出值（純函式，前端禁止另算）──
+    entry_section = section.get("entry") if isinstance(section.get("entry"), Mapping) else {}
+    raw_indicators = entry_section.get("indicators") if isinstance(entry_section, Mapping) else None
+    entry_indicators: List[dict] = []
+    if isinstance(raw_indicators, list):
+        allowed = {
+            "type", "period", "oversold", "overbought", "fast", "slow", "signal",
+            "std_dev", "lookback_bars", "long_threshold_percent",
+            "short_threshold_percent", "condition",
+        }
+        for item in raw_indicators:
+            if not isinstance(item, Mapping) or item.get("type") is None:
+                continue
+            entry_indicators.append({k: item[k] for k in allowed if k in item})
+
+    # 方向解析：執行期鎖定方向優先；設定為單向時以設定值補位；both 且未鎖定 → None（G-5）
+    yaml_direction = section.get("direction")
+    effective_direction = (runtime or {}).get("active_direction")
+    if effective_direction not in ("long", "short"):
+        effective_direction = yaml_direction if yaml_direction in ("long", "short") else None
+
+    average_cost = _number(position.get("average_cost"))
+    take_profit_pct = _number(section.get("take_profit_percent"))
+    stop_loss_pct = _number(section.get("stop_loss_percent"))
+    derived_take_profit_price: Optional[float] = None
+    derived_stop_loss_price: Optional[float] = None
+    if effective_direction and average_cost is not None:
+        try:
+            if take_profit_pct is not None:
+                derived_take_profit_price = float(
+                    take_profit_price(average_cost, take_profit_pct, effective_direction)
+                )
+            if stop_loss_pct is not None:
+                derived_stop_loss_price = float(
+                    stop_loss_price(average_cost, stop_loss_pct, effective_direction)
+                )
+        except Exception as exc:  # 導出失敗絕不讓 snapshot 500；未知 → null
+            logger.warning("DCA 導出止損/止盈價失敗 [%s]: %s", bot_id, exc)
+
+    # armed 起算時間：最近一筆 start 命令的 created_at（無 → None）
+    armed_since = (
+        _number(command.get("created_at"))
+        if command and command.get("action") == "start" else None
+    )
+
     return {
         "bot_id": bot_id,
         "config_path": config_path,
@@ -239,6 +284,15 @@ def _build_dca_read_model(
         "max_safety_orders": _int(section.get("max_safety_orders")),
         "take_profit_percent": _number(section.get("take_profit_percent")),
         "stop_loss_percent": _number(section.get("stop_loss_percent")),
+        "entry_mode": str(entry_section.get("mode")) if isinstance(entry_section, Mapping) and entry_section.get("mode") else "immediate",
+        "entry_logic": str(entry_section.get("logic")) if isinstance(entry_section, Mapping) and entry_section.get("logic") else None,
+        "entry_timeframe": str(entry_section.get("timeframe")) if isinstance(entry_section, Mapping) and entry_section.get("timeframe") else None,
+        "entry_indicators": entry_indicators,
+        "entry_price": _number((runtime or {}).get("entry_price")),
+        "next_safety_order_price": _number((runtime or {}).get("next_safety_order_price")),
+        "take_profit_price": derived_take_profit_price,
+        "stop_loss_price": derived_stop_loss_price,
+        "armed_since": armed_since,
         "start_blocked_reason": start_rejection(mode, live_trading_enabled()),
     }
 
