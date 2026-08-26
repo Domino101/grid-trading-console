@@ -26,7 +26,10 @@ python -m unittest \
   tests.test_dca_yaml_generator \
   tests.test_dca_http_contract \
   tests.test_dca_snapshot \
-  tests.test_dca_frontend_contract
+  tests.test_dca_frontend_contract \
+  tests.test_dca_kline_repository \
+  tests.test_dca_replay_exchange \
+  tests.test_dca_replay_driver
 
 if [[ "${SKIP_FRONTEND:-}" == "1" ]]; then
   exit 0

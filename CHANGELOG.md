@@ -6,7 +6,45 @@
 
 ### Added
 
-- **DCA 即時圖表與回測子系統 — 完整開發計畫（尚未實作）**: 新增 `docs/dca_chart_backtest_plan_zh-TW.md`，接手 `docs/dca_bot_implementation_plan_zh-TW.md` §8 排除項中的「回測」與「TradingView 圖表」。切為 8 個 Phase（C1 K線資料層 / C2 ReplayExchange / C3 ReplayDriver / C4 指標與掃描 / C5 後端 API / C6 圖表基礎 / C7 回測工作台 / C8 E2E 與文件），預估 19 新檔、~6750 行（含 ~2550 行測試）、9–11 次對話，與 DCA 主案同量級。
+- **DCA 即時圖表與回測子系統 Phase C3 — `ReplayDriver` 回放驅動器（真 Coordinator + 真 Executor + 確定性與狀態守衛）**:
+  - **資料契約模型（`core/services/dca/backtest/models.py`）**: `TradeMark`（下單/基礎單成交/安全單成交/止盈/止損/略過標記）、`EquityPoint`（每棒權益、持倉量、攤平均價、狀態）、`CycleRecord`（輪次索引、方向、進出場時間/價格、安全單成交數、MFE%/MAE%、持倉棒數、出場原因）、`BacktestRequest`、`BacktestResult`（§4.4 與 §4.5 凍結契約）。
+  - **回放驅動核心（`core/services/dca/backtest/replay_driver.py`）**:
+    - **BP-1 同源**: 實例化真正的 `DcaCoordinator` 與 `DcaOrderExecutor`，對接 `ReplayExchange`，禁止存在第二套執行器或階梯數學（反證 grep 0 命中）。
+    - **R-8 熔斷固定關閉**: 注入 `circuit_probe = lambda: False`，實盤熔斷狀態完全不干擾回測結果。
+    - **R-9 棒時間時鐘**: 注入 `time_fn = lambda: float(candles[i].ts)`，`cooldown_seconds` 嚴格依 K 棒時間計算，避免毫秒級回放導致冷卻失效。
+    - **R-10 資料邊界無未来函数**: `ohlcv_provider` 僅回傳 `<= i` 的 closes 切片；前視注入測試（40 棒後投毒 +100%）驗證 40 棒前的所有決策與標記 100% 不受未來數據影響。
+    - **每棒狀態不變量守衛**:
+      - `INV-1`: `status == ARMED` 時交易所在世掛單數必須為 0，`active_direction` 為 None。
+      - `INV-2`: `status == AVERAGING` 且持倉 > 0 時，交易所 TP 掛單必須恰好 1 張。
+      - `INV-6`: 單方向互斥，禁止同時存在多方向掛單，cooling/armed 下 `active_direction` 為 None。
+    - **顯示層時間蓋章**: 每棒 diff `coord.fills_snapshot()` 副本並蓋上棒時間 `bar.ts`，絕不修改 `coord._fills` 原物件（3.10 測試鎖定）。
+    - **次棒撮合與漏斗推送**: 棒 `i` 決策送單，棒 `i+1` 依 R-4 保守順序（安全單先、TP 後）撮合並透過 `handle_ws_fill` 推入成交漏斗。
+    - **誠實揭露與指標**: 數據結束時仍持倉標註 `exit_reason="end_of_data"`（未實現損益如實以最後收盤評價，3.13）；計算 §4.5 凍結指標（ROI, buy&hold, alpha, MDD, exposure, MFE/MAE, profit_factor）；輸出 D-11 簡化揭露警示。
+  - **測試與驗證（`tests/test_dca_replay_driver.py`）**: 新增 14 項單元測試，覆蓋 C3 稽核項 3.1～3.14 全部斷言點；已登錄 `scripts/ci.sh` 與 `docs/github-actions-ci.yml`；全量後端 CI **273 項全綠**（基線 259 + 新增 14），前端測試 36/36 通過，build 與 lint 零新增錯誤。
+  - **效能基準**: 3000 根 15m 棒回測吞吐量達 > 2000 bars/sec（遠超 > 500 bars/sec 基準）。
+  - **零回歸保證**: `core/services/grid/` 與 `run_grid_trading.py` 零變更。
+
+- **DCA 即時圖表與回測子系統 Phase C2 — `ReplayExchange` 撮合器（凍結規則 R-1 ～ R-13）**:
+  - **K 棒模型與序列工具（`core/services/dca/backtest/candles.py`）**: `Candle` 凍結 dataclass（`ts, open, high, low, close, volume`）；`__post_init__` 嚴格校驗高低價合規性；全純函式、純 Decimal 實作（prec=28，零 I/O）。
+  - **確定性撮合交易所（`core/services/dca/backtest/replay_exchange.py`）**:
+    - **R-1 無未来函数**: 棒 `i` 送出的限價單記 `placed_bar=i`，僅在棒 `j > i` 參與撮合，徹底杜絕當棒秒成交與利潤高估（RC-1）。
+    - **R-2 / R-3 限價單撮合與跳空成交價**: 買單條件 `low <= price`，成交價 `= min(open, price)`；賣單條件 `high >= price`，成交價 `= max(open, price)`（跳空以更優的開盤價成交）。
+    - **R-4 同棒多單保守順序**: 同棒不利優先原則（做多：安全買單由高到低先結算，再結算止盈賣單；做空相反）。
+    - **R-5 市價止損單**: 於觸發棒以 `open` 成交，內建跳空滑價保守估計。
+    - **R-6 不模擬部分成交**: 整張成交（v1 簡化），模組 docstring 明確揭露。
+    - **duck-typing 契約完全相容**: 實作 `create_order` / `cancel_order` / `get_open_orders` / `get_order` / `get_ticker`，可無縫對接真 `DcaOrderExecutor`。
+    - **零 I/O 與 Decimal 純度**: 無任何檔案/網路/時鐘/睡眠呼叫（grep 0 命中），計算路徑 0 `float()`。
+  - **測試與驗證（`tests/test_dca_replay_exchange.py`）**: 新增 13 項單元測試，覆蓋 C2 稽核項 2.1～2.13 全部斷言點；已登錄 `scripts/ci.sh` 與 `docs/github-actions-ci.yml`；全量後端 CI **259 項全綠**（基線 246 + 新增 13），前端測試 36/36 通過，build 與 lint 零新增錯誤。
+  - **零回歸保證**: `core/services/grid/` 與 `run_grid_trading.py` 零變更。
+
+- **DCA 即時圖表與回測子系統 Phase C1 — K 線歷史資料層（SQLite 快取 + 回填 + 汰換）**:
+  - **K 線儲存（`web_ui/backend/kline_repository.py`）**: 新增 `dca_klines` 表（`exchange, symbol, timeframe, ts, open, high, low, close, volume, synthetic, fetched_at`）；TEXT 儲存十進位價格字串防浮點漂移（K-3）；全參數化查詢防 SQL 注入（K-1，grep 0 命中）；冪等 upsert 且真實歷史資料絕不被合成資料降級覆寫（K-2）；等距缺棒偵測 `count_gaps()`；180 天過期資料自動汰換 `prune()`（K-4）。
+  - **K 線服務（`web_ui/backend/kline_service.py`）**: 快取優先讀取（S-1）；缺棒時分頁回填（S-2，單頁 ≤ 1000 根）；API 權重預算保護（S-3，最多 `KLINE_MAX_FETCH_PAGES=8` 頁，超額誠實標記 `data_status="stale"` 與 warning）；PAPER 模式呼叫 `PaperExchangeAdapter.get_ohlcv()` 產生可重現確定性合成 K 棒，`source="paper_synthetic"` 且 `synthetic=1`（S-4）；交易所異常/429 誠實降級為 `stale` 或 `unavailable`，絕不謊報 `live`（S-5）；非同步介面包裝 threadpool 執行，保證不阻塞事件迴圈（S-6）。
+  - **API 契約與端點（`schemas.py` + `web_ui/backend/routes/market.py`）**: 新增 `GET /api/v1/market/klines/{symbol:path}` 端點；支援 `exchange` / `timeframe` (1m/5m/15m/30m/1h/4h/1d) / `limit` (1~20000) / `until` / `account_mode`；輸出 `KlinesResponse` 契約（`candles[{t,o,h,l,c,v}], source, data_status, gaps, warnings, oldest_ts`）。
+  - **測試與驗證（`tests/test_dca_kline_repository.py`）**: 新增 12 項完整單元測試覆蓋 C1 稽核項 1.1～1.13；已登錄 `scripts/ci.sh` 與 `docs/github-actions-ci.yml`；全量後端 CI **246 項全綠**（基線 234 + 新增 12），前端測試 36/36 通過，build 與 lint 零新增錯誤。
+  - **零回歸保證**: `core/services/grid/` 與 `run_grid_trading.py` 零變更。
+
+- **DCA 即時圖表與回測子系統 — 完整開發計畫**: 新增 `docs/dca_chart_backtest_plan_zh-TW.md`，接手 `docs/dca_bot_implementation_plan_zh-TW.md` §8 排除項中的「回測」與「TradingView 圖表」。切為 8 個 Phase（C1 K線資料層 / C2 ReplayExchange / C3 ReplayDriver / C4 指標與掃描 / C5 後端 API / C6 圖表基礎 / C7 回測工作台 / C8 E2E 與文件），預估 19 新檔、~6750 行（含 ~2550 行測試）、9–11 次對話，與 DCA 主案同量級。
   - **兩條可證偽性質**: BP-1（回測必須走真 `DcaCoordinator` + 真 `DcaOrderExecutor`，禁止第二套階梯/指標數學）、BP-2（回測零交易所寫入、零 `active_dca.json` 副作用）。
   - **凍結資料契約**: `dca_klines` SQLite 表（TEXT 存十進位、180 天保留期、全參數化）、撮合規則 R-1～R-13（次棒才撮合、跳空以開盤價成交、同棒保守順序、棒時間時鐘、熔斷固定關閉）、績效指標定義（含 buy&hold 與 alpha 為必要指標、未知值一律 `None`）、四個新端點、圖表標記與價格線語意表。
   - **決策凍結 D-6～D-11**（經使用者確認）: lightweight-charts（含 rule-07 豁免條件 E-6.1～E-6.5）、複用 Coordinator 回放、單一回放＋參數掃描、SQLite K 線快取、即時圖表以「已收線 K 棒＋snapshot 補最後一根」免新增 WS、撮合簡化事項必須在 API 與 UI 同時揭露。
