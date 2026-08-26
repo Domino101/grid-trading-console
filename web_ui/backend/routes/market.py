@@ -20,8 +20,23 @@ if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
 from auth import verify_token
-from schemas import MarketInfoResponse, GridRecommendationResponse, MarketRankingsResponse
+from schemas import (
+    MarketInfoResponse,
+    GridRecommendationResponse,
+    MarketRankingsResponse,
+    MarketIndicatorsResponse,
+)
 from grid_recommendation import generate_recommendation_sync, get_market_rankings_sync
+from core.services.dca.indicators.bollinger import evaluate as evaluate_bollinger
+from core.services.dca.indicators.config import (
+    BollingerConfig,
+    MacdConfig,
+    PriceChangeConfig,
+    RsiConfig,
+)
+from core.services.dca.indicators.macd import evaluate as evaluate_macd
+from core.services.dca.indicators.price_change import evaluate as evaluate_price_change
+from core.services.dca.indicators.rsi import evaluate as evaluate_rsi
 
 logger = logging.getLogger("GridAPI.Market")
 
@@ -31,6 +46,7 @@ router = APIRouter(prefix="/api/v1/market", tags=["market"])
 
 # ── 記憶體快取 ──
 _market_cache: dict = {}
+_indicators_cache: dict = {}
 _CACHE_TTL = 60  # 秒
 
 
@@ -277,5 +293,98 @@ async def get_market_rankings(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"獲取市場年化排行榜失敗: {str(e)}",
         )
+
+
+@router.get("/indicators/{symbol:path}", response_model=MarketIndicatorsResponse)
+async def get_market_indicators(
+    symbol: str,
+    exchange: str = Query(default="binance", description="交易所名稱"),
+    timeframe: str = Query(default="15m", description="K 線時框（所有指標共用）"),
+    limit: int = Query(default=300, ge=100, le=500, description="取樣根數"),
+    _token: str = Depends(verify_token),
+):
+    """
+    指標即時值（供 DCA 精靈預覽 + 詳情面板）。
+
+    60 秒記憶體快取（稽核 4.19）；ccxt 同步呼叫以 run_in_executor 包裝（稽核 4.20）。
+    """
+    import asyncio
+
+    cache_key = f"{exchange.lower()}:{symbol}:{timeframe}:{limit}"
+    if cache_key in _indicators_cache:
+        cached_data, cached_at = _indicators_cache[cache_key]
+        if time.time() - cached_at < _CACHE_TTL:
+            cached_data.cached = True
+            return cached_data
+
+    loop = asyncio.get_running_loop()
+    payload = await loop.run_in_executor(
+        None, _compute_indicators_sync, symbol, exchange, timeframe, limit
+    )
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"無法取得 {symbol} 的 K 線資料 (exchange={exchange})",
+        )
+    _indicators_cache[cache_key] = (payload, time.time())
+    return payload
+
+
+def _fetch_ohlcv_sync(symbol: str, exchange: str, timeframe: str, limit: int):
+    """同步拉取 OHLCV（由 run_in_executor 包裝）。"""
+    import ccxt
+    exchange_class = getattr(ccxt, exchange.lower(), None)
+    if exchange_class is None:
+        return None
+    ex = exchange_class({"enableRateLimit": True, "options": {"defaultType": "swap"}})
+    return ex.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+
+
+def _compute_indicators_sync(symbol: str, exchange: str, timeframe: str, limit: int) -> Optional[MarketIndicatorsResponse]:
+    """同步計算四種指標；無資料時回傳 None。"""
+    try:
+        rows = _fetch_ohlcv_sync(symbol, exchange, timeframe, limit)
+    except Exception as e:
+        logger.warning("指標端點拉取 OHLCV 失敗 (%s:%s): %s", exchange, symbol, e)
+        return None
+    if not rows:
+        return None
+    # 丟棄最後一根未收線 K 棒（運算約定 1）
+    closes = [float(row[4]) for row in rows[:-1]]
+    current_price = float(rows[-1][4])
+    if len(closes) < 2:
+        return None
+
+    rsi = evaluate_rsi(closes, RsiConfig(), direction="long")
+    macd = evaluate_macd(closes, MacdConfig(), direction="long")
+    bollinger = evaluate_bollinger(closes, BollingerConfig(), direction="long")
+    price_change = evaluate_price_change(closes, PriceChangeConfig(), direction="long")
+
+    def _result(result) -> dict:
+        return {
+            "value": result.value,
+            "triggered_long": result.triggered,
+            "triggered_short": None,
+            "insufficient_data": result.insufficient_data,
+            "warmup_have": result.warmup_have,
+            "warmup_need": result.warmup_need,
+            "as_of": result.as_of,
+            "details": result.details,
+        }
+
+    data_status = "live" if closes and len(closes) >= 2 else "unavailable"
+    return MarketIndicatorsResponse(
+        symbol=symbol,
+        exchange=exchange,
+        timeframe=timeframe,
+        fetch_limit=limit,
+        current_price=current_price,
+        rsi=_result(rsi),
+        macd=_result(macd),
+        bollinger=_result(bollinger),
+        price_change=_result(price_change),
+        data_status=data_status,
+        cached=False,
+    )
 
 

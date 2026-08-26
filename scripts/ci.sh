@@ -22,7 +22,10 @@ python -m unittest \
   tests.test_dca_coordinator \
   tests.test_dca_config_loader \
   tests.test_dca_ohlcv_cache \
-  tests.test_dca_paper_e2e
+  tests.test_dca_paper_e2e \
+  tests.test_dca_yaml_generator \
+  tests.test_dca_http_contract \
+  tests.test_dca_snapshot
 
 if [[ "${SKIP_FRONTEND:-}" == "1" ]]; then
   exit 0
