@@ -752,6 +752,31 @@ async def get_dca_ladder(bot_id: str, _token: str = Depends(verify_token)):
     active_dca = _read_active_dca()
     model = _build_dca_read_model(config_path, active_dca)
     runtime = GridStateStore.instance().get(config_path)
+
+    # Phase 7：引擎已提供實際階梯槽位（含三態）→ 直接回傳，避免前端與重算漂移
+    runtime_slots = (runtime or {}).get("ladder_slots")
+    if isinstance(runtime_slots, list) and runtime_slots:
+        levels = [
+            DcaLevelView(
+                index=_int(slot.get("index")) or 0,
+                role=str(slot.get("role") or ("base" if slot.get("index") == 0 else "safety")),
+                status=str(slot.get("status") or "waiting"),
+                planned_price=_number(slot.get("planned_price")),
+                planned_quantity=_number(slot.get("planned_quantity")),
+                actual_price=_number(slot.get("actual_price")),
+                filled_price=_number(slot.get("filled_price")),
+                filled_quantity=_number(slot.get("filled_quantity")),
+            )
+            for slot in runtime_slots
+            if isinstance(slot, Mapping)
+        ]
+        return DcaLadderResponse(
+            bot_id=bot_id,
+            available=True,
+            data_status=model["data_status"],
+            levels=levels,
+        )
+
     current_price = _number((runtime or {}).get("current_price"))
     if current_price is None:
         return DcaLadderResponse(
@@ -801,19 +826,44 @@ async def get_dca_ladder(bot_id: str, _token: str = Depends(verify_token)):
 # ────────────────────────────────────────────────────────
 @router.get("/{bot_id}/orders", response_model=DcaOrdersResponse)
 async def get_dca_orders(bot_id: str, _token: str = Depends(verify_token)):
+    _validate_bot_id(bot_id)
+    config_path = DcaYAMLGenerator.path_from_bot_id(bot_id)
+    runtime = GridStateStore.instance().get(config_path)
+    if runtime is None:
+        return DcaOrdersResponse(
+            bot_id=bot_id,
+            available=False,
+            message="引擎尚未提供 DCA 掛單資料",
+        )
+    orders = runtime.get("open_orders")
+    if not isinstance(orders, list):
+        # 引擎心跳存在但尚未帶掛單欄位（例如 armed 零掛單）→ 空陣列而非不可用
+        orders = []
     return DcaOrdersResponse(
         bot_id=bot_id,
-        available=False,
-        message="引擎尚未提供 DCA 掛單資料",
+        available=True,
+        orders=orders,
     )
 
 
 @router.get("/{bot_id}/fills", response_model=DcaFillsResponse)
 async def get_dca_fills(bot_id: str, _token: str = Depends(verify_token)):
+    _validate_bot_id(bot_id)
+    config_path = DcaYAMLGenerator.path_from_bot_id(bot_id)
+    runtime = GridStateStore.instance().get(config_path)
+    if runtime is None:
+        return DcaFillsResponse(
+            bot_id=bot_id,
+            available=False,
+            message="引擎尚未提供 DCA 成交資料",
+        )
+    fills = runtime.get("fills")
+    if not isinstance(fills, list):
+        fills = []
     return DcaFillsResponse(
         bot_id=bot_id,
-        available=False,
-        message="引擎尚未提供 DCA 成交資料",
+        available=True,
+        fills=fills,
     )
 
 

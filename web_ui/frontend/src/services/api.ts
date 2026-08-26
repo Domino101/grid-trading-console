@@ -491,6 +491,91 @@ export interface DcaActionResponse {
     command_id: string | null;
 }
 
+// ── DCA 詳情工作台（Phase 7）契約 ────────────────────────────────
+// 全部走同源 /api/v1/dca/*；未知一律 null（G-5），不以 0 代替。
+
+export interface DcaInfoResponse {
+    bot_id: string;
+    config_path: string;
+    symbol: string | null;
+    exchange: string | null;
+    direction: string | null;
+    status: string;
+    mode: string | null;
+    data_status: DataStatus;
+    command_id: string | null;
+    command_status: string | null;
+    current_price: number | null;
+    avg_price: number | null;
+    position_quantity: number | null;
+    filled_safety_orders: number | null;
+    active_safety_orders: number | null;
+    cycle_count: number | null;
+    unrealized_pnl: number | null;
+    base_order_amount: number | null;
+    max_safety_orders: number | null;
+    take_profit_percent: number | null;
+}
+
+export interface DcaStatsResponse {
+    bot_id: string;
+    status: string;
+    data_status: DataStatus;
+    last_updated_at: number | null;
+    current_price: number | null;
+    active_direction: string | null;
+    position: DcaPosition | null;
+    ladder: DcaLadderState | null;
+    cycles: number | null;
+    profit: DcaProfit | null;
+}
+
+export interface DcaLevelView {
+    index: number;
+    role: 'base' | 'safety' | (string & {});
+    status: 'filled' | 'active' | 'waiting' | (string & {});
+    planned_price: number | null;
+    planned_quantity: number | null;
+    actual_price: number | null;
+    filled_price: number | null;
+    filled_quantity: number | null;
+}
+
+export interface DcaLadderResponse {
+    bot_id: string;
+    available: boolean;
+    data_status: DataStatus | (string & {});
+    levels: DcaLevelView[];
+    message: string | null;
+}
+
+export interface DcaOrdersResponse {
+    bot_id: string;
+    available: boolean;
+    orders: Array<Record<string, unknown>>;
+    message: string | null;
+}
+
+export interface DcaFillsResponse {
+    bot_id: string;
+    available: boolean;
+    fills: Array<Record<string, unknown>>;
+    message: string | null;
+}
+
+export interface DcaEvent {
+    bot_id: string;
+    event_type: string;
+    status: string;
+    detail: string | null;
+    occurred_at: number;
+}
+
+export interface DcaEventListResponse {
+    bot_id: string;
+    events: DcaEvent[];
+}
+
 export interface DcaPreviewLevel {
     index: number;
     deviation_percent: number | null;
@@ -834,6 +919,32 @@ export const api = {
 
     async getDcaSnapshot(signal?: AbortSignal): Promise<DcaSnapshotResponse> {
         return requestJson('/v1/dca/snapshot', { headers: authHeaders(), signal }, '無法讀取 DCA 總覽');
+    },
+
+    // ── DCA 詳情工作台（Phase 7）：階梯 / 訂單 / 成交 / 事件 / 設定 ──
+
+    async getDcaBot(botId: string, signal?: AbortSignal): Promise<DcaInfoResponse> {
+        return requestJson(`/v1/dca/${encodeURIComponent(botId)}`, { headers: authHeaders(), signal }, `無法讀取 DCA ${botId}`);
+    },
+
+    async getDcaStats(botId: string, signal?: AbortSignal): Promise<DcaStatsResponse> {
+        return requestJson(`/v1/dca/${encodeURIComponent(botId)}/stats`, { headers: authHeaders(), signal }, `無法讀取 DCA ${botId} 統計`);
+    },
+
+    async getDcaLadder(botId: string, signal?: AbortSignal): Promise<DcaLadderResponse> {
+        return requestJson(`/v1/dca/${encodeURIComponent(botId)}/ladder`, { headers: authHeaders(), signal }, `無法讀取 DCA ${botId} 階梯`);
+    },
+
+    async getDcaOrders(botId: string, signal?: AbortSignal): Promise<DcaOrdersResponse> {
+        return requestJson(`/v1/dca/${encodeURIComponent(botId)}/orders`, { headers: authHeaders(), signal }, `無法讀取 DCA ${botId} 掛單`);
+    },
+
+    async getDcaFills(botId: string, signal?: AbortSignal): Promise<DcaFillsResponse> {
+        return requestJson(`/v1/dca/${encodeURIComponent(botId)}/fills`, { headers: authHeaders(), signal }, `無法讀取 DCA ${botId} 成交`);
+    },
+
+    async listDcaEvents(botId: string, signal?: AbortSignal): Promise<DcaEventListResponse> {
+        return requestJson(`/v1/dca/${encodeURIComponent(botId)}/events`, { headers: authHeaders(), signal }, `無法讀取 DCA ${botId} 事件`);
     },
 
     async startDca(botId: string, source: string = 'dashboard', idempotencyKey = crypto.randomUUID()): Promise<DcaActionResponse> {

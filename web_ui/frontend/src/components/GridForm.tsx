@@ -115,6 +115,8 @@ const GridForm: React.FC<GridFormProps> = ({
 
   useEffect(() => {
     if (initialConfig) {
+      // 由策略市場帶入的初始設定：一次性同步到表單狀態（prop → state 同步）。
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFormData((prev) => ({
         ...prev,
         ...initialConfig,

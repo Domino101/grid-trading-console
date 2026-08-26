@@ -2381,3 +2381,158 @@
   color: var(--accent-amber);
   font-weight: 600;
 }
+
+/* ════════════════════════════════════════════════════════════════
+   DCA 詳情工作台（Phase 7）
+   規則：只用既有 --* token，不新增平行色票（延續稽核 5.19）。
+   ════════════════════════════════════════════════════════════════ */
+
+/* 階梯狀態表：三態徽章 + 圖例 + 當前價列高亮 */
+.dca-ladder-detail-table .dca-slot-badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--radius-full);
+  font-size: 0.7rem;
+  font-weight: 600;
+  border: 1px solid var(--border-subtle);
+}
+
+.dca-slot-badge.dca-slot-filled {
+  background: var(--trading-green-bg);
+  color: var(--trading-green);
+  border-color: var(--trading-green-border);
+}
+
+.dca-slot-badge.dca-slot-active {
+  background: var(--accent-amber-bg);
+  color: var(--accent-amber);
+  border-color: var(--accent-amber-border);
+}
+
+.dca-slot-badge.dca-slot-waiting {
+  background: var(--bg-input);
+  color: var(--text-muted);
+}
+
+.dca-slot-badge.dca-slot-skipped {
+  background: var(--trading-red-bg);
+  color: var(--trading-red);
+  border-color: var(--trading-red-border);
+}
+
+.dca-ladder-price-row {
+  box-shadow: inset 3px 0 0 var(--accent-primary);
+}
+
+.dca-ladder-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+  margin-top: 0.75rem;
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+}
+
+.dca-ladder-legend .dca-legend-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 0.35rem;
+  vertical-align: middle;
+}
+
+.dca-legend-dot.dca-slot-filled { background: var(--trading-green); }
+.dca-legend-dot.dca-slot-active { background: var(--accent-amber); }
+.dca-legend-dot.dca-slot-waiting { background: var(--text-muted); }
+.dca-legend-avg { color: var(--accent-primary); }
+.dca-legend-current { color: var(--text-primary); }
+
+/* 分頁控制（成交長列表，稽核 7.9） */
+.dca-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1rem;
+  font-size: 0.82rem;
+}
+
+/* 事件時間線 */
+.dca-event-timeline {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+}
+
+.dca-event-item {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.dca-event-item:last-child { border-bottom: none; }
+
+.dca-event-dot {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-top: 0.35rem;
+  background: var(--text-muted);
+}
+
+.dca-event-item.tone-positive .dca-event-dot { background: var(--trading-green); }
+.dca-event-item.tone-negative .dca-event-dot { background: var(--trading-red); }
+.dca-event-item.tone-warning .dca-event-dot { background: var(--accent-amber); }
+
+.dca-event-body { flex: 1; min-width: 0; }
+
+.dca-event-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.dca-event-detail {
+  margin: 0.25rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+
+/* 設定唯讀網格 + YAML 檢視 */
+.dca-specs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.6rem 1.25rem;
+}
+
+.dca-specs-grid dt {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-bottom: 0.15rem;
+}
+
+.dca-specs-grid dd {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.dca-yaml-view {
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.85rem 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  overflow-x: auto;
+  max-height: 420px;
+  white-space: pre;
+}

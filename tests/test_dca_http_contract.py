@@ -370,6 +370,75 @@ class DcaHttpContractTests(unittest.TestCase):
         self.assertTrue(second.json()["cached"])
         self.assertTrue(third.json()["cached"])
 
+    # ── Phase 7：詳情端點讀取引擎快照（orders / fills / ladder） ──
+    def test_detail_endpoints_read_engine_runtime_snapshot(self):
+        from grid_state_store import GridStateStore
+        created = self._create()
+        self.assertEqual(created.status_code, 201, created.text)
+        bot_id = created.json()["bot_id"]
+        config_path = created.json()["config_path"]
+
+        # 引擎心跳寫入含詳情快照的 runtime
+        GridStateStore.instance().update(config_path, {
+            "status": "averaging",
+            "current_price": 2450.0,
+            "active_direction": "long",
+            "position": {"quantity": 0.016, "average_cost": 2460.0, "total_cost": 39.36},
+            "ladder": {"max_safety_orders": 20, "filled_safety_orders": 1,
+                       "active_safety_orders": 2, "take_profit_orders": 1},
+            "profit": {"realized": 0.0, "unrealized": -0.16, "fees": 0.02},
+            "open_orders": [
+                {"client_order_id": "dca_x_long_tp", "role": "take_profit",
+                 "side": "sell", "price": 2484.6, "quantity": 0.016, "notional": 39.75},
+                {"client_order_id": "dca_x_long_so02", "role": "safety",
+                 "side": "buy", "price": 2420.0, "quantity": 0.008, "notional": 19.36},
+            ],
+            "fills": [
+                {"client_order_id": "dca_x_long_base", "role": "base", "side": "buy",
+                 "price": 2500.0, "quantity": 0.008, "fee": 0.008,
+                 "cumulative_avg_price": 2500.0, "occurred_at": 1_700_000_000.0},
+            ],
+            "ladder_slots": [
+                {"index": 0, "role": "base", "status": "filled",
+                 "planned_price": 2500.0, "planned_quantity": 0.008},
+                {"index": 1, "role": "safety", "status": "filled",
+                 "planned_price": 2480.0, "planned_quantity": 0.008},
+                {"index": 2, "role": "safety", "status": "active",
+                 "planned_price": 2420.0, "planned_quantity": 0.008},
+            ],
+        })
+
+        orders = self.client.get(f"/api/v1/dca/{bot_id}/orders", headers=self._headers())
+        self.assertEqual(orders.status_code, 200, orders.text)
+        obody = orders.json()
+        self.assertTrue(obody["available"])
+        self.assertEqual(len(obody["orders"]), 2)
+        self.assertEqual(sum(1 for o in obody["orders"] if o["role"] == "take_profit"), 1)
+
+        fills = self.client.get(f"/api/v1/dca/{bot_id}/fills", headers=self._headers())
+        self.assertEqual(fills.status_code, 200, fills.text)
+        fbody = fills.json()
+        self.assertTrue(fbody["available"])
+        self.assertEqual(fbody["fills"][0]["role"], "base")
+        self.assertIn("cumulative_avg_price", fbody["fills"][0])
+
+        ladder = self.client.get(f"/api/v1/dca/{bot_id}/ladder", headers=self._headers())
+        self.assertEqual(ladder.status_code, 200, ladder.text)
+        lbody = ladder.json()
+        self.assertTrue(lbody["available"])
+        statuses = {lv["index"]: lv["status"] for lv in lbody["levels"]}
+        self.assertEqual(statuses[0], "filled")
+        self.assertEqual(statuses[2], "active")
+
+    def test_orders_endpoint_unavailable_without_runtime(self):
+        created = self._create()
+        bot_id = created.json()["bot_id"]
+        orders = self.client.get(f"/api/v1/dca/{bot_id}/orders", headers=self._headers())
+        self.assertEqual(orders.status_code, 200, orders.text)
+        body = orders.json()
+        self.assertFalse(body["available"])
+        self.assertEqual(body["orders"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

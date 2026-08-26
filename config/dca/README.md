@@ -72,3 +72,26 @@ dca:
 
 監督者讀取 `config/active_dca.json`（`{config_path: bool}`）熱插拔啟動/停止
 DCA 機器人，語意與 `active_grids.json` 對稱。該檔已被 `.gitignore` 排除。
+
+## 4. 歸檔目錄
+
+刪除 DCA 機器人時，YAML 會被移動到 `config/dca/archived/`（而非直接刪除），
+供事後稽核。該目錄已被 `.gitignore` 排除，不進版控。
+
+## 5. REST 端點對照（供詳情工作台）
+
+| 端點 | 用途 |
+|---|---|
+| `GET /api/v1/dca/snapshot` | 大盤批次快照（單次讀取，禁止 N+1） |
+| `POST /api/v1/dca/preview` | 階梯試算（純函式，直接呼叫 `build_ladder()`） |
+| `GET /api/v1/dca/{bot_id}` | 單台基本資訊 |
+| `GET /api/v1/dca/{bot_id}/stats` | 執行期統計（均價/持倉/盈虧/階梯計數） |
+| `GET /api/v1/dca/{bot_id}/ladder` | 當前實際階梯（引擎槽位三態，否則重算） |
+| `GET /api/v1/dca/{bot_id}/orders` | 交易所掛單（引擎 runtime 快照回填；armed 為空） |
+| `GET /api/v1/dca/{bot_id}/fills` | 歷史成交（含手續費與累積均價） |
+| `GET /api/v1/dca/{bot_id}/events` | 生命週期事件時間線（含 `tp_replaced` 等） |
+| `POST /api/v1/dca/{bot_id}/start` \| `/stop` | 啟動 / 停止（停止僅撤單不平倉） |
+| `DELETE /api/v1/dca/{bot_id}` | 刪除（YAML 歸檔、runtime 清除） |
+
+> `orders` / `fills` / `ladder` 在引擎尚未提供 runtime 心跳前回傳
+> `available: false`；此時 UI 顯示對應說明而非 `0`（G-5 未知即未知）。

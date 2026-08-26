@@ -146,9 +146,10 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenGrid, onCreateNew, onUnauth
   };
 
   // Filter and search grids
+  const grids = snapshot?.grids;
   const filteredGrids = useMemo(() => {
-    if (!snapshot?.grids) return [];
-    return snapshot.grids.filter((grid) => {
+    if (!grids) return [];
+    return grids.filter((grid) => {
       const matchSearch =
         !searchQuery ||
         (grid.symbol && grid.symbol.toLowerCase().includes(searchQuery.toLowerCase())) ||
@@ -164,21 +165,21 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenGrid, onCreateNew, onUnauth
 
       return true;
     });
-  }, [snapshot?.grids, searchQuery, filterMode]);
+  }, [grids, searchQuery, filterMode]);
 
   const aggregate = snapshot?.aggregate;
   const totalEquity = useMemo(() => {
-    if (!snapshot?.grids) return null;
+    if (!grids) return null;
     let sum = 0;
     let count = 0;
-    for (const g of snapshot.grids) {
+    for (const g of grids) {
       if (g.equity != null) {
         sum += g.equity;
         count++;
       }
     }
     return count > 0 ? sum : null;
-  }, [snapshot?.grids]);
+  }, [grids]);
 
   return (
     <main className="dashboard" aria-busy={loading}>

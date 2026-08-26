@@ -10,7 +10,6 @@ import {
     Activity,
     Cpu,
     ShieldAlert,
-    X,
 } from 'lucide-react';
 import {
     api,
@@ -24,6 +23,7 @@ import { isDcaRunningStatus } from '../utils/dca';
 import ConfirmDialog from './ConfirmDialog';
 import DcaCard from './DcaCard';
 import DcaTable from './DcaTable';
+import DcaDetail from './DcaDetail';
 import KpiCard from './KpiCard';
 import TopBar from './TopBar';
 
@@ -181,6 +181,17 @@ const DcaDashboard: React.FC<DcaDashboardProps> = ({ onCreateNew, onUnauthorized
         ? (snapshot?.bots ?? []).find((b) => b.bot_id === detailBot.bot_id) ?? detailBot
         : null;
 
+    // Phase 7：選取機器人後切換為完整詳情工作台（六分頁）
+    if (detailCurrent) {
+        return (
+            <DcaDetail
+              bot={detailCurrent}
+              onBack={() => setDetailBot(null)}
+              onUnauthorized={onUnauthorized}
+            />
+        );
+    }
+
     return (
         <main className="dashboard dca-dashboard" aria-busy={loading}>
             {/* TopBar Telemetry（複用網格遙測；標題改為 DCA） */}
@@ -279,26 +290,6 @@ const DcaDashboard: React.FC<DcaDashboardProps> = ({ onCreateNew, onUnauthorized
                         {' · '}
                         運行: <strong>{snapshot.aggregate_paper.running_bots}/{snapshot.aggregate_paper.total_bots}</strong>
                     </div>
-                </section>
-            )}
-
-            {/* 詳情占位（Phase 7 提供完整工作台） */}
-            {detailCurrent && (
-                <section className="dca-detail-strip" aria-label="DCA 詳情">
-                    <div>
-                        <strong>{detailCurrent.symbol ?? detailCurrent.bot_id}</strong>
-                        <span className="text-muted" style={{ marginLeft: '0.6rem' }}>
-                            已選取 — 詳情工作台（階梯／訂單／成交／事件／指標）將於 Phase 7 提供。
-                        </span>
-                    </div>
-                    <button
-                      className="btn btn-outline"
-                      type="button"
-                      onClick={() => setDetailBot(null)}
-                      aria-label="關閉詳情"
-                    >
-                        <X size={14} />
-                    </button>
                 </section>
             )}
 
