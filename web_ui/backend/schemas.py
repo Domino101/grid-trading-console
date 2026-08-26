@@ -825,3 +825,29 @@ class MarketIndicatorsResponse(BaseModel):
     data_status: str = "unavailable"
     cached: bool = False
 
+
+# ── Phase C1：K 線歷史資料模型 ──
+
+class KlineCandle(BaseModel):
+    """單一 K 棒（OHLCV + 時間戳）。"""
+    t: int = Field(..., description="棒起點 unix 秒 (UTC)")
+    o: float = Field(..., description="開盤價")
+    h: float = Field(..., description="最高價")
+    l: float = Field(..., description="最低價")
+    c: float = Field(..., description="收盤價")
+    v: float = Field(..., description="成交量")
+
+
+class KlinesResponse(BaseModel):
+    """GET /api/v1/market/klines/{symbol} 回應。"""
+    symbol: str
+    exchange: str
+    timeframe: str
+    candles: List[KlineCandle]
+    source: str = Field(..., description="cache / exchange / paper_synthetic / cache+exchange")
+    data_status: str = Field(..., description="live / paper / stale / unavailable")
+    gaps: int = Field(default=0, description="缺棒數量")
+    warnings: List[str] = Field(default_factory=list)
+    oldest_ts: Optional[int] = Field(default=None, description="最早一根 K 棒 unix 秒")
+
+

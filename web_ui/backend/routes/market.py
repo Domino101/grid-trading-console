@@ -25,8 +25,11 @@ from schemas import (
     GridRecommendationResponse,
     MarketRankingsResponse,
     MarketIndicatorsResponse,
+    KlineCandle,
+    KlinesResponse,
 )
 from grid_recommendation import generate_recommendation_sync, get_market_rankings_sync
+from kline_service import KlineService
 from core.services.dca.indicators.bollinger import evaluate as evaluate_bollinger
 from core.services.dca.indicators.config import (
     BollingerConfig,
@@ -328,6 +331,66 @@ async def get_market_indicators(
         )
     _indicators_cache[cache_key] = (payload, time.time())
     return payload
+
+
+@router.get("/klines/{symbol:path}", response_model=KlinesResponse)
+async def get_klines(
+    symbol: str,
+    exchange: str = Query(default="binance", description="交易所名稱 (binance/lighter/hyperliquid/backpack/paper)"),
+    timeframe: str = Query(default="15m", description="K 線時框 (1m/5m/15m/30m/1h/4h/1d)"),
+    limit: int = Query(default=300, ge=1, le=20000, description="K 棒數量 (上限 20000)"),
+    until: Optional[int] = Query(default=None, description="結束時間戳 unix 秒"),
+    account_mode: Optional[str] = Query(default=None, description="paper 或 live"),
+    _token: str = Depends(verify_token),
+):
+    """
+    查詢歷史或合成 K 線資料（快取優先 + 缺棒回填）。
+
+    - 參數化 SQLite 快取優先 (S-1)
+    - 缺棒時分頁回填 (S-2, S-3)
+    - PAPER 模式合成 K 線 (S-4)
+    - 異常時誠實降級為 stale / unavailable (S-5)
+    - 以 threadpool 執行以避免阻塞事件迴圈 (S-6, 1.10)
+    """
+    if timeframe not in ("1m", "5m", "15m", "30m", "1h", "4h", "1d"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"不支援的 timeframe '{timeframe}'。僅支援 1m, 5m, 15m, 30m, 1h, 4h, 1d",
+        )
+
+    service = KlineService.instance()
+    result = await service.get_candles(
+        exchange=exchange,
+        symbol=symbol,
+        timeframe=timeframe,
+        limit=limit,
+        until=until,
+        account_mode=account_mode,
+    )
+
+    candles = [
+        KlineCandle(
+            t=c.ts,
+            o=float(c.open),
+            h=float(c.high),
+            l=float(c.low),
+            c=float(c.close),
+            v=float(c.volume),
+        )
+        for c in result.candles
+    ]
+
+    return KlinesResponse(
+        symbol=result.symbol,
+        exchange=result.exchange,
+        timeframe=result.timeframe,
+        candles=candles,
+        source=result.source,
+        data_status=result.data_status,
+        gaps=result.gaps,
+        warnings=result.warnings,
+        oldest_ts=result.oldest_ts,
+    )
 
 
 def _fetch_ohlcv_sync(symbol: str, exchange: str, timeframe: str, limit: int):
