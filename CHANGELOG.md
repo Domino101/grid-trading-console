@@ -6,12 +6,23 @@
 
 ### Added
 
+- **DCA 機器人 Phase 3 — 設定持久化、OHLCV 快取與監督者整合（熱插拔）**:
+  - **設定載入（`core/services/dca/config_loader.py` + `config/dca/`）**: YAML dict → `DcaConfig`（分層：程式預設 ← defaults ← 個別 YAML）；`dca_account_mode_from_yaml()` 對未標 `account_mode` 判為 `unknown`（不得自動視為 paper，稽核 3.4）；缺 `symbol` / `base_order_amount` 產出明確中文錯誤（稽核 3.3）；未知欄位以 warning 列出（稽核 3.2）；`dca_config_to_dict()` 支援 YAML 往返一致（稽核 3.1）；`auto_fill_dca_precision()` 於執行期由 registry markets 填入缺省精度。新增 `config/dca/README.md` 與 `config/dca/example-dca-paper-eth.yaml`。
+  - **共享 OHLCV 快取（`core/services/dca/market_data/ohlcv_cache.py`）**: 以 `(exchange, symbol, timeframe)` 去重；`asyncio.Lock` 防 cache stampede（稽核 3.7）；TTL = min(timeframe, 60s)（稽核 3.8）；交易所失敗時回傳上一份快取並標記 `stale=True`、無快取時回傳 `None`（稽核 3.9）；儲存時丟棄最後一根未收線 K 棒（運算約定 1）；`provider(exchange)` 直接接 `EntryMonitor`。實測 5 台同 symbol+timeframe 一 TTL 內底層呼叫 = 1（稽核 3.6）。
+  - **PAPER 合成 K 線（`core/adapters/exchanges/adapters/paper.py`）**: `get_ohlcv()` 以 symbol 穩定 hash 為 seed 的確定性隨機遊走生成可重現 K 線，`raw_data={'synthetic': True}`（稽核 3.10/3.11）；`get_order()` 支援 client_order_id 反查；`create_order` 讀取 `client_order_id` 參數（DCA 命名空間冪等鍵）。
+  - **監督者整合（`run_multiple_grids.py`）**: 新增 `run_single_dca_task()` 與 `active_dca_monitor()`；DCA 共用 `ExchangeAdapterPool`（同一交易所 1 個 adapter 實例，稽核 3.16）；`config/active_dca.json` 5s 熱插拔啟動/停止（稽核 3.12/3.13）；找不到設定檔或 `start_rejection` 即時發 `failed` 且同路徑不重複刷錯誤（稽核 3.14）；頂層 `except Exception` 只結束自己這條 task、發 `failed` lifecycle，**絕不向上拋**（R-1，稽核 3.15）；runtime 統計以 `publish_runtime()` 寫入 SQLite（稽核 3.17）；DCA 檔名 `dca-*` 前綴保證 `bot_id` 與 `grid_id` 命名空間隔離（稽核 3.18）。
+  - **小修正**: `DcaCoordinator` 在 TP / 止損平倉成交後將 `state.position_quantity` 歸零，使 §4.6「completed 持倉 0」與 runtime 統計一致。
 - **DCA 機器人 Phase 2 — 執行引擎與狀態機（armed → triggering → averaging → completed 迴圈）**:
   - **下單執行層（`core/services/dca/interfaces/` + `execution/`）**: `IDcaOrderExecutor` 抽象介面 + `DcaOrderExecutor` 包裝 ExchangeInterface；下單前查 `BinanceRest._is_adapter_circuit_open()` 與 `GridEngineImpl._shared_api_circuit_until` 雙熔斷源（唯讀複用，G-1/G-2 未觸）；熔斷中回 `DEFERRED_CIRCUIT_OPEN` 絕不送交易所寫入；價格 ROUND_HALF_EVEN / 數量 ROUND_DOWN quantize；低於 `min_notional` 直接拒絕並記錄（不送交易所）；失敗分類 `PLACED / REJECTED_MIN_NOTIONAL / DEFERRED_CIRCUIT_OPEN / ERROR`。
   - **主協調器（`core/services/dca/coordinator/`）**: `DcaCoordinator` 驅動完整狀態機；armed 期間交易所零掛單（INV-1）；基礎單成交後建階梯 → TP 先行掛出（倉位即刻受保護）→ min(window, N) 安全單遞補窗口；安全單成交 → 原子重掛 TP（嚴格 cancel-then-place）；急跌穿透窗口時以現價重新對齊剩餘槽位並記錄 `window_realigned`（跳過層不重置配額，INV-3 下單總次數 ≤ N）；曝險上限 `max_position_notional` 以「已成交成本 + 在掛安全單名目 + 本張計畫名目」計口徑，觸及記錄 `position_cap_reached` 且停止再攤平；成交統一漏斗（WS 推送 + REST 對帳雙路，`order_id` 去重）；`max_cycles` / `repeat_after_take_profit` / `cooldown_seconds` 循環語意。
   - **降級狀態（DEGRADED）**: TP cancel 成功但 place 失敗 → 轉 `degraded` 並逐輪自動重試（期間絕不回報正常狀態）；成功後自動回 `averaging`。狀態機新增 `degraded` 合法轉移（`averaging ⇄ degraded`）。
   - **工程約束**: 全部 `async def`（含 `pause()/resume()/stop()`，吸取網格教訓）；監控迴圈以 `while self._running` 終止；`start()` 建立的 task 全註冊 `self._tasks`、`stop()` 逐一 cancel + await（歸零驗證）；`stop()` 撤單不平倉且冪等；套件零 `print(`、零同步 sleep（靜態掃描測試把關）；direction=both 經 `DirectionLock` 單向互斥＋`both_tiebreak`，跨輪可換向（`both_directions_matched` 事件）。
   - **測試**: `tests/test_dca_{executor,coordinator}.py` 共 40 項測試（FakeExchange 確定性驅動，覆蓋計畫 Phase 2 稽核 2.1–2.21 全部斷言點，含 INV-1 全實管線 20 輪零掛單）；登入 `scripts/ci.sh` 與 `docs/github-actions-ci.yml`。全量後端 CI 157 項測試全綠，網格既有測試零回歸（稽核 2.22）。
+
+### Testing
+
+- 新增 `tests/test_dca_config_loader.py`（稽核 3.1–3.4）、`tests/test_dca_ohlcv_cache.py`（稽核 3.6–3.9/3.11）、`tests/test_dca_paper_e2e.py`（稽核 3.10/3.11/3.19，PAPER 全迴路 armed → 觸發 → 基礎單 → ≥2 安全單 → TP → completed，斷言 INV-1..INV-4）。
+- `scripts/ci.sh` 與 `docs/github-actions-ci.yml` 已登錄三個新模組。
 
 ## [Unreleased] — 2026-08-25
 

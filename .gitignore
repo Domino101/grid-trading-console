@@ -152,6 +152,7 @@ out.txt
 .DS_Store
 data/
 config/active_grids.json
+config/active_dca.json
 .grid_api_token
 *.db
 *.sqlite

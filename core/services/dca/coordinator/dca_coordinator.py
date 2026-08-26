@@ -534,6 +534,8 @@ class DcaCoordinator:
         if outcome.kind is OutcomeKind.PLACED:
             self._realize_profit(mark, self.state.position_quantity,
                                  DcaOrderRole.STOP_LOSS)
+            # 市價平倉完成：引擎持倉同步歸零（§4.6 completed 持倉 0）
+            self.state.position_quantity = Decimal("0")
             self._flag_round_finished = True
         else:
             self._fail(RuntimeError(f"止損平倉失敗: {outcome.reason}"))
@@ -566,6 +568,8 @@ class DcaCoordinator:
         role = order.role
         if role is DcaOrderRole.TAKE_PROFIT:
             self._realize_profit(price, qty, role)
+            # TP 全數平倉：交易所端持倉已歸零，引擎狀態同步為 0（§4.6 completed 持倉 0）
+            self.state.position_quantity = Decimal("0")
             self._flag_round_finished = True
             return
         # 倉位與成本一律以正數量累計；損益符號於實現/未實現損益計算時依方向處理

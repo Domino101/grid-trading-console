@@ -1,0 +1,63 @@
+# =============================================================================
+# DCA 機器人範例（PAPER 模式，ETH/USDC:USDC）
+# =============================================================================
+# 此範例不會被自動啟動（不在 config/active_dca.json 中）。
+# 載入檢查：python3 -c "from core.services.dca.config_loader import load_dca_config
+#   import yaml; c=load_dca_config(yaml.safe_load(open('config/dca/example-dca-paper-eth.yaml')))
+#   print(c.symbol, c.direction, c.max_safety_orders, c.account_mode)"
+# =============================================================================
+
+dca:
+  exchange: "binance"
+  symbol: "ETH/USDC:USDC"
+  direction: "long"
+  account_mode: "paper"
+
+  leverage: 10
+  margin_mode: "isolated"
+  quantity_precision: 6
+  price_decimals: 2
+  fee_rate: "0.0004"
+
+  # ── 入場（Bot start condition）──
+  # indicator 模式；此範例以 RSI <= 30 作為做多入場條件。
+  entry:
+    mode: "indicator"
+    logic: "all"
+    timeframe: "15m"
+    fetch_limit: 300
+    price_source: "close"
+    confirm_bars: 1
+    max_wait_seconds: null
+    indicators:
+      - type: "rsi"
+        period: 14
+        oversold: 30
+        overbought: 70
+        condition: "level"
+
+  # ── DCA 階梯 ──
+  base_order_amount: "20"
+  amount_unit: "quote"
+  dca_mode: "order"
+  averaging_method: "fixed_value"
+  max_safety_orders: 20
+  price_deviation_percent: "0.8"
+  price_deviation_multiplier: "1.2"
+  order_size_multiplier: "1.0"
+
+  # ── 出場與風控 ──
+  take_profit_percent: "1.0"
+  take_profit_order_type: "limit"
+  stop_loss_percent: null
+  max_position_notional: null
+  repeat_after_take_profit: true
+  cooldown_seconds: 300
+  max_cycles: null
+  both_tiebreak: "long_first"
+
+  # ── 運行參數 ──
+  active_safety_orders_window: 5
+  monitoring_interval: 15
+  indicator_refresh_interval: 60
+  order_health_check_interval: 300
