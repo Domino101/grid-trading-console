@@ -6,6 +6,15 @@
 
 ### Added
 
+- **DCA 機器人 Phase 6 — 建立 DCA 精靈（4 步 + 即時階梯試算）**:
+  - **精靈（`DcaForm.tsx`）**: 4 步（General / Entry / DCA / Summary）＋成功卡片；Step 1 自動 market/info 精度確認（404 → 明確「找不到交易對」，未確認不可前進，稽核 6.4）；Step 2 Immediate/Indicator 二選一；Step 3 §4.2-C 全欄位（含止損、循環、雙向 tiebreak）；Step 4 回顧清單＋LIVE `CONFIRM LIVE` 二次確認（文案含交易對、方向、所需資金、最大跌幅，稽核 6.14）；市場資料與 preview 皆 debounce＋`AbortController` 可取消（6.16）。
+  - **指標設定（`IndicatorConfigPanel.tsx`）**: RSI/MACD/BB/Price Change 四種獨立啟用，**每個參數皆可編輯**（含 condition 下拉、時框、取樣根數，稽核 6.7/6.8b）；§4.3 凍結預設值預填（6.8）；即時值面板顯示「value（條件 成立✓/不成立✗）」，資料不足顯示「資料不足」而非 0（6.9）；Price Change `lookback_bars` 旁顯示「24 根 × 15m = 6 小時」連動換算（6.8c）。
+  - **Summary 面板（`DcaLadderPreview.tsx`）**: 所有數值**直讀** `POST /api/v1/dca/preview` 回應欄位（required_capital / max_drawdown_percent / final_take_profit_price / levels[]…），檔案級零階梯運算（稽核 6.2 grep 0 命中、Python 契約把關）；完整階梯表（基礎單＋20 張安全單）；`direction=both` 同時顯示多空兩組階梯並標示「同一時刻只會執行其中一個方向、required = max 非相加」（6.5）；資金口徑：`available=null` 一律 unknown（本版本無 DCA 專屬餘額端點，EX-6.15），不足時 LIVE 紅警＋禁用送出、PAPER 僅警告（6.15 結構就位）。
+  - **純函式（`utils/dca.ts` 擴充）**: `canAdvanceDcaStep`（步驟推進規則，6.13）、`buildDcaPreviewRequest`/`buildDcaCreateRequest`（純映射＋精度帶入，6.4/6.6/6.7）、`validateDcaEntry`/`validateDcaStep3`（前端輔助校驗，後端 422 為最終把關，6.12）、`formatLookbackTime`、`dcaFundsStatus`、`selectDcaSummary`；`§4.3` 凍結預設常數（`DCA_RSI_DEFAULTS` 等）。
+  - **API client（`api.ts` 擴充）**: `DcaCreateRequest`/`DcaCreateResponse`/`MarketIndicatorsResponse`/`DcaIndicatorRequest` 型別；`createDca()`；`getMarketIndicators(symbol, exchange, timeframe, limit, signal)`；`previewDca()` 支援 `signal` 取消。
+  - **測試**: `web_ui/frontend/tests/dca-form.test.ts`（13 項：§4.3 預設、步驟推進、payload 映射、lookback 換算、資金口徑、Summary 選取）＋ `tests/test_dca_frontend_contract.py` 追加 14 項（Python 鏡像＋檔案級契約：DcaLadderPreview 零運算 token、Summary 直讀 preview 欄位、精靈元件零 grid/dashboard 端點、preview/create 端點接線、GridForm 未被 Phase 6 觸及）。
+  - **App 整合（`App.tsx`）**: 「建立 DCA」tab 由占位頁換成 `DcaForm`（成功後一鍵返回 DCA 總覽，6.17）；`App.css` 追加精靈區塊（全用既有 token，零 6-digit hex）。
+
 - **DCA 機器人 Phase 5 — 前端 DCA 分頁（總覽 + 卡片 + 表格）**:
   - **API client 擴充（`web_ui/frontend/src/services/api.ts`）**: `DcaSnapshot`/`DcaBot`/`DcaLadder`/`DcaPosition`/`DcaProfit`/`DcaAggregate`/`DcaActionResponse` 型別與 `getDcaSnapshot()`/`startDca()`/`stopDca()`/`deleteDca()`/`previewDca()`；每次刷新恰好 1 次 `/api/v1/dca/snapshot`（稽核 5.4，無 N+1）；全同源相對 URL（稽核 5.3）。
   - **總覽頁（`DcaDashboard.tsx`）**: LIVE/PAPER 雙 aggregate 不混算、symbol/狀態/關鍵字篩選、卡片/表格切換（`localStorage` 記憶）、10 秒輪詢（`inFlight` guard + `AbortController` + `nextPollDelay` 退避 + 頁面隱藏降頻，稽核 5.5/5.6）、stale 資料橫幅與最後同步時間（稽核 5.10）、每卡獨立 action state（稽核 5.13）。
@@ -43,6 +52,7 @@
 - 新增 `tests/test_dca_config_loader.py`（稽核 3.1–3.4）、`tests/test_dca_ohlcv_cache.py`（稽核 3.6–3.9/3.11）、`tests/test_dca_paper_e2e.py`（稽核 3.10/3.11/3.19，PAPER 全迴路 armed → 觸發 → 基礎單 → ≥2 安全單 → TP → completed，斷言 INV-1..INV-4）。
 - `scripts/ci.sh` 與 `docs/github-actions-ci.yml` 已登錄三個新模組。
 - Phase 5 新增 `tests/test_dca_frontend_contract.py`（前後端契約鏡像，8 項）與 `web_ui/frontend/tests/dca.test.ts`（13 項）；全量後端 CI 212 項全綠（含 `run_single_dca_task` 回歸測試），前端 `npm test` 19/19、`tsc -b` 零錯誤。
+- Phase 6 新增 `web_ui/frontend/tests/dca-form.test.ts`（13 項）＋ `tests/test_dca_frontend_contract.py` 擴充至 22 項；全量後端 CI **226 項全綠**，前端 `npm test` **32/32**、`tsc -b` 零錯誤、lint 維持既有基線（4 error + 1 warning，零新增）、build 340.86 kB（gzip 95.92）。
 
 ## [Unreleased] — 2026-08-25
 

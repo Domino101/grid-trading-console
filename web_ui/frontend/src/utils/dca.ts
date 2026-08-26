@@ -190,3 +190,349 @@ export const dcaEntryText = (item: Pick<DcaSnapshotItem, 'entry_mode' | 'entry_l
     const names = (item.entry_indicators ?? []).map(indicatorChipText);
     return names.length > 0 ? `指標入場 ${logic}：${names.join(' · ')}` : `指標入場 ${logic}`;
 };
+
+
+// ════════════════════════════════════════════════════════════════
+// Phase 6：建立 DCA 精靈純函式
+// 規則：此檔只做「欄位映射」與「顯示層換算」，絕不做階梯數學（G-4 / 稽核 6.2）。
+// 所有 Summary 數值的來源是 POST /api/v1/dca/preview 的回應欄位。
+// ════════════════════════════════════════════════════════════════
+
+import type {
+    DcaCreateRequest,
+    DcaIndicatorRequest,
+    DcaPreviewRequest,
+    MarketInfo,
+} from '../services/api';
+
+export type DcaWizardMode = 'paper' | 'live';
+export type DcaEntryMode = 'immediate' | 'indicator';
+
+export interface DcaRsiParams {
+    enabled: boolean;
+    period: number;
+    oversold: number;
+    overbought: number;
+    condition: 'level' | 'cross_in' | 'cross_out';
+}
+
+export interface DcaMacdParams {
+    enabled: boolean;
+    fast: number;
+    slow: number;
+    signal: number;
+    condition: 'cross' | 'hist_sign' | 'zero_cross';
+}
+
+export interface DcaBollingerParams {
+    enabled: boolean;
+    period: number;
+    std_dev: number;
+    condition: 'touch' | 'break' | 'return';
+}
+
+export interface DcaPriceChangeParams {
+    enabled: boolean;
+    lookback_bars: number;
+    long_threshold_percent: number;
+    short_threshold_percent: number;
+}
+
+export interface DcaIndicatorParams {
+    rsi: DcaRsiParams;
+    macd: DcaMacdParams;
+    bollinger: DcaBollingerParams;
+    price_change: DcaPriceChangeParams;
+}
+
+// §4.3 凍結預設值（稽核 6.8：開啟指標時欄位預填值必須與此完全一致）。
+export const DCA_RSI_DEFAULTS = { period: 14, oversold: 30, overbought: 70, condition: 'level' as const };
+export const DCA_MACD_DEFAULTS = { fast: 12, slow: 26, signal: 9, condition: 'cross' as const };
+export const DCA_BOLLINGER_DEFAULTS = { period: 20, std_dev: 2.0, condition: 'touch' as const };
+export const DCA_PRICE_CHANGE_DEFAULTS = { lookback_bars: 24, long_threshold_percent: -3.0, short_threshold_percent: 3.0 };
+
+// §4.3.0 共用管線預設值（稽核 6.8 共用區）。
+export const DCA_ENTRY_DEFAULTS = {
+    mode: 'immediate' as DcaEntryMode,
+    logic: 'all' as const,
+    timeframe: '15m',
+    fetch_limit: 300,
+    price_source: 'close' as const,
+    confirm_bars: 1,
+};
+
+export const dcaIndicatorDefaults = (): DcaIndicatorParams => ({
+    rsi: { enabled: false, ...DCA_RSI_DEFAULTS },
+    macd: { enabled: false, ...DCA_MACD_DEFAULTS },
+    bollinger: { enabled: false, ...DCA_BOLLINGER_DEFAULTS },
+    price_change: { enabled: false, ...DCA_PRICE_CHANGE_DEFAULTS },
+});
+
+export interface DcaEntryWizard {
+    mode: DcaEntryMode;
+    logic: 'all' | 'any';
+    timeframe: string;
+    fetch_limit: number;
+    price_source: 'close' | 'hlc3' | 'ohlc4';
+    confirm_bars: number;
+    indicators: DcaIndicatorParams;
+}
+
+export interface DcaWizardForm {
+    // Step 1 — General
+    symbol: string;
+    exchange: string;
+    direction: DcaDirectionValue;
+    account_mode: DcaWizardMode;
+    // market/info 對「目前」symbol+exchange 成功過（稽核 6.4）；symbol/exchange 變更時重置。
+    marketInfoOk: boolean;
+    // Step 2 — Entry
+    entry: DcaEntryWizard;
+    // Step 3 — DCA
+    base_order_amount: number;
+    amount_unit: 'quote' | 'base';
+    dca_mode: 'order' | 'position';
+    averaging_method: 'fixed_value' | 'fixed_coin';
+    max_safety_orders: number;
+    price_deviation_percent: number;
+    order_size_multiplier: number;
+    price_deviation_multiplier: number;
+    take_profit_percent: number;
+    stop_loss_percent: number | null;
+    max_position_notional: number | null;
+    fee_rate: number | null;
+    leverage: number;
+    margin_mode: 'cross' | 'isolated';
+    repeat_after_take_profit: boolean;
+    cooldown_seconds: number;
+    max_cycles: number | null;
+    both_tiebreak: 'long_first' | 'short_first';
+    active_safety_orders_window: number;
+    monitoring_interval: number;
+}
+
+// 啟用指標 → 後端 DcaIndicatorConfig 欄位名（純映射，不補運算）。
+export const enabledDcaIndicators = (entry: DcaEntryWizard): DcaIndicatorRequest[] => {
+    if (entry.mode !== 'indicator') return [];
+    const list: DcaIndicatorRequest[] = [];
+    const rsi = entry.indicators.rsi;
+    if (rsi.enabled) list.push({ type: 'rsi', period: rsi.period, oversold: rsi.oversold, overbought: rsi.overbought, condition: rsi.condition });
+    const macd = entry.indicators.macd;
+    if (macd.enabled) list.push({ type: 'macd', fast: macd.fast, slow: macd.slow, signal: macd.signal, condition: macd.condition });
+    const bb = entry.indicators.bollinger;
+    if (bb.enabled) list.push({ type: 'bollinger', period: bb.period, std_dev: bb.std_dev, condition: bb.condition });
+    const pc = entry.indicators.price_change;
+    if (pc.enabled) {
+        list.push({
+            type: 'price_change',
+            lookback_bars: pc.lookback_bars,
+            long_threshold_percent: pc.long_threshold_percent,
+            short_threshold_percent: pc.short_threshold_percent,
+        });
+    }
+    return list;
+};
+
+// 共用管線 + 指標參數的前端輔助校驗（稽核 6.12：僅輔助，最終強制在後端）。
+export const validateDcaEntry = (entry: DcaEntryWizard): string[] => {
+    const errors: string[] = [];
+    if (!Number.isFinite(entry.fetch_limit) || entry.fetch_limit < 100 || entry.fetch_limit > 500) {
+        errors.push('取樣根數 fetch_limit 須介於 100–500');
+    }
+    if (!Number.isFinite(entry.confirm_bars) || entry.confirm_bars < 1 || entry.confirm_bars > 5) {
+        errors.push('確認 K 棒 confirm_bars 須介於 1–5');
+    }
+    if (!entry.timeframe.trim()) errors.push('請選擇 K 線時框');
+    if (entry.mode === 'indicator') {
+        if (enabledDcaIndicators(entry).length === 0) {
+            errors.push('指標模式至少要啟用一種指標（RSI / MACD / BB / Price Change）');
+        }
+        const p = entry.indicators;
+        const inRange = (label: string, value: number, min: number, max: number) => {
+            if (!Number.isFinite(value) || value < min || value > max) {
+                errors.push(`${label} 須介於 ${min}–${max}`);
+            }
+        };
+        inRange('RSI period', p.rsi.period, 2, 100);
+        inRange('RSI oversold', p.rsi.oversold, 1, 50);
+        inRange('RSI overbought', p.rsi.overbought, 50, 99);
+        inRange('MACD fast', p.macd.fast, 2, 100);
+        inRange('MACD slow', p.macd.slow, 3, 200);
+        inRange('MACD signal', p.macd.signal, 2, 50);
+        if (Number.isFinite(p.macd.fast) && Number.isFinite(p.macd.slow) && p.macd.slow <= p.macd.fast) {
+            errors.push('MACD slow 必須大於 fast');
+        }
+        inRange('BB period', p.bollinger.period, 2, 200);
+        inRange('BB std_dev', p.bollinger.std_dev, 0.5, 5.0);
+        inRange('PriceChange lookback_bars', p.price_change.lookback_bars, 1, 500);
+        inRange('PriceChange 多門檻%', p.price_change.long_threshold_percent, -100, 100);
+        inRange('PriceChange 空門檻%', p.price_change.short_threshold_percent, -100, 100);
+    }
+    return errors;
+};
+
+// Step 3 核心欄位的前端輔助校驗（同樣僅輔助；後端 422 為最終把關 — 稽核 6.12）。
+export const validateDcaStep3 = (form: DcaWizardForm): string[] => {
+    const errors: string[] = [];
+    if (!Number.isFinite(form.base_order_amount) || form.base_order_amount <= 0) {
+        errors.push('每單金額必須大於 0');
+    }
+    if (!Number.isInteger(form.max_safety_orders) || form.max_safety_orders < 1 || form.max_safety_orders > 50) {
+        errors.push('Max DCA orders 須為 1–50 的整數');
+    }
+    if (!Number.isFinite(form.price_deviation_percent) || form.price_deviation_percent <= 0) {
+        errors.push('Price deviation 必須大於 0');
+    }
+    if (!Number.isFinite(form.take_profit_percent) || form.take_profit_percent <= 0) {
+        errors.push('Take profit target(%) 必須大於 0');
+    }
+    if (form.stop_loss_percent != null && (!Number.isFinite(form.stop_loss_percent) || form.stop_loss_percent <= 0)) {
+        errors.push('Stop loss(%) 留空停用，填入時必須大於 0');
+    }
+    if (!Number.isInteger(form.leverage) || form.leverage < 1 || form.leverage > 125) {
+        errors.push('槓桿須為 1–125 的整數');
+    }
+    if (!Number.isInteger(form.monitoring_interval) || form.monitoring_interval < 5 || form.monitoring_interval > 300) {
+        errors.push('監控間隔須介於 5–300 秒');
+    }
+    return errors;
+};
+
+// 步驟推進規則（稽核 6.13；比照 utils/format.ts 的 canAdvanceCreateStep）。
+export const canAdvanceDcaStep = (
+    step: number,
+    form: DcaWizardForm,
+    liveConfirmation: string,
+): boolean => {
+    if (step === 1) {
+        return Boolean(form.symbol.trim()) && Boolean(form.exchange) && form.marketInfoOk;
+    }
+    if (step === 2) {
+        return validateDcaEntry(form.entry).length === 0;
+    }
+    if (step === 3) {
+        return validateDcaStep3(form).length === 0;
+    }
+    // step 4（Summary）：LIVE 需輸入 CONFIRM LIVE（稽核 6.14）。
+    return form.account_mode !== 'live' || liveConfirmation === 'CONFIRM LIVE';
+};
+
+// 由表單組出 preview 請求（純映射；entry_price 由呼叫端传入「目前價格」）。
+export const buildDcaPreviewRequest = (form: DcaWizardForm, entryPrice: number): DcaPreviewRequest => {
+    return {
+        symbol: form.symbol,
+        exchange: form.exchange,
+        direction: form.direction,
+        entry_price: entryPrice,
+        base_order_amount: form.base_order_amount,
+        amount_unit: form.amount_unit,
+        dca_mode: form.dca_mode,
+        averaging_method: form.averaging_method,
+        max_safety_orders: form.max_safety_orders,
+        price_deviation_percent: form.price_deviation_percent,
+        price_deviation_multiplier: form.price_deviation_multiplier,
+        order_size_multiplier: form.order_size_multiplier,
+        take_profit_percent: form.take_profit_percent,
+        stop_loss_percent: form.stop_loss_percent,
+        max_position_notional: form.max_position_notional,
+        fee_rate: form.fee_rate,
+        leverage: form.leverage,
+        margin_mode: form.margin_mode,
+        repeat_after_take_profit: form.repeat_after_take_profit,
+        cooldown_seconds: form.cooldown_seconds,
+        max_cycles: form.max_cycles,
+        both_tiebreak: form.both_tiebreak,
+        active_safety_orders_window: form.active_safety_orders_window,
+        monitoring_interval: form.monitoring_interval,
+        entry: {
+            mode: form.entry.mode,
+            logic: form.entry.logic,
+            timeframe: form.entry.timeframe,
+            fetch_limit: form.entry.fetch_limit,
+            price_source: form.entry.price_source,
+            confirm_bars: form.entry.confirm_bars,
+            indicators: enabledDcaIndicators(form.entry),
+        },
+    };
+};
+
+// 由表單組出建立請求（純映射）；精度來自 market/info（稽核 6.4）。
+export const buildDcaCreateRequest = (
+    form: DcaWizardForm,
+    entryPrice: number,
+    autoStart: boolean,
+    marketInfo: MarketInfo | null,
+): DcaCreateRequest => {
+    return {
+        ...buildDcaPreviewRequest(form, entryPrice),
+        account_mode: form.account_mode,
+        auto_start: autoStart,
+        quantity_precision: marketInfo?.quantity_precision ?? null,
+        price_decimals: marketInfo?.price_precision ?? null,
+    };
+};
+
+// lookback 時間換算（稽核 6.8c；顯示層換算，非階梯數學）：
+// 「24 根 × 15m = 6 小時」。timeframe 解析失敗或參數無效 → null。
+export const formatLookbackTime = (lookbackBars: number, timeframe: string): string | null => {
+    if (!Number.isFinite(lookbackBars) || lookbackBars <= 0) return null;
+    const m = /^(\d+)([smhd])$/.exec(timeframe.trim());
+    if (!m) return null;
+    const minutes = Number(m[1]) * { s: 1 / 60, m: 1, h: 60, d: 1440 }[m[2] as 's' | 'm' | 'h' | 'd'];
+    const totalMinutes = lookbackBars * minutes;
+    if (totalMinutes >= 1440) {
+        const days = Math.round((totalMinutes / 1440) * 10) / 10;
+        return `${lookbackBars} 根 × ${timeframe} = ${days} 天`;
+    }
+    if (totalMinutes >= 60) {
+        const hours = Math.round((totalMinutes / 60) * 10) / 10;
+        return `${lookbackBars} 根 × ${timeframe} = ${hours} 小時`;
+    }
+    const mins = Math.round(totalMinutes * 10) / 10;
+    return `${lookbackBars} 根 × ${timeframe} = ${mins} 分`;
+};
+
+// 6.15 資金口徑：後端目前沒有 DCA 專屬餘額端點 → available 為 null 時一律
+// 'unknown'（不得誤判為充足，也不得誤判為不足）。
+export type DcaFundsStatus = 'ok' | 'insufficient' | 'unknown';
+
+export const dcaFundsStatus = (required: number | null, available: number | null): DcaFundsStatus => {
+    if (required == null || available == null) return 'unknown';
+    return required > available ? 'insufficient' : 'ok';
+};
+
+// Summary 顯示用欄位選取（純選取，不做運算；數值全部來自 preview 回應 — 稽核 6.2）。
+// direction=both 時由呼叫端對 ladder_long / ladder_short 各取一次。
+export interface DcaSummarySelection {
+    requiredCapital: number | null;
+    maxDrawdownPercent: number | null;
+    maxSafetyDeviationPercent: number | null;
+    finalAveragePrice: number | null;
+    finalTakeProfitPrice: number | null;
+    entryPrice: number | null;
+}
+
+export const selectDcaSummary = (
+    requiredCapital: number | null,
+    ladder: { max_drawdown_percent: number; final_average_price: number; final_take_profit_price: number; entry_price: number; levels: Array<{ index: number; deviation_percent: number | null }> } | null,
+): DcaSummarySelection => {
+    if (!ladder) {
+        return {
+            requiredCapital,
+            maxDrawdownPercent: null,
+            maxSafetyDeviationPercent: null,
+            finalAveragePrice: null,
+            finalTakeProfitPrice: null,
+            entryPrice: null,
+        };
+    }
+    const last = ladder.levels.length > 0 ? ladder.levels[ladder.levels.length - 1] : null;
+    return {
+        requiredCapital,
+        maxDrawdownPercent: ladder.max_drawdown_percent,
+        maxSafetyDeviationPercent: last ? last.deviation_percent : null,
+        finalAveragePrice: ladder.final_average_price,
+        finalTakeProfitPrice: ladder.final_take_profit_price,
+        entryPrice: ladder.entry_price,
+    };
+};

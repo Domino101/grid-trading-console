@@ -1949,3 +1949,435 @@
     align-items: flex-start;
   }
 }
+
+/* ════════════════════════════════════════════════════════════════
+   DCA 建立精靈（Phase 6）
+   規則：只使用既有 --* 設計 token（稽核 5.19 延伸）；沿用既有
+   .stepper-header/.step-box/.form-fields-grid/.input-label/.mode-choice-card
+   等網格精靈元件，不新增平行樣式系統。
+   ════════════════════════════════════════════════════════════════ */
+
+.dca-wizard {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.dca-wizard-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+
+.dca-wizard-grid.with-summary {
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+}
+
+.dca-wizard-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  min-width: 0;
+}
+
+/* ── 指標設定面板 ── */
+
+.dca-indicator-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.dca-indicator-shared {
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 0.8rem 0.9rem;
+  background: var(--bg-input);
+}
+
+.dca-indicator-section-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+  color: var(--text-accent);
+  margin-bottom: 0.6rem;
+}
+
+.dca-shared-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.6rem;
+}
+
+.dca-indicator-note {
+  font-size: 0.72rem;
+  margin-top: 0.5rem;
+}
+
+.dca-indicator-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.dca-indicator-row {
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 0.7rem 0.85rem;
+  background: var(--bg-surface);
+}
+
+.dca-indicator-row.enabled {
+  border-color: var(--accent-primary);
+  box-shadow: inset 2px 0 0 var(--accent-primary);
+}
+
+.dca-indicator-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  cursor: pointer;
+}
+
+.dca-indicator-toggle input[type='checkbox'] {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent-primary);
+}
+
+.dca-indicator-params {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 0.6rem;
+  margin-top: 0.7rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.dca-param-input span:first-child {
+  font-size: 0.74rem;
+}
+
+.dca-lookback-hint {
+  align-self: center;
+  font-size: 0.74rem;
+  color: var(--text-accent);
+}
+
+.dca-indicator-live {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  align-self: center;
+  font-size: 0.78rem;
+  color: var(--text-primary);
+  grid-column: 1 / -1;
+}
+
+.dca-live-icon {
+  color: var(--accent-cyan);
+  flex-shrink: 0;
+}
+
+.dca-indicator-nodata {
+  margin: 0;
+  font-size: 0.78rem;
+}
+
+.dca-entry-mode-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.75rem;
+}
+
+.dca-field-error {
+  padding: 0.45rem 0.75rem;
+  font-size: 0.78rem;
+  margin-top: 0.5rem;
+}
+
+/* ── Step 1 市場資訊條 ── */
+
+.dca-market-info-strip {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 0.9rem;
+  min-height: 2.4rem;
+}
+
+.dca-market-info-strip > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.dca-market-info-ok {
+  color: var(--accent-primary);
+  flex-shrink: 0;
+}
+
+.dca-market-info-error {
+  color: var(--trading-red);
+}
+
+/* ── 精靈導航列 ── */
+
+.dca-wizard-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 0.9rem;
+}
+
+.dca-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.dca-checkbox input[type='checkbox'] {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent-primary);
+}
+
+/* ── Step 4 回顧清單 / LIVE 確認 ── */
+
+.dca-review-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.85rem 1rem;
+}
+
+.dca-review-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.84rem;
+  padding: 0.28rem 0;
+  border-bottom: 1px dashed var(--border-subtle);
+}
+
+.dca-review-row:last-child {
+  border-bottom: none;
+}
+
+.dca-review-row span {
+  color: var(--text-muted);
+}
+
+.dca-confirm-live-box {
+  display: flex;
+  gap: 0.6rem;
+  border: 1px solid var(--trading-red);
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+  background: var(--bg-input);
+}
+
+.dca-confirm-live-box > svg {
+  color: var(--trading-red);
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+}
+
+.dca-confirm-live-box input {
+  margin-top: 0.5rem;
+  width: 100%;
+}
+
+/* ── Summary 面板（DcaLadderPreview）── */
+
+.dca-ladder-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  padding: 1rem;
+  min-width: 0;
+  position: sticky;
+  top: 1rem;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+}
+
+.dca-ladder-preview-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.dca-ladder-preview-title {
+  font-size: 1rem;
+  margin: 0;
+}
+
+.dca-ladder-placeholder {
+  font-size: 0.84rem;
+  padding: 1.5rem 0.5rem;
+  text-align: center;
+}
+
+.dca-both-note {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  font-size: 0.78rem;
+  padding: 0.55rem 0.75rem;
+}
+
+.dca-strong {
+  font-weight: 700;
+}
+
+.dca-ladder-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.dca-ladder-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.9rem;
+}
+
+.dca-ladder-title {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-accent);
+}
+
+.dca-summary-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.5rem;
+}
+
+.dca-summary-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem;
+  background: var(--bg-input);
+}
+
+.dca-summary-kpi span {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.dca-summary-kpi strong {
+  font-size: 0.92rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.dca-summary-kpi-required {
+  border-color: var(--accent-primary);
+  box-shadow: inset 2px 0 0 var(--accent-primary);
+}
+
+.dca-ladder-table-wrap {
+  overflow-x: auto;
+}
+
+.dca-ladder-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.dca-ladder-table th {
+  text-align: left;
+  color: var(--text-muted);
+  font-weight: 600;
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+
+.dca-ladder-table td {
+  padding: 0.32rem 0.5rem;
+  border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+
+.dca-funds-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.dca-funds-warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--trading-red);
+  font-weight: 600;
+}
+
+/* ── 成功卡片（Step 5）── */
+
+.dca-success-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 2rem 1.5rem;
+  text-align: center;
+  max-width: 560px;
+  margin: 2rem auto;
+}
+
+.dca-success-icon {
+  color: var(--accent-primary);
+}
+
+.dca-success-bid {
+  font-size: 0.9rem;
+  word-break: break-all;
+  margin: 0;
+}
+
+.dca-success-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+}
+
+/* ── RWD：精靈 ── */
+
+@media (max-width: 980px) {
+  .dca-wizard-grid.with-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .dca-ladder-preview {
+    position: static;
+    max-height: none;
+  }
+}
+
+.dca-funds-caution {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--accent-amber);
+  font-weight: 600;
+}

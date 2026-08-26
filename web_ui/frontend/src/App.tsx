@@ -2,6 +2,7 @@ import React, { lazy, Suspense, useState, useEffect } from 'react';
 import { Activity, Menu, PlusCircle, BarChart3, Trophy, X, LogOut, Terminal, Repeat, Wand2 } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import DcaDashboard from './components/DcaDashboard';
+import DcaForm from './components/DcaForm';
 import GridForm, { type InitialGridConfig } from './components/GridForm';
 import MarketRankings from './components/MarketRankings';
 import LoginPage from './components/LoginPage';
@@ -258,20 +259,7 @@ const App: React.FC = () => {
         )}
 
         {activeTab === 'dca-create' && (
-          <main className="dca-dashboard">
-            <div className="glass-panel dca-create-placeholder">
-              <Wand2 size={28} style={{ color: 'var(--text-accent)' }} />
-              <h2>建立 DCA 機器人精靈</h2>
-              <p>
-                4 步精靈（General / Entry / DCA / Summary）與即時階梯試算將於 Phase 6 提供。
-                目前可先從「DCA 機器人」分頁查看與管理現有機器人。
-              </p>
-              <button className="btn btn-primary" type="button" onClick={() => go('dca')}>
-                <Repeat size={15} />
-                <span>回到 DCA 機器人</span>
-              </button>
-            </div>
-          </main>
+          <DcaForm onNavigateDashboard={() => go('dca')} />
         )}
       </div>
     </div>
