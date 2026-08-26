@@ -520,6 +520,21 @@ export interface DcaPreviewResponse {
     data_status: string;
 }
 
+export interface DcaIndicatorRequest {
+    type: 'rsi' | 'macd' | 'bollinger' | 'price_change';
+    period?: number | null;
+    oversold?: number | null;
+    overbought?: number | null;
+    fast?: number | null;
+    slow?: number | null;
+    signal?: number | null;
+    std_dev?: number | null;
+    lookback_bars?: number | null;
+    long_threshold_percent?: number | null;
+    short_threshold_percent?: number | null;
+    condition?: string | null;
+}
+
 export interface DcaEntryRequest {
     mode?: 'immediate' | 'indicator';
     logic?: 'all' | 'any';
@@ -528,7 +543,7 @@ export interface DcaEntryRequest {
     price_source?: 'close' | 'hlc3' | 'ohlc4';
     confirm_bars?: number;
     max_wait_seconds?: number | null;
-    indicators?: Array<Partial<DcaIndicatorView> & { type: string }>;
+    indicators?: DcaIndicatorRequest[];
 }
 
 export interface DcaPreviewRequest {
@@ -562,6 +577,47 @@ export interface DcaPreviewRequest {
     indicator_refresh_interval?: number;
     order_health_check_interval?: number;
     entry?: DcaEntryRequest;
+}
+
+export interface DcaCreateRequest extends DcaPreviewRequest {
+    account_mode: 'paper' | 'live';
+    auto_start?: boolean;
+    quantity_precision?: number | null;
+    price_decimals?: number | null;
+}
+
+export interface DcaCreateResponse {
+    bot_id: string;
+    config_path: string;
+    status: string; // created / pending_engine
+    yaml_content: string;
+    message: string;
+    command_id: string | null;
+}
+
+export interface MarketIndicatorResult {
+    value: number | null;
+    triggered_long: boolean | null;
+    triggered_short: boolean | null;
+    insufficient_data: boolean;
+    warmup_have: number | null;
+    warmup_need: number | null;
+    as_of: string | null;
+    details: Record<string, unknown> | null;
+}
+
+export interface MarketIndicatorsResponse {
+    symbol: string;
+    exchange: string;
+    timeframe: string;
+    fetch_limit: number;
+    current_price: number | null;
+    rsi: MarketIndicatorResult | null;
+    macd: MarketIndicatorResult | null;
+    bollinger: MarketIndicatorResult | null;
+    price_change: MarketIndicatorResult | null;
+    data_status: string;
+    cached: boolean;
 }
 
 const authHeaders = (idempotencyKey?: string): Headers => {
@@ -805,12 +861,32 @@ export const api = {
         );
     },
 
-    async previewDca(request: DcaPreviewRequest): Promise<DcaPreviewResponse> {
+    async previewDca(request: DcaPreviewRequest, signal?: AbortSignal): Promise<DcaPreviewResponse> {
         return requestJson('/v1/dca/preview', {
             method: 'POST',
             headers: authHeaders(),
             body: JSON.stringify(request),
+            signal,
         }, '無法試算 DCA 階梯');
+    },
+
+    async createDca(request: DcaCreateRequest): Promise<DcaCreateResponse> {
+        return requestJson('/v1/dca', {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify(request),
+        }, '無法建立 DCA 機器人');
+    },
+
+    async getMarketIndicators(
+        symbol: string,
+        exchange: string,
+        timeframe = '15m',
+        limit = 300,
+        signal?: AbortSignal,
+    ): Promise<MarketIndicatorsResponse> {
+        const qs = `?exchange=${encodeURIComponent(exchange)}&timeframe=${encodeURIComponent(timeframe)}&limit=${limit}`;
+        return requestJson(`/v1/market/indicators/${encodeURIComponent(symbol)}${qs}`, { headers: authHeaders(), signal }, '無法讀取指標即時值');
     },
 };
 
