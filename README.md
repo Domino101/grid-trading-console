@@ -23,6 +23,19 @@ gh auth login   # 必須是 Domino101，不是 Arena bot
 
 預設模擬盤起始權益 `PAPER_STARTING_EQUITY=10000`，手續費 `PAPER_FEE_RATE=0.0002`。
 
+### DCA 機器人（獨立分頁）
+
+除網格外，總控台另有與網格完全隔離的 **DCA（定期定額攤平）機器人** 分頁：
+
+- 啟動後先進入 `armed`（監控中）：入場條件成立前**交易所端零掛單**；觸發後才下基礎單 + 安全單階梯。
+- 攤平後以單一止盈單一次了結，隨每張安全單成交自動重掛止盈。
+- 支援 RSI / MACD / Bollinger / Price Change 四種入場指標，四者皆有可調參數。
+- 詳情工作台六分頁：階梯 / 訂單 / 成交 / 事件 / 指標 / 設定。
+- 設定與網格隔離：`config/dca/*.yaml`、`config/active_dca.json`（皆與 `config/grid/` 對稱）。
+- 與網格共用同一監督者進程（`run_multiple_grids.py`）與 Adapter 池，不增加 WS 連線或 API 權重。
+
+操作手冊見 [`docs/dca_bot_user_guide_zh-TW.md`](docs/dca_bot_user_guide_zh-TW.md)。本版本**不開啟 LIVE**（`GRID_LIVE_TRADING_ENABLED` 維持關閉）。
+
 ## 必要環境變數
 
 | 變數 | 說明 |
@@ -90,7 +103,11 @@ python3 -m unittest \
   tests.test_paper_grid_lifecycle_e2e \
   tests.test_frontend_format_contract \
   tests.test_dashboard_snapshot \
-  tests.test_web_ui_http_contract
+  tests.test_web_ui_http_contract \
+  tests.test_dca_ladder tests.test_dca_indicators tests.test_dca_config_and_state \
+  tests.test_dca_executor tests.test_dca_coordinator tests.test_dca_config_loader \
+  tests.test_dca_ohlcv_cache tests.test_dca_paper_e2e tests.test_dca_yaml_generator \
+  tests.test_dca_http_contract tests.test_dca_snapshot tests.test_dca_frontend_contract
 
 cd web_ui/frontend && npm test && npm run lint && npm run build
 ```
@@ -101,4 +118,7 @@ cd web_ui/frontend && npm test && npm run lint && npm run build
 
 - 稽核與修改計畫：`docs/grid_trading_console_audit_20260813_zh-TW.md`
 - 升級計畫：`docs/grid_trading_console_upgrade_plan_zh-TW.md`
+- DCA 機器人實作計畫：`docs/dca_bot_implementation_plan_zh-TW.md`
+- DCA 機器人使用手冊：`docs/dca_bot_user_guide_zh-TW.md`
+- DCA 機器人最終稽核報告：`docs/dca_bot_audit_report_zh-TW.md`
 - 變更紀錄：`CHANGELOG.md`

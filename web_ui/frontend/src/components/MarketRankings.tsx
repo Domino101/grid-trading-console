@@ -46,6 +46,8 @@ const MarketRankings: React.FC<MarketRankingsProps> = ({ onSelectSymbol, onUnaut
   };
 
   useEffect(() => {
+    // 交易所/週期變更時重新抓排行；fetchRankings 內含 setState（載入態）故此處抑制規則。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchRankings(exchange, period);
   }, [exchange, period]);
 

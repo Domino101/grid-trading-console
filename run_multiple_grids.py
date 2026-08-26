@@ -584,6 +584,13 @@ async def run_single_dca_task(config_path: str, adapter_pool, logger,
             stats_dict["exchange"] = exchange
             stats_dict["source"] = "dca_engine_runtime"
             stats_dict["synthetic"] = (getattr(adapter, "exchange", None) is None)
+            # Phase 7 詳情工作台：掛單 / 成交 / 階梯槽位快照（導出失敗不阻斷心跳）
+            try:
+                stats_dict["open_orders"] = coordinator.open_orders_snapshot()
+                stats_dict["fills"] = coordinator.fills_snapshot()
+                stats_dict["ladder_slots"] = coordinator.ladder_slots_snapshot()
+            except Exception as detail_err:
+                logger.warning(f"⚠️ [DCA {symbol}] 詳情快照建構失敗: {detail_err}")
             try:
                 publish_runtime(config_path, stats_dict)
             except Exception as persist_err:

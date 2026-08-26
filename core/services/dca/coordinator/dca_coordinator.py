@@ -88,6 +88,9 @@ class DcaCoordinator:
         self._realized_profit = Decimal("0")
         self._total_fees = Decimal("0")
 
+        # ── 成交歷史（Phase 7 詳情工作台「成交」tab；累積跨輪，不隨 round reset 清空）──
+        self._fills: List[dict] = []
+
         # ── task 生命週期 ──
         self._tasks: Set[asyncio.Task] = set()
         self._running = False
@@ -498,6 +501,13 @@ class DcaCoordinator:
         self._tp_client_id = new_tp.client_order_id
         self._active[new_tp.client_order_id] = new_tp
         self._pending_tp_replace = False
+        # 稽核 7.3：安全單成交後 TP 隨新均價重掛，事件時間線記錄 tp_replaced
+        self._emit("tp_replaced", {
+            "avg_price": str(avg),
+            "tp_price": str(new_tp.price),
+            "position_quantity": str(self.state.position_quantity),
+            "filled_safety_orders": self.state.filled_safety_count(),
+        })
         if self.state.status is DcaStatus.DEGRADED:
             self._transition(DcaStatus.AVERAGING)
 
@@ -566,6 +576,21 @@ class DcaCoordinator:
     def _apply_fill_effects(self, order: DcaOrder,
                             price: Decimal, qty: Decimal) -> None:
         role = order.role
+        # 成交歷史紀錄（Phase 7）：含手續費與成交後累積均價，供詳情「成交」tab
+        fee = price * qty * self._config.fee_rate
+        self._fills.append({
+            "client_order_id": order.client_order_id,
+            "role": role.value,
+            "side": order.side,
+            "slot_index": order.slot_index,
+            "price": float(price),
+            "quantity": float(qty),
+            "notional": float(price * qty),
+            "fee": float(fee),
+            "occurred_at": datetime.now(timezone.utc).timestamp(),
+            # 成交套用後的累積均價（TP 平倉後倉位歸零 → None）
+            "cumulative_avg_price": None,
+        })
         if role is DcaOrderRole.TAKE_PROFIT:
             self._realize_profit(price, qty, role)
             # TP 全數平倉：交易所端持倉已歸零，引擎狀態同步為 0（§4.6 completed 持倉 0）
@@ -585,6 +610,10 @@ class DcaCoordinator:
                     slot.mark_filled(price, qty)
                     break
             self._flag_safety_filled = True
+        # 回填此筆成交後的累積均價（供詳情「成交」tab 顯示均價變化）
+        avg = self.state.average_cost
+        if self._fills:
+            self._fills[-1]["cumulative_avg_price"] = float(avg) if avg is not None else None
 
     def _realize_profit(self, price: Decimal, qty: Decimal,
                         role: DcaOrderRole) -> None:
@@ -750,3 +779,75 @@ class DcaCoordinator:
                 spread = -spread
             stats.unrealized_profit = spread
         return stats
+
+    # ══════════════════ 詳情工作台快照（Phase 7）══════════════════
+
+    def open_orders_snapshot(self) -> List[dict]:
+        """當前在世掛單的顯示層快照（詳情「訂單」tab）。
+
+        僅回傳交易所端仍活躍（PLACED/PARTIAL）的追蹤單，含 role 標記。
+        """
+        rows: List[dict] = []
+        for order in self._active.values():
+            if not order.is_active_on_exchange():
+                continue
+            rows.append({
+                "client_order_id": order.client_order_id,
+                "order_id": order.order_id,
+                "role": order.role.value,
+                "side": order.side,
+                "price": float(order.price),
+                "quantity": float(order.quantity),
+                "notional": float(order.price * order.quantity),
+                "slot_index": order.slot_index,
+                "status": order.status.value,
+            })
+        rows.sort(key=lambda r: (r["role"], r.get("slot_index") or 0))
+        return rows
+
+    def fills_snapshot(self) -> List[dict]:
+        """歷史成交的顯示層快照（詳情「成交」tab）；累積跨輪。"""
+        return list(self._fills)
+
+    def ladder_slots_snapshot(self) -> List[dict]:
+        """當前虛擬階梯槽位狀態（詳情「階梯」tab）。
+
+        index 0 為基礎單，其後為安全單槽位；狀態三態：已成交/掛單中/未觸及。
+        """
+        rows: List[dict] = []
+        base_filled = self._base_order is not None and self._base_order.is_filled()
+        if self._base_order is not None:
+            rows.append({
+                "index": 0,
+                "role": "base",
+                "status": "filled" if base_filled else "active",
+                "planned_price": float(self._base_order.price),
+                "planned_quantity": float(self._base_order.quantity),
+                "filled_price": float(self._base_order.average_fill_price)
+                if self._base_order.average_fill_price is not None else None,
+                "filled_quantity": float(self._base_order.filled_quantity)
+                if self._base_order.filled_quantity else None,
+            })
+        for slot in self.state.safety_slots:
+            if slot.status is SlotStatus.FILLED:
+                status = "filled"
+            elif slot.status is SlotStatus.ACTIVE:
+                status = "active"
+            elif slot.status is SlotStatus.SKIPPED:
+                status = "skipped"
+            else:
+                status = "waiting"
+            rows.append({
+                "index": slot.index,
+                "role": "safety",
+                "status": status,
+                "planned_price": float(slot.planned_price),
+                "planned_quantity": float(slot.planned_quantity),
+                "actual_price": float(slot.actual_price)
+                if slot.actual_price is not None else None,
+                "filled_price": float(slot.filled_price)
+                if slot.filled_price is not None else None,
+                "filled_quantity": float(slot.filled_quantity)
+                if slot.filled_quantity else None,
+            })
+        return rows

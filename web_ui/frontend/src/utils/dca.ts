@@ -536,3 +536,71 @@ export const selectDcaSummary = (
         entryPrice: ladder.entry_price,
     };
 };
+
+
+// ════════════════════════════════════════════════════════════════
+// Phase 7：DCA 詳情工作台純函式
+// 規則：此區只做「狀態文案」與「顯示層換算」，絕不做階梯數學（G-4）。
+// 所有階梯價格/數量來自 GET /api/v1/dca/{id}/ladder（引擎快照或後端重算）。
+// ════════════════════════════════════════════════════════════════
+
+export type DcaSlotStatus = 'filled' | 'active' | 'waiting' | 'skipped' | (string & {});
+
+export interface DcaSlotStatusMeta {
+    label: string;
+    className: string;
+}
+
+// 階梯槽位三態（+skipped）文案與樣式（稽核 7.8）；語意不只靠顏色，皆含文字。
+export const DCA_SLOT_STATUS_META: Record<string, DcaSlotStatusMeta> = {
+    filled: { label: '已成交', className: 'dca-slot-filled' },
+    active: { label: '掛單中', className: 'dca-slot-active' },
+    waiting: { label: '未觸及', className: 'dca-slot-waiting' },
+    skipped: { label: '已略過', className: 'dca-slot-skipped' },
+};
+
+export const dcaSlotStatusMeta = (status: DcaSlotStatus): DcaSlotStatusMeta =>
+    DCA_SLOT_STATUS_META[status] ?? { label: status || '未知', className: 'dca-slot-waiting' };
+
+// DCA 事件類型 → 中文文案（詳情「事件」時間線；未知類型原樣回傳）。
+export const DCA_EVENT_LABELS: Record<string, string> = {
+    engine_lifecycle: '引擎生命週期',
+    tp_replaced: '止盈重掛',
+    window_realigned: '急跌重對齊',
+    position_cap_reached: '曝險上限',
+    safety_below_min_notional: '安全單低於最小名目',
+    stop_loss_triggered: '止損觸發',
+    both_directions_matched: '雙向命中（單方向互斥）',
+    command: '控制命令',
+};
+
+export const dcaEventLabel = (eventType: string | null | undefined): string =>
+    (eventType && DCA_EVENT_LABELS[eventType]) || (eventType ?? '事件');
+
+// 事件狀態語氣（決定時間線點的顏色類別）。
+export const dcaEventTone = (
+    eventType: string | null | undefined,
+    status: string | null | undefined,
+): 'positive' | 'negative' | 'warning' | 'neutral' => {
+    if (status === 'failed' || eventType === 'stop_loss_triggered') return 'negative';
+    if (status === 'running' || eventType === 'tp_replaced') return 'positive';
+    if (eventType === 'position_cap_reached'
+        || eventType === 'safety_below_min_notional'
+        || eventType === 'window_realigned') return 'warning';
+    return 'neutral';
+};
+
+// 訂單 role → 中文標記（詳情「訂單」tab）。
+export const DCA_ORDER_ROLE_LABELS: Record<string, string> = {
+    base: '基礎單',
+    safety: '安全單',
+    take_profit: '止盈單',
+    stop_loss: '止損單',
+};
+
+export const dcaOrderRoleLabel = (role: string | null | undefined): string =>
+    (role && DCA_ORDER_ROLE_LABELS[role]) || (role ?? '—');
+
+// 成交 side → 中文（buy/sell）。
+export const dcaSideLabel = (side: string | null | undefined): string =>
+    side === 'buy' ? '買入' : side === 'sell' ? '賣出' : (side ?? '—');

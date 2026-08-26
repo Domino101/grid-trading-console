@@ -6,6 +6,19 @@
 
 ### Added
 
+- **DCA 機器人 Phase 7 — DCA 詳情工作台、端到端驗收與交付文件**:
+  - **詳情工作台（`web_ui/frontend/src/components/DcaDetail.tsx`）**: 六分頁工作台（階梯 / 訂單 / 成交 / 事件 / 指標 / 設定），選取機器人卡片後由 `DcaDashboard` 切換為完整頁面。KPI 摘要與大盤卡片共用同一讀模型（stats + snapshot），確保均價/持倉/盈虧一致（稽核 7.7）；`armed` 狀態明確標示「監控中 · 交易所零掛單」且訂單分頁應為空（稽核 7.1）；成交分頁 50 筆分頁避免長列表卡頓（稽核 7.9）；錯誤路徑（下單被拒、熔斷、429、WS 斷線）以 `notice-error` 明確呈現、絕不顯示為正常（稽核 7.10）。
+  - **階梯狀態表（`web_ui/frontend/src/components/DcaLadderTable.tsx`）**: 完整安全單表（slot / 偏移% / 價格 / 數量 / 名目 / 狀態），已成交/掛單中/未觸及三態徽章（＋急跌略過），標出當前價列與均價線圖例（稽核 7.8）；純顯示，零階梯數學（G-4，檔案級契約 grep 0 命中）。
+  - **引擎詳情快照（`core/services/dca/coordinator/dca_coordinator.py`）**: 新增 `open_orders_snapshot()` / `fills_snapshot()` / `ladder_slots_snapshot()`；成交歷史 `_fills` 累積跨輪（含手續費與成交後累積均價）；安全單成交後 TP 隨新均價重掛時發 `tp_replaced` 事件（稽核 7.3）。
+  - **監督者發布（`run_multiple_grids.py`）**: DCA runtime 心跳追加 `open_orders` / `fills` / `ladder_slots` 快照欄位（導出失敗不阻斷心跳）。
+  - **後端端點補實（`web_ui/backend/routes/dca.py`）**: `GET /{id}/orders`、`GET /{id}/fills` 由引擎 runtime 快照回填（無 runtime → `available:false`）；`GET /{id}/ladder` 優先採用引擎實際槽位三態，退回 `build_ladder()` 重算。
+  - **API client（`api.ts` 擴充）**: `DcaInfoResponse`/`DcaStatsResponse`/`DcaLadderResponse`/`DcaOrdersResponse`/`DcaFillsResponse`/`DcaEventListResponse`/`DcaLevelView`/`DcaEvent` 型別與 `getDcaBot()`/`getDcaStats()`/`getDcaLadder()`/`getDcaOrders()`/`getDcaFills()`/`listDcaEvents()`。
+  - **純函式（`utils/dca.ts` 擴充）**: `dcaSlotStatusMeta`/`DCA_SLOT_STATUS_META`（階梯三態＋略過）、`dcaEventLabel`/`dcaEventTone`（事件時間線文案與語氣）、`dcaOrderRoleLabel`/`dcaSideLabel`。
+  - **交付文件**: 新增 `docs/dca_bot_user_guide_zh-TW.md`（使用者操作手冊：四種指標、階梯數學、armed 語意、風險說明）、`docs/dca_bot_audit_report_zh-TW.md`（Phase 1–7 五段式最終稽核報告）；`config/dca/README.md` 補詳情端點；`docs/dca_bot_phase7_worklog_20260826.md` 工作日誌。
+  - **測試**: `tests/test_dca_paper_e2e.py` 追加詳情快照 + `tp_replaced` 事件 E2E；`tests/test_dca_http_contract.py` 追加 orders/fills/ladder 讀取 runtime 端點測試；`tests/test_dca_frontend_contract.py` 追加詳情元件檔案級契約（六分頁、端點接線、分頁隔離、零階梯數學、armed 零掛單語意）；`web_ui/frontend/tests/dca.test.ts` 追加 Phase 7 純函式測試。
+  - **CI 修復（稽核 7.13 全綠）**: 修正 `Dashboard.tsx`/`GridForm.tsx`/`MarketRankings.tsx` 前既有的 4 項 React Compiler / `set-state-in-effect` lint error（Phase 6 EX-6.1 例外項），`bash scripts/ci.sh` 現 Python + npm test + lint + build 全綠。
+  - **預覽環境**: `vite.config.ts` 加 `allowedHosts: true`，讓雲端沙盒/預覽代理主機可連入開發伺服器（僅影響 dev server，生產走 `vite build` 靜態檔）。
+
 - **DCA 機器人 Phase 6 — 建立 DCA 精靈（4 步 + 即時階梯試算）**:
   - **精靈（`DcaForm.tsx`）**: 4 步（General / Entry / DCA / Summary）＋成功卡片；Step 1 自動 market/info 精度確認（404 → 明確「找不到交易對」，未確認不可前進，稽核 6.4）；Step 2 Immediate/Indicator 二選一；Step 3 §4.2-C 全欄位（含止損、循環、雙向 tiebreak）；Step 4 回顧清單＋LIVE `CONFIRM LIVE` 二次確認（文案含交易對、方向、所需資金、最大跌幅，稽核 6.14）；市場資料與 preview 皆 debounce＋`AbortController` 可取消（6.16）。
   - **指標設定（`IndicatorConfigPanel.tsx`）**: RSI/MACD/BB/Price Change 四種獨立啟用，**每個參數皆可編輯**（含 condition 下拉、時框、取樣根數，稽核 6.7/6.8b）；§4.3 凍結預設值預填（6.8）；即時值面板顯示「value（條件 成立✓/不成立✗）」，資料不足顯示「資料不足」而非 0（6.9）；Price Change `lookback_bars` 旁顯示「24 根 × 15m = 6 小時」連動換算（6.8c）。

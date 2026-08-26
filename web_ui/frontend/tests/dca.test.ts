@@ -19,6 +19,12 @@ import {
     isDcaRunningStatus,
     nextSafetyDistance,
     takeProfitDistance,
+    dcaSlotStatusMeta,
+    DCA_SLOT_STATUS_META,
+    dcaEventLabel,
+    dcaEventTone,
+    dcaOrderRoleLabel,
+    dcaSideLabel,
 } from '../src/utils/dca.ts';
 
 const NOW = 1_750_000_000_000; // 固定基準時間（ms）
@@ -178,4 +184,50 @@ test('entry text distinguishes immediate from indicator modes', () => {
         dcaEntryText({ entry_mode: 'indicator', entry_logic: 'all', entry_indicators: [{ type: 'bollinger' }] }),
         '指標入場 全部 (AND)：BB(20, 2) 觸碰',
     );
+});
+
+// ── Phase 7：詳情工作台純函式 ──────────────────────────────────
+
+test('slot status meta covers all three states plus skipped (7.8)', () => {
+    for (const s of ['filled', 'active', 'waiting', 'skipped']) {
+        const meta = DCA_SLOT_STATUS_META[s];
+        assert.ok(meta, `missing slot meta for ${s}`);
+        assert.ok(meta.label.length > 0);
+        assert.ok(meta.className.startsWith('dca-slot-'));
+    }
+    // 語意不只靠顏色：文字標籤互異
+    const labels = new Set(['filled', 'active', 'waiting', 'skipped'].map((s) => DCA_SLOT_STATUS_META[s].label));
+    assert.equal(labels.size, 4);
+    // 未知狀態 fallback 為未觸及樣式且回傳原字串
+    assert.equal(dcaSlotStatusMeta('bogus').className, 'dca-slot-waiting');
+    assert.equal(dcaSlotStatusMeta('bogus').label, 'bogus');
+});
+
+test('event labels translate known types and pass through unknown', () => {
+    assert.equal(dcaEventLabel('tp_replaced'), '止盈重掛');
+    assert.equal(dcaEventLabel('window_realigned'), '急跌重對齊');
+    assert.equal(dcaEventLabel('stop_loss_triggered'), '止損觸發');
+    assert.equal(dcaEventLabel('custom_thing'), 'custom_thing');
+    assert.equal(dcaEventLabel(null), '事件');
+});
+
+test('event tone reflects severity (failed/stop → negative, tp → positive)', () => {
+    assert.equal(dcaEventTone('engine_lifecycle', 'failed'), 'negative');
+    assert.equal(dcaEventTone('stop_loss_triggered', 'ok'), 'negative');
+    assert.equal(dcaEventTone('tp_replaced', 'ok'), 'positive');
+    assert.equal(dcaEventTone('engine_lifecycle', 'running'), 'positive');
+    assert.equal(dcaEventTone('window_realigned', 'ok'), 'warning');
+    assert.equal(dcaEventTone('position_cap_reached', 'ok'), 'warning');
+    assert.equal(dcaEventTone('command', 'accepted'), 'neutral');
+});
+
+test('order role and side labels map to Chinese', () => {
+    assert.equal(dcaOrderRoleLabel('base'), '基礎單');
+    assert.equal(dcaOrderRoleLabel('safety'), '安全單');
+    assert.equal(dcaOrderRoleLabel('take_profit'), '止盈單');
+    assert.equal(dcaOrderRoleLabel('stop_loss'), '止損單');
+    assert.equal(dcaOrderRoleLabel(null), '—');
+    assert.equal(dcaSideLabel('buy'), '買入');
+    assert.equal(dcaSideLabel('sell'), '賣出');
+    assert.equal(dcaSideLabel(null), '—');
 });

@@ -362,5 +362,81 @@ class PaperE2ETests(unittest.IsolatedAsyncioTestCase):
             await paper.disconnect()
 
 
+class DetailWorkbenchSnapshotTests(unittest.IsolatedAsyncioTestCase):
+    """Phase 7：詳情工作台快照（訂單/成交/階梯槽位）與 tp_replaced 事件。"""
+
+    async def _drive_to_averaging(self, paper):
+        raw = await paper.get_ohlcv(SYMBOL, "15m", limit=100)
+        closes = [float(c.close) for c in raw][:-1]
+        change = price_change_series(closes, 24)[-1]
+        config = _build_config(threshold=change + 0.5)
+        cache = OhlcvCache(
+            lambda _ex, sym, tf, limit, adapter=paper:
+                adapter.get_ohlcv(sym, tf, limit=limit)
+        )
+        monitor = EntryMonitor(config, ohlcv_provider=cache.provider("binance"))
+        executor = DcaOrderExecutor(config, BOT_ID, paper)
+        published = []
+        coord = DcaCoordinator(
+            config, BOT_ID, executor,
+            entry_monitor=monitor,
+            lifecycle_publisher=published.append,
+        )
+        coord.begin()
+        await coord.step()  # trigger
+        await coord.step()  # place base
+        await coord.step()  # reconcile → averaging
+        return coord
+
+    async def test_snapshots_and_tp_replaced_event(self):
+        prices = {SYMBOL: D("2500")}
+        paper = create_paper_adapter(
+            {"grid_system": {"exchange": "binance", "symbol": SYMBOL,
+                             "account_mode": "paper"}},
+            ticker_provider=lambda _s: prices[SYMBOL],
+        )
+        await paper.connect()
+        paper.set_last_price(SYMBOL, D("2500"))
+        try:
+            coord = await self._drive_to_averaging(paper)
+            self.assertIs(coord.state.status, DcaStatus.AVERAGING)
+
+            # ── open_orders_snapshot：含恰好 1 筆 TP（INV-2）＋安全單 ──
+            orders = coord.open_orders_snapshot()
+            self.assertTrue(all("role" in o and "price" in o for o in orders))
+            tp_rows = [o for o in orders if o["role"] == "take_profit"]
+            self.assertEqual(len(tp_rows), 1)
+
+            # ── ladder_slots_snapshot：基礎單 index 0 + 安全單槽位（三態）──
+            slots = coord.ladder_slots_snapshot()
+            self.assertTrue(any(s["index"] == 0 and s["role"] == "base" for s in slots))
+            self.assertTrue(all(
+                s["status"] in ("filled", "active", "waiting", "skipped")
+                for s in slots
+            ))
+
+            # ── fills_snapshot：至少基礎單成交，含手續費與累積均價欄位 ──
+            fills = coord.fills_snapshot()
+            self.assertGreaterEqual(len(fills), 1)
+            base_fill = fills[0]
+            for key in ("role", "price", "quantity", "fee",
+                        "cumulative_avg_price", "occurred_at"):
+                self.assertIn(key, base_fill)
+
+            # ── 成交安全單 → 觸發 tp_replaced 事件（稽核 7.3）──
+            paper.set_last_price(SYMBOL, D("2450"))
+            await coord.step()
+            self.assertGreaterEqual(coord.state.filled_safety_count(), 1)
+            event_names = {name for name, _ in coord.events}
+            self.assertIn("tp_replaced", event_names)
+
+            # 安全單成交後 fills 增加，且該筆帶累積均價
+            fills_after = coord.fills_snapshot()
+            self.assertGreater(len(fills_after), len(fills))
+            self.assertIsNotNone(fills_after[-1]["cumulative_avg_price"])
+        finally:
+            await paper.disconnect()
+
+
 if __name__ == "__main__":
     unittest.main()

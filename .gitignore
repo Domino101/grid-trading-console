@@ -153,6 +153,8 @@ out.txt
 data/
 config/active_grids.json
 config/active_dca.json
+config/grid/archived/
+config/dca/archived/
 .grid_api_token
 *.db
 *.sqlite

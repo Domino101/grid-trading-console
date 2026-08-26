@@ -407,5 +407,49 @@ class DcaWizardSourceContractTests(unittest.TestCase):
         self.assertNotIn("DcaForm", src)
 
 
+class DcaDetailSourceContractTests(unittest.TestCase):
+    """Phase 7 檔案級契約（詳情工作台 + 分頁隔離延伸）。"""
+
+    def test_detail_has_all_six_tabs(self):
+        """7 六分頁：階梯 / 訂單 / 成交 / 事件 / 指標 / 設定。"""
+        src = _read(os.path.join("components", "DcaDetail.tsx"))
+        for tab in ("'ladder'", "'orders'", "'fills'", "'events'",
+                    "'indicators'", "'specs'"):
+            self.assertIn(tab, src, tab)
+
+    def test_detail_wires_phase7_endpoints(self):
+        """詳情頁使用 Phase 7 新端點（stats/ladder/orders/fills/events）。"""
+        src = _read(os.path.join("components", "DcaDetail.tsx"))
+        for method in ("getDcaStats", "getDcaLadder", "getDcaOrders",
+                       "getDcaFills", "listDcaEvents"):
+            self.assertIn(method, src, method)
+        api_src = _read(os.path.join("services", "api.ts"))
+        for sig in ("async getDcaStats(", "async getDcaLadder(",
+                    "async getDcaOrders(", "async getDcaFills(",
+                    "async listDcaEvents("):
+            self.assertIn(sig, api_src, sig)
+
+    def test_detail_isolated_from_grid_endpoints(self):
+        """分頁隔離（5.2 延伸）：詳情元件不呼叫 grid/dashboard 端點。"""
+        for name in ("DcaDetail.tsx", "DcaLadderTable.tsx"):
+            src = _read(os.path.join("components", name))
+            self.assertNotIn("/api/v1/grids", src, name)
+            self.assertNotIn("getGridSummary", src, name)
+            self.assertNotIn("getDashboardSnapshot", src, name)
+
+    def test_ladder_table_does_no_ladder_math(self):
+        """G-4：階梯表不自算階梯數學（不出現 multiplier / 冪運算）。"""
+        src = _read(os.path.join("components", "DcaLadderTable.tsx"))
+        self.assertNotIn("price_deviation_multiplier", src)
+        self.assertNotIn("Math.pow", src)
+        self.assertNotIn("**", src)
+
+    def test_detail_armed_shows_zero_orders_semantics(self):
+        """7.1：armed 詳情頁明示監控中且訂單分頁為空。"""
+        src = _read(os.path.join("components", "DcaDetail.tsx"))
+        self.assertIn("isDcaArmed", src)
+        self.assertIn("零掛單", src)
+
+
 if __name__ == "__main__":
     unittest.main()
