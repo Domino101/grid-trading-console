@@ -6,6 +6,13 @@
 
 ### Added
 
+- **DCA 機器人 Phase 4 — 後端 API 層（CRUD + 生命週期 + snapshot + preview + 指標端點）**:
+  - **DCA YAML 生成器（`web_ui/backend/dca_yaml_generator.py`）**: API JSON → `config/dca/dca-*.yaml`（`dca:` 區段），產出可被 `load_dca_config()` 解析（稽核 4.8）；`validate_params()` 彙整 `DcaConfig` 全欄位驗證；`is_valid_bot_id()` 提供路徑穿越防護（稽核 4.22）。
+  - **DCA REST 路由（`web_ui/backend/routes/dca.py`）**: §4.7 全部端點；`POST /preview` 直接呼叫 `core.services.dca.ladder.build_ladder()`（稽核 4.2），`direction=both` 回傳 `ladder_long`/`ladder_short` 且 `required=max(...)`（稽核 4.14）；`GET /snapshot` 走單次 `active_dca.json → YAML → RuntimeSnapshotRepository.load_all()` 一次讀模型（稽核 4.5）；未知值一律 `null`、`data_status=unavailable`（稽核 4.6）；LIVE/PAPER aggregate 不混算（稽核 4.7）；LIVE 建立比照 grid：feature flag（4.12）→ 市場規則 `min_notional` 對基礎單與每張安全單檢查（4.13）；create/start/stop/delete 皆寫審計日誌且不洩密（4.17/4.18）；冪等鍵（4.10）、刪除 409（4.11）、路徑穿越（4.22）。
+  - **安全護欄擴充（`web_ui/backend/safety_guard.py`）**: `MAX_CONCURRENT_DCA_BOTS=5`、`check_can_create_dca()`；`check_max_combined_bots()` 把「網格 + DCA ≤ 10」作為總量上限（稽核 4.15）。
+  - **指標端點（`web_ui/backend/routes/market.py`）**: `GET /api/v1/market/indicators/{symbol}` 回傳 RSI / MACD / BB / Price Change 即時值；60 秒記憶體快取（稽核 4.19）＋`run_in_executor` 包同步 ccxt（稽核 4.20）。
+  - **契約測試**: `tests/test_dca_yaml_generator.py`、`tests/test_dca_http_contract.py`、`tests/test_dca_snapshot.py`（共 25 項新測試），登錄 `scripts/ci.sh`。
+
 - **DCA 機器人 Phase 3 — 設定持久化、OHLCV 快取與監督者整合（熱插拔）**:
   - **設定載入（`core/services/dca/config_loader.py` + `config/dca/`）**: YAML dict → `DcaConfig`（分層：程式預設 ← defaults ← 個別 YAML）；`dca_account_mode_from_yaml()` 對未標 `account_mode` 判為 `unknown`（不得自動視為 paper，稽核 3.4）；缺 `symbol` / `base_order_amount` 產出明確中文錯誤（稽核 3.3）；未知欄位以 warning 列出（稽核 3.2）；`dca_config_to_dict()` 支援 YAML 往返一致（稽核 3.1）；`auto_fill_dca_precision()` 於執行期由 registry markets 填入缺省精度。新增 `config/dca/README.md` 與 `config/dca/example-dca-paper-eth.yaml`。
   - **共享 OHLCV 快取（`core/services/dca/market_data/ohlcv_cache.py`）**: 以 `(exchange, symbol, timeframe)` 去重；`asyncio.Lock` 防 cache stampede（稽核 3.7）；TTL = min(timeframe, 60s)（稽核 3.8）；交易所失敗時回傳上一份快取並標記 `stale=True`、無快取時回傳 `None`（稽核 3.9）；儲存時丟棄最後一根未收線 K 棒（運算約定 1）；`provider(exchange)` 直接接 `EntryMonitor`。實測 5 台同 symbol+timeframe 一 TTL 內底層呼叫 = 1（稽核 3.6）。

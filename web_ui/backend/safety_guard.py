@@ -20,6 +20,8 @@ logger = logging.getLogger("GridAPI.Safety")
 # ────────────────────────────────────────────────────────
 
 MAX_CONCURRENT_GRIDS = 5
+MAX_CONCURRENT_DCA_BOTS = 5
+MAX_CONCURRENT_COMBINED_BOTS = 10
 ENGINE_PID_FILE = "/tmp/grid_multiple_runners.pid"
 
 
@@ -29,7 +31,9 @@ class SafetyGuard:
     def __init__(self, project_root: str):
         self.project_root = project_root
         self.active_grids_path = os.path.join(project_root, "config", "active_grids.json")
+        self.active_dca_path = os.path.join(project_root, "config", "active_dca.json")
         self.config_grid_dir = os.path.join(project_root, "config", "grid")
+        self.config_dca_dir = os.path.join(project_root, "config", "dca")
 
     # ────────────────────────────────────────────────────
     # 公開方法
@@ -64,6 +68,64 @@ class SafetyGuard:
             return False, msg
 
         return True, None
+
+    def check_can_create_dca(self) -> Tuple[bool, Optional[str]]:
+        """建立/啟動 DCA 前的完整安全檢查（Phase 4）。
+
+        總量檢查必須涵蓋網格 + DCA（稽核 4.15），不得只檢查 DCA。
+        """
+        # 1. 熔斷器檢查
+        ok, msg = self.check_circuit_breaker()
+        if not ok:
+            return False, msg
+
+        # 2. DCA 自身上限
+        ok, msg = self.check_max_dca()
+        if not ok:
+            return False, msg
+
+        # 3. 網格 + DCA 合計上限
+        ok, msg = self.check_max_combined_bots()
+        if not ok:
+            return False, msg
+
+        # 4. 引擎進程存活
+        ok, msg = self.check_engine_alive()
+        if not ok:
+            return False, msg
+
+        # 5. 配置目錄可寫
+        ok, msg = self.check_dca_config_dir_writable()
+        if not ok:
+            return False, msg
+
+        return True, None
+
+    def check_max_dca(self) -> Tuple[bool, Optional[str]]:
+        """檢查運行中 DCA 數是否已達上限。"""
+        active = self._get_active_dca_count()
+        if active >= MAX_CONCURRENT_DCA_BOTS:
+            return False, (
+                f"已達最大同時運行 DCA 數 ({active}/{MAX_CONCURRENT_DCA_BOTS})，"
+                "請先停止其他 DCA 再建立新的"
+            )
+        return True, None
+
+    def check_max_combined_bots(self) -> Tuple[bool, Optional[str]]:
+        """檢查「網格 + DCA」合計是否已達總量上限（稽核 4.15）。"""
+        grids = self._get_active_grid_count()
+        dca = self._get_active_dca_count()
+        total = grids + dca
+        if total >= MAX_CONCURRENT_COMBINED_BOTS:
+            return False, (
+                f"已達最大同時運行策略數 ({grids} 網格 + {dca} DCA = {total}/"
+                f"{MAX_CONCURRENT_COMBINED_BOTS})，請先停止其他策略再建立新的"
+            )
+        return True, None
+
+    def check_dca_config_dir_writable(self) -> Tuple[bool, Optional[str]]:
+        """確認 config/dca/ 目錄存在且可寫入。"""
+        return self._check_dir_writable(self.config_dca_dir, "config/dca")
 
     def check_circuit_breaker(self) -> Tuple[bool, Optional[str]]:
         """檢查 BinanceRest 熔斷狀態"""
@@ -134,10 +196,13 @@ class SafetyGuard:
 
     def check_config_dir_writable(self) -> Tuple[bool, Optional[str]]:
         """確認 config/grid/ 目錄存在且可寫入"""
-        if not os.path.isdir(self.config_grid_dir):
-            return False, f"配置目錄不存在: {self.config_grid_dir}"
-        if not os.access(self.config_grid_dir, os.W_OK):
-            return False, f"配置目錄不可寫入: {self.config_grid_dir}"
+        return self._check_dir_writable(self.config_grid_dir, "config/grid")
+
+    def _check_dir_writable(self, directory: str, label: str) -> Tuple[bool, Optional[str]]:
+        if not os.path.isdir(directory):
+            return False, f"配置目錄不存在: {directory}"
+        if not os.access(directory, os.W_OK):
+            return False, f"配置目錄不可寫入: {directory}"
         return True, None
 
     def check_config_not_exists(self, config_path: str) -> Tuple[bool, Optional[str]]:
@@ -181,6 +246,22 @@ class SafetyGuard:
         """取得目前運行中的網格數"""
         active_grids = self._read_active_grids()
         return sum(1 for v in active_grids.values() if v)
+
+    def _read_active_dca(self) -> dict:
+        """讀取 active_dca.json"""
+        if not os.path.exists(self.active_dca_path):
+            return {}
+        try:
+            with open(self.active_dca_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning(f"讀取 active_dca.json 失敗: {e}")
+            return {}
+
+    def _get_active_dca_count(self) -> int:
+        """取得目前運行中（desired enabled）的 DCA 數"""
+        active_dca = self._read_active_dca()
+        return sum(1 for v in active_dca.values() if v)
 
     def _read_symbol_from_yaml(self, config_path: str) -> Optional[str]:
         """從 YAML 配置檔讀取 symbol"""

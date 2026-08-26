@@ -482,3 +482,336 @@ class AuditLogListResponse(BaseModel):
     logs: List[AuditLogItem]
 
 
+# ── Phase 4：DCA 機器人契約 ──
+
+class DcaIndicatorConfig(BaseModel):
+    """單一指標設定（僅啟用時需填具該用途欄位）。"""
+    type: str
+    period: Optional[int] = None
+    oversold: Optional[float] = None
+    overbought: Optional[float] = None
+    fast: Optional[int] = None
+    slow: Optional[int] = None
+    signal: Optional[int] = None
+    std_dev: Optional[float] = None
+    lookback_bars: Optional[int] = None
+    long_threshold_percent: Optional[float] = None
+    short_threshold_percent: Optional[float] = None
+    condition: Optional[str] = None
+
+
+class DcaEntryConfig(BaseModel):
+    """入場設定（§4.2-B / §4.3.0 共用管線）。"""
+    mode: str = Field(default="immediate", description="immediate / indicator")
+    logic: str = Field(default="all", description="all(AND) / any(OR)")
+    timeframe: str = Field(default="15m", description="全部指標共用")
+    fetch_limit: int = Field(default=300, ge=100, le=500)
+    price_source: str = Field(default="close", description="close / hlc3 / ohlc4")
+    confirm_bars: int = Field(default=1, ge=1, le=5)
+    max_wait_seconds: Optional[int] = Field(default=None, gt=0)
+    indicators: List[DcaIndicatorConfig] = Field(default_factory=list)
+
+
+class DcaPreviewLevel(BaseModel):
+    """單層階梯（index=0 為基礎單）。"""
+    index: int
+    deviation_percent: Optional[float] = None
+    price: float
+    notional: float
+    quantity: float
+    avg_price: float
+    take_profit_price: Optional[float] = None
+
+
+class DcaPreviewLadder(BaseModel):
+    """單方向完整階梯摘要。"""
+    direction: str
+    entry_price: float
+    required_capital: float
+    max_drawdown_percent: float
+    final_average_price: float
+    final_take_profit_price: float
+    levels: List[DcaPreviewLevel]
+
+
+class DcaPreviewResponse(BaseModel):
+    """POST /api/v1/dca/preview 回應。direction=both 時同時回傳兩組階梯。"""
+    direction: Optional[str] = None
+    required_capital: float
+    ladder: Optional[DcaPreviewLadder] = None
+    ladder_long: Optional[DcaPreviewLadder] = None
+    ladder_short: Optional[DcaPreviewLadder] = None
+    data_status: str = "live"
+
+
+class DcaPreviewRequest(BaseModel):
+    """POST /api/v1/dca/preview 請求體（純函式試算，零外部呼叫）。"""
+    symbol: str = Field(..., description="交易對符號")
+    exchange: str = Field(..., description="binance / lighter / backpack / hyperliquid")
+    direction: str = Field(default="long", description="long / short / both")
+    entry_price: float = Field(..., gt=0, description="入場價 E")
+    base_order_amount: float = Field(..., gt=0, description="基礎單金額")
+    amount_unit: str = Field(default="quote", description="quote(USD) / base(幣)")
+    dca_mode: str = Field(default="order", description="order / position")
+    averaging_method: str = Field(default="fixed_value", description="fixed_value / fixed_coin")
+    max_safety_orders: int = Field(default=20, ge=1, le=50)
+    price_deviation_percent: float = Field(default=0.8, gt=0, le=50)
+    price_deviation_multiplier: float = Field(default=1.2, ge=1.0, le=3.0)
+    order_size_multiplier: float = Field(default=1.0, ge=1.0, le=3.0)
+    take_profit_percent: float = Field(default=1.0, gt=0, le=100)
+    take_profit_order_type: str = Field(default="limit", description="limit / market")
+    stop_loss_percent: Optional[float] = Field(default=None, gt=0)
+    max_position_notional: Optional[float] = Field(default=None, gt=0)
+    fee_rate: Optional[float] = Field(default=None, ge=0)
+    leverage: int = Field(default=10, ge=1, le=125)
+    margin_mode: str = Field(default="isolated", description="cross / isolated")
+    quantity_precision: Optional[int] = Field(default=None, ge=0, le=10)
+    price_decimals: Optional[int] = Field(default=None, ge=0, le=10)
+    repeat_after_take_profit: bool = True
+    cooldown_seconds: int = Field(default=300, ge=0)
+    max_cycles: Optional[int] = Field(default=None, gt=0)
+    both_tiebreak: str = Field(default="long_first", description="long_first / short_first")
+    active_safety_orders_window: int = Field(default=5, ge=1, le=50)
+    monitoring_interval: int = Field(default=15, ge=5, le=300)
+    indicator_refresh_interval: int = Field(default=60, ge=30)
+    order_health_check_interval: int = Field(default=300, ge=60)
+    entry: DcaEntryConfig = Field(default_factory=DcaEntryConfig)
+
+
+class CreateDcaRequest(BaseModel):
+    """POST /api/v1/dca 請求體。"""
+    symbol: str = Field(..., description="交易對符號")
+    exchange: str = Field(..., description="binance / lighter / backpack / hyperliquid")
+    direction: str = Field(default="long", description="long / short / both")
+    account_mode: str = Field(default="paper", description="paper / live")
+    base_order_amount: float = Field(..., gt=0, description="基礎單金額")
+    amount_unit: str = Field(default="quote", description="quote(USD) / base(幣)")
+    dca_mode: str = Field(default="order", description="order / position")
+    averaging_method: str = Field(default="fixed_value", description="fixed_value / fixed_coin")
+    max_safety_orders: int = Field(default=20, ge=1, le=50)
+    price_deviation_percent: float = Field(default=0.8, gt=0, le=50)
+    price_deviation_multiplier: float = Field(default=1.2, ge=1.0, le=3.0)
+    order_size_multiplier: float = Field(default=1.0, ge=1.0, le=3.0)
+    take_profit_percent: float = Field(default=1.0, gt=0, le=100)
+    take_profit_order_type: str = Field(default="limit", description="limit / market")
+    stop_loss_percent: Optional[float] = Field(default=None, gt=0)
+    max_position_notional: Optional[float] = Field(default=None, gt=0)
+    fee_rate: Optional[float] = Field(default=None, ge=0)
+    leverage: int = Field(default=10, ge=1, le=125)
+    margin_mode: str = Field(default="isolated", description="cross / isolated")
+    quantity_precision: Optional[int] = Field(default=None, ge=0, le=10)
+    price_decimals: Optional[int] = Field(default=None, ge=0, le=10)
+    repeat_after_take_profit: bool = True
+    cooldown_seconds: int = Field(default=300, ge=0)
+    max_cycles: Optional[int] = Field(default=None, gt=0)
+    both_tiebreak: str = Field(default="long_first", description="long_first / short_first")
+    active_safety_orders_window: int = Field(default=5, ge=1, le=50)
+    monitoring_interval: int = Field(default=15, ge=5, le=300)
+    indicator_refresh_interval: int = Field(default=60, ge=30)
+    order_health_check_interval: int = Field(default=300, ge=60)
+    entry: DcaEntryConfig = Field(default_factory=DcaEntryConfig)
+    # auto_start 為 false 時僅寫入 YAML（default），true 則提交啟動命令。
+    auto_start: bool = Field(default=False, description="建立後提交啟動意圖")
+    # 僅用於 LIVE 建立時的市場規則校驗；PAPER / preview 不需要。
+    entry_price: Optional[float] = Field(default=None, gt=0, description="LIVE 校驗用入場價")
+    metadata: Optional[GridMetadata] = None
+
+
+class DcaCreateResponse(BaseModel):
+    """POST /api/v1/dca 回應。"""
+    bot_id: str
+    config_path: str
+    status: str  # created / pending_engine
+    yaml_content: str
+    message: str
+    command_id: Optional[str] = None
+
+
+class DcaActionResponse(BaseModel):
+    """Start/Stop/Delete 操作回應；accepted 表示已記錄，非引擎已確認。"""
+    bot_id: str
+    action: str
+    status: str
+    message: str
+    command_id: Optional[str] = None
+
+
+class DcaPosition(BaseModel):
+    quantity: Optional[float] = None
+    average_cost: Optional[float] = None
+    total_cost: Optional[float] = None
+
+
+class DcaLadderState(BaseModel):
+    max_safety_orders: Optional[int] = None
+    filled_safety_orders: Optional[int] = None
+    active_safety_orders: Optional[int] = None
+    take_profit_orders: Optional[int] = None
+
+
+class DcaProfit(BaseModel):
+    realized: Optional[float] = None
+    unrealized: Optional[float] = None
+    fees: Optional[float] = None
+
+
+class DcaInfo(BaseModel):
+    """GET /api/v1/dca 單一項目。"""
+    bot_id: str
+    config_path: str
+    symbol: Optional[str] = None
+    exchange: Optional[str] = None
+    direction: Optional[str] = None
+    status: str = "stopped"
+    mode: Optional[str] = None
+    data_status: str = "unavailable"
+    command_id: Optional[str] = None
+    command_status: Optional[str] = None
+    current_price: Optional[float] = None
+    avg_price: Optional[float] = None
+    position_quantity: Optional[float] = None
+    filled_safety_orders: Optional[int] = None
+    active_safety_orders: Optional[int] = None
+    cycle_count: Optional[int] = None
+    unrealized_pnl: Optional[float] = None
+    base_order_amount: Optional[float] = None
+    max_safety_orders: Optional[int] = None
+    take_profit_percent: Optional[float] = None
+
+
+class DcaListResponse(BaseModel):
+    """GET /api/v1/dca 回應。"""
+    total: int
+    active: int
+    bots: List[DcaInfo]
+
+
+class DcaSnapshotItem(BaseModel):
+    """單台 DCA 的批次快照讀模型；未知值保留 null。"""
+    bot_id: str
+    config_path: str
+    symbol: Optional[str] = None
+    exchange: Optional[str] = None
+    direction: Optional[str] = None
+    mode: str = "unknown"
+    status: str = "stopped"
+    desired_running: bool = False
+    command_id: Optional[str] = None
+    command_status: Optional[str] = None
+    data_status: str = "unavailable"
+    source: Optional[str] = None
+    last_updated_at: Optional[float] = None
+    current_price: Optional[float] = None
+    active_direction: Optional[str] = None
+    position: Optional[DcaPosition] = None
+    ladder: Optional[DcaLadderState] = None
+    cycles: Optional[int] = None
+    profit: Optional[DcaProfit] = None
+    base_order_amount: Optional[float] = None
+    max_safety_orders: Optional[int] = None
+    take_profit_percent: Optional[float] = None
+    stop_loss_percent: Optional[float] = None
+    start_blocked_reason: Optional[str] = None
+
+
+class DcaSnapshotAggregate(BaseModel):
+    """DCA 總覽 KPI；只彙總已知的 runtime 資料。"""
+    total_bots: int
+    running_bots: int
+    available_bots: int
+    stale_bots: int
+    realized_pnl: float
+    unrealized_pnl: float
+    fees: float
+    net_pnl: float
+    filled_safety_orders: int
+    completed_cycles: int
+
+
+class DcaSnapshotResponse(BaseModel):
+    """GET /api/v1/dca/snapshot 回應。"""
+    generated_at: float
+    data_status: str
+    account_mode: str = "unknown"
+    aggregate: DcaSnapshotAggregate
+    aggregate_live: Optional[DcaSnapshotAggregate] = None
+    aggregate_paper: Optional[DcaSnapshotAggregate] = None
+    bots: List[DcaSnapshotItem]
+
+
+class DcaStatsResponse(BaseModel):
+    """GET /api/v1/dca/{bot_id}/stats 回應。"""
+    bot_id: str
+    status: str = "stopped"
+    data_status: str = "unavailable"
+    last_updated_at: Optional[float] = None
+    current_price: Optional[float] = None
+    active_direction: Optional[str] = None
+    position: Optional[DcaPosition] = None
+    ladder: Optional[DcaLadderState] = None
+    cycles: Optional[int] = None
+    profit: Optional[DcaProfit] = None
+
+
+class DcaLevelView(BaseModel):
+    """GET /api/v1/dca/{bot_id}/ladder 單層。"""
+    index: int
+    role: str  # base / safety
+    status: str = "waiting"
+    planned_price: Optional[float] = None
+    planned_quantity: Optional[float] = None
+    actual_price: Optional[float] = None
+    filled_price: Optional[float] = None
+    filled_quantity: Optional[float] = None
+
+
+class DcaLadderResponse(BaseModel):
+    """GET /api/v1/dca/{bot_id}/ladder 回應。"""
+    bot_id: str
+    available: bool
+    data_status: str = "unavailable"
+    levels: List[DcaLevelView] = []
+    message: Optional[str] = None
+
+
+class DcaOrdersResponse(BaseModel):
+    bot_id: str
+    available: bool
+    orders: List[Dict[str, Any]] = []
+    message: Optional[str] = None
+
+
+class DcaFillsResponse(BaseModel):
+    bot_id: str
+    available: bool
+    fills: List[Dict[str, Any]] = []
+    message: Optional[str] = None
+
+
+class DcaEvent(BaseModel):
+    bot_id: str
+    event_type: str
+    status: str
+    detail: Optional[str] = None
+    occurred_at: float
+
+
+class DcaEventListResponse(BaseModel):
+    bot_id: str
+    events: List[DcaEvent]
+
+
+class MarketIndicatorsResponse(BaseModel):
+    """GET /api/v1/market/indicators/{symbol} 回應。"""
+    symbol: str
+    exchange: str
+    timeframe: str
+    fetch_limit: int
+    current_price: Optional[float] = None
+    rsi: Optional[Dict[str, Any]] = None
+    macd: Optional[Dict[str, Any]] = None
+    bollinger: Optional[Dict[str, Any]] = None
+    price_change: Optional[Dict[str, Any]] = None
+    data_status: str = "unavailable"
+    cached: bool = False
+

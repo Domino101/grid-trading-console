@@ -29,6 +29,7 @@ from lifecycle import cors_settings
 # 🆕 Hermes Grid API v1 路由
 from routes.system import router as system_router
 from routes.grids import router as grids_router
+from routes.dca import router as dca_router
 from routes.dashboard import router as dashboard_router
 from routes.commands import router as commands_router
 from routes.market import router as market_router
@@ -83,6 +84,7 @@ async def readiness_probe():
 # 🆕 掛載 v1 API 路由（與現有 /api/scripts 等端點共存）
 app.include_router(system_router)
 app.include_router(grids_router)
+app.include_router(dca_router)
 app.include_router(dashboard_router)
 app.include_router(commands_router)
 app.include_router(market_router)
