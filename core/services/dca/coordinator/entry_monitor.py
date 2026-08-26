@@ -52,6 +52,10 @@ class EntryMonitor:
         closes = await self._ohlcv_provider(
             self._config.symbol, entry.timeframe, entry.fetch_limit
         )
+        # 稽核 3.9：OHLCV 不可得（無快取）時回傳 None → 視為資料不足，
+        # 指標評估 insufficient_data、triggered=False，不得觸發入場。
+        if closes is None:
+            closes = []
         verdict = self._evaluator.should_enter(
             closes, direction, last_bar_closed=True
         )

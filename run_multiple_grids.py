@@ -33,6 +33,14 @@ except ImportError:
 from core.adapters.exchanges.utils import setup_optimized_logging
 from core.adapters.exchanges.models import ExchangeType
 from core.adapters.exchanges import ExchangeFactory, ExchangeConfig
+from core.services.dca.config_loader import (
+    auto_fill_dca_precision,
+    dca_account_mode_from_yaml,
+    load_dca_config,
+)
+from core.services.dca.coordinator import DcaCoordinator
+from core.services.dca.execution import DcaOrderExecutor
+from core.services.dca.market_data.ohlcv_cache import OhlcvCache
 from core.adapters.exchanges.adapters.binance_rest import BinanceRest
 from core.services.grid.coordinator import GridCoordinator
 from core.services.grid.implementations import (
@@ -201,6 +209,31 @@ def _config_account_mode(path: str) -> str:
         return "unknown"
 
 
+def _load_dca_yaml(path: str) -> dict:
+    with open(_abs_config(path), "r", encoding="utf-8") as handle:
+        return yaml.safe_load(handle) or {}
+
+
+def _dca_config_account_mode(path: str) -> str:
+    """DCA 檔案的 account_mode；未標註時為 unknown（稽核 3.4）。"""
+    try:
+        return dca_account_mode_from_yaml(_load_dca_yaml(path))
+    except Exception:
+        return "unknown"
+
+
+def _grid_style_from_dca(data: dict) -> dict:
+    """把 DCA 設定轉成 create_exchange_adapter 需要的 grid_system 外觀。"""
+    section = data.get("dca") if isinstance(data.get("dca"), dict) else data
+    return {
+        "grid_system": {
+            "exchange": str(section.get("exchange") or "").lower(),
+            "symbol": str(section.get("symbol") or ""),
+            "account_mode": str(section.get("account_mode") or "unknown").lower(),
+        }
+    }
+
+
 class ExchangeAdapterPool:
     """One connected adapter per exchange. Different venues must not share a client."""
 
@@ -210,14 +243,27 @@ class ExchangeAdapterPool:
 
     async def get(self, config_path: str):
         data = _load_grid_yaml(config_path)
-        exchange = str((data.get("grid_system") or {}).get("exchange") or "").lower()
-        if not exchange:
-            raise ValueError(f"{config_path} 缺少 grid_system.exchange")
-        mode = account_mode_from_yaml(data)
-        key = f"paper:{config_path}" if mode == "paper" else f"live:{exchange}"
+        is_dca = isinstance(data.get("dca"), dict)
+        if is_dca:
+            section = data["dca"]
+            exchange = str(section.get("exchange") or "").lower()
+            if not exchange:
+                raise ValueError(f"{config_path} 缺少 dca.exchange")
+            mode = dca_account_mode_from_yaml(data)
+            # 同一交易所的網格與 DCA 共用同一個 adapter（稽核 3.16），
+            # 避免第二套 WS 連線與限速器。
+            key = f"paper:{exchange}" if mode == "paper" else f"live:{exchange}"
+        else:
+            exchange = str((data.get("grid_system") or {}).get("exchange") or "").lower()
+            if not exchange:
+                raise ValueError(f"{config_path} 缺少 grid_system.exchange")
+            mode = account_mode_from_yaml(data)
+            key = f"paper:{exchange}" if mode == "paper" else f"live:{exchange}"
         async with self._lock:
             if key not in self._adapters:
-                self._adapters[key] = await create_exchange_adapter(data)
+                self._adapters[key] = await create_exchange_adapter(
+                    _grid_style_from_dca(data) if is_dca else data
+                )
             return self._adapters[key]
 
     async def disconnect_all(self):
@@ -242,6 +288,19 @@ def _emit_lifecycle(config_path: str, status: str, detail=None, symbol=None):
         publish_lifecycle(config_path, status, detail)
     except Exception as exc:
         logging.getLogger("system").warning("寫入 lifecycle journal 失敗: %s", exc)
+
+
+def _emit_dca_lifecycle(config_path: str, status: str, detail=None, symbol=None):
+    payload = {"event": "dca_lifecycle", "config_path": config_path, "status": status}
+    if detail:
+        payload["detail"] = detail
+    if symbol:
+        payload["symbol"] = symbol
+    print("[DCA_LIFECYCLE] " + json.dumps(payload, ensure_ascii=False, separators=(",", ":")), flush=True)
+    try:
+        publish_lifecycle(config_path, status, detail)
+    except Exception as exc:
+        logging.getLogger("system").warning("寫入 DCA lifecycle journal 失敗: %s", exc)
 
 
 async def run_single_grid_task(config_path: str, adapter_pool, logger, running_grids_ref):
@@ -444,6 +503,116 @@ async def run_single_grid_task(config_path: str, adapter_pool, logger, running_g
         if config_path in running_grids_ref:
             del running_grids_ref[config_path]
 
+
+async def run_single_dca_task(config_path: str, adapter_pool, logger,
+                              running_dca_ref, dca_ohlcv_caches):
+    """
+    併發啟動並運行單個 DCA 機器人（Phase 3）。
+
+    R-1 task 隔離（稽核 3.15）：頂層 except 捕捉所有非 CancelledError 例外，
+    發 failed lifecycle 後**只結束自己這條 task**，絕不向上拋——DCA 不得拖垮
+    網格引擎進程。
+    """
+    coordinator = None
+    executor = None
+    bot_id = Path(config_path).stem
+    try:
+        logger.info(f"🔵 [DCA 初始化] 讀取設定檔: {config_path}")
+        data = _load_dca_yaml(config_path)
+        account_mode = dca_account_mode_from_yaml(data)
+        blocked = start_rejection(account_mode, live_trading_enabled())
+        if blocked:
+            logger.error(f"❌ [DCA {config_path}] {blocked}")
+            _emit_dca_lifecycle(config_path, "failed", blocked)
+            return
+
+        config = load_dca_config(data)
+        symbol = config.symbol
+        exchange = config.exchange
+
+        # 共享 Adapter 池（稽核 3.16）：與網格同 exchange 共用實例
+        adapter = await adapter_pool.get(config_path)
+        await auto_fill_dca_precision(config, adapter, logger)
+
+        # 每 exchange 一個共享 OhlcvCache：同 symbol+timeframe 去重（稽核 3.6）
+        cache = dca_ohlcv_caches.get(exchange)
+        if cache is None:
+            cache = OhlcvCache(
+                lambda _ex, sym, tf, limit, _adapter=adapter:
+                    _adapter.get_ohlcv(sym, tf, limit=limit)
+            )
+            dca_ohlcv_caches[exchange] = cache
+
+        executor = DcaOrderExecutor(config, bot_id, adapter)
+        coordinator = DcaCoordinator(
+            config,
+            bot_id,
+            executor,
+            ohlcv_provider=cache.provider(exchange),
+            lifecycle_publisher=lambda status: _emit_dca_lifecycle(
+                config_path, status, symbol=symbol
+            ),
+        )
+
+        running_dca_ref[config_path] = {
+            "coordinator": coordinator,
+            "task": asyncio.current_task(),
+        }
+        coordinator.start()
+        _emit_dca_lifecycle(config_path, "running", symbol=symbol)
+        logger.info(f"✨ [DCA {symbol}] 已進入 armed（監控中，交易所零掛單）")
+
+        interval = max(int(config.monitoring_interval), 5)
+        while True:
+            await asyncio.sleep(interval)
+            if coordinator.state.status.value == "failed":
+                # 已由 coordinator 轉 failed 並發布，supervisor 只結束自己
+                return
+            try:
+                last_price = await executor.last_price()
+            except Exception:
+                last_price = None
+            try:
+                stats = coordinator.build_statistics(last_price)
+                stats_dict = stats.to_display_dict()
+            except Exception as stats_err:
+                logger.warning(f"⚠️ [DCA {symbol}] 統計建構失敗: {stats_err}")
+                continue
+            stats_dict["symbol"] = symbol
+            stats_dict["exchange"] = exchange
+            stats_dict["source"] = "dca_engine_runtime"
+            stats_dict["synthetic"] = (getattr(adapter, "exchange", None) is None)
+            try:
+                publish_runtime(config_path, stats_dict)
+            except Exception as persist_err:
+                logger.warning(f"⚠️ 寫入 DCA runtime snapshot 失敗: {persist_err}")
+
+    except asyncio.CancelledError:
+        logger.info(f"🛑 [DCA {bot_id}] 任務已被取消/停用。")
+        if coordinator is not None:
+            try:
+                await coordinator.stop()
+            except Exception as stop_err:
+                logger.warning(f"⚠️ [DCA {bot_id}] 取消關閉時出錯: {stop_err}")
+        _emit_dca_lifecycle(config_path, "stopped")
+        raise
+    except Exception as e:
+        # R-1 / 稽核 3.15：吞掉所有非 CancelledError 例外，只結束自己
+        logger.error(f"💥 DCA 任務異常終止 [{config_path}]: {e}", exc_info=True)
+        try:
+            _emit_dca_lifecycle(config_path, "failed", str(e))
+        except Exception:
+            pass
+    finally:
+        if coordinator is not None:
+            try:
+                await coordinator.stop()
+            except Exception:
+                pass
+        if config_path in running_dca_ref:
+            del running_dca_ref[config_path]
+
+
 async def main():
     parser = argparse.ArgumentParser(description="多網格交易系統啟動器 (單進程多工併發 - 支援熱插拔)")
     parser.add_argument('configs', metavar='CONFIG_PATH', type=str, nargs='*',
@@ -514,6 +683,30 @@ async def main():
     else:
         logger.info("📋 沒有待啟動的網格，進入熱插拔待命。UI 新建的 YAML 將在啟用後被接手。")
 
+    # ── DCA 熱插拔控制檔（Phase 3）──
+    dca_control_file = project_root / "config" / "active_dca.json"
+    dca_control_file.parent.mkdir(parents=True, exist_ok=True)
+    active_dca_status = {}
+    if dca_control_file.exists():
+        try:
+            with open(dca_control_file, "r", encoding="utf-8") as cf:
+                loaded = json.load(cf)
+            if isinstance(loaded, dict):
+                active_dca_status = loaded
+        except Exception as e:
+            logger.warning(f"⚠️ 讀取 active_dca.json 失敗: {e}，將重建控制檔。")
+    if not dca_control_file.exists():
+        try:
+            tmp = dca_control_file.with_suffix(".json.tmp")
+            with open(tmp, "w", encoding="utf-8") as cf:
+                json.dump(active_dca_status, cf, indent=4, ensure_ascii=False)
+                cf.flush()
+                os.fsync(cf.fileno())
+            os.replace(tmp, dca_control_file)
+            logger.info(f"📝 已建立 DCA 控制檔: {dca_control_file}")
+        except Exception as e:
+            logger.error(f"❌ 寫入 active_dca.json 失敗: {e}")
+
     # 🔥 啟動前檢查：若 IP 仍在 BAN 中，等待解封後再啟動網格任務
     if BinanceRest._is_adapter_circuit_open():
         import time as _t
@@ -551,6 +744,8 @@ async def main():
 
     # 4. 併發運行字典與監控循環
     running_grids_ref = {}
+    running_dca_ref = {}
+    dca_ohlcv_caches = {}
 
     # 定義熱插拔控制監控協程
     async def active_grids_monitor():
@@ -609,6 +804,69 @@ async def main():
                 logger.info(f"▶️ [動態控制] 檢測到 {path} 被設為啟用，正在異步啟動網格...")
                 asyncio.create_task(run_single_grid_task(path, adapter_pool, logger, running_grids_ref))
 
+    # DCA 熱插拔監控協程（與 active_grids_monitor 對稱，稽核 3.12/3.13/3.14）
+    async def active_dca_monitor():
+        logger.info("👀 DCA 動態控制監控器 (Hot-reload Monitor) 已啟動")
+        reported_dca_rejections = set()
+        while True:
+            await asyncio.sleep(5)
+            if not dca_control_file.exists():
+                continue
+            try:
+                with open(dca_control_file, 'r', encoding='utf-8') as cf:
+                    current_status = json.load(cf)
+            except Exception:
+                continue
+
+            for running_path in list(running_dca_ref.keys()):
+                if not current_status.get(running_path, False):
+                    logger.info(f"🛑 [DCA 動態控制] 檢測到 {running_path} 被設為停用，正在停止 DCA 任務...")
+                    dca_info = running_dca_ref.get(running_path)
+                    if dca_info:
+                        try:
+                            await dca_info["coordinator"].stop()
+                        except Exception as stop_err:
+                            logger.error(f"⚠️ [DCA 動態控制] 停止 {running_path} 失敗: {stop_err}")
+                        dca_info["task"].cancel()
+                    logger.info(f"✅ [DCA 動態控制] {running_path} 已成功停止（持倉保留）。")
+                    reported_dca_rejections.discard(running_path)
+
+            def _dca_exists(path: str) -> bool:
+                return _abs_config(path).exists()
+
+            # 找不到設定檔 / start_rejection 即時發 failed（稽核 3.14）
+            for path, enabled in current_status.items():
+                if enabled and path not in running_dca_ref:
+                    if not _dca_exists(path):
+                        if path not in reported_dca_rejections:
+                            reported_dca_rejections.add(path)
+                            logger.error(f"❌ [DCA 動態控制] 找不到設定檔: {path}")
+                            _emit_dca_lifecycle(path, "failed", f"找不到設定檔: {path}")
+                    else:
+                        blocked = start_rejection(
+                            _dca_config_account_mode(path), live_trading_enabled()
+                        )
+                        if blocked:
+                            if path not in reported_dca_rejections:
+                                reported_dca_rejections.add(path)
+                                logger.error(f"❌ [DCA 動態控制] {path} 啟動被拒絕: {blocked}")
+                                _emit_dca_lifecycle(path, "failed", blocked)
+
+            for path in iter_hotplug_starts(
+                current_status,
+                running_dca_ref.keys(),
+                _dca_exists,
+                _dca_config_account_mode,
+                live_trading_enabled(),
+            ):
+                reported_dca_rejections.discard(path)
+                logger.info(f"▶️ [DCA 動態控制] 檢測到 {path} 被設為啟用，正在異步啟動 DCA...")
+                asyncio.create_task(
+                    run_single_dca_task(
+                        path, adapter_pool, logger, running_dca_ref, dca_ohlcv_caches
+                    )
+                )
+
     stagger_delay = 5
     initial_paths = [
         path for path, enabled in active_status.items()
@@ -621,8 +879,22 @@ async def main():
             await asyncio.sleep(stagger_delay)
         asyncio.create_task(run_single_grid_task(path, adapter_pool, logger, running_grids_ref))
 
+    initial_dca_paths = [
+        path for path, enabled in active_dca_status.items()
+        if enabled and _abs_config(path).exists()
+        and not start_rejection(_dca_config_account_mode(path), live_trading_enabled())
+    ]
+    for idx, path in enumerate(initial_dca_paths):
+        if idx > 0:
+            logger.info(f"⏳ 等待 {stagger_delay} 秒後啟動下一個 DCA...")
+            await asyncio.sleep(stagger_delay)
+        asyncio.create_task(
+            run_single_dca_task(path, adapter_pool, logger, running_dca_ref, dca_ohlcv_caches)
+        )
+
     # 啟動監控協程
     monitor_task = asyncio.create_task(active_grids_monitor())
+    dca_monitor_task = asyncio.create_task(active_dca_monitor())
 
     try:
         # 保持主循環持續運行
@@ -633,6 +905,7 @@ async def main():
     finally:
         # 取消監控
         monitor_task.cancel()
+        dca_monitor_task.cancel()
         # 清理所有運行中的網格
         logger.info("🛑 正在關閉所有運行中的網格...")
         for path, grid_info in list(running_grids_ref.items()):
@@ -642,7 +915,16 @@ async def main():
                 grid_info["task"].cancel()
             except Exception as close_err:
                 logger.error(f"⚠️ 清理 {path} 時出錯: {close_err}")
-        
+        # 清理所有運行中的 DCA（持倉保留）
+        logger.info("🛑 正在關閉所有運行中的 DCA...")
+        for path, dca_info in list(running_dca_ref.items()):
+            try:
+                logger.info(f"🧹 正在停止 DCA: {path}")
+                await dca_info["coordinator"].stop()
+                dca_info["task"].cancel()
+            except Exception as close_err:
+                logger.error(f"⚠️ 清理 DCA {path} 時出錯: {close_err}")
+
         logger.info("🔌 正在斷開交易所適配器連接並清理鎖檔案...")
         try:
             await adapter_pool.disconnect_all()

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
+import random as _random
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Callable, Dict, List, Optional
 
@@ -61,6 +63,30 @@ def _base_currency(symbol: str) -> str:
     return main
 
 
+TIMEFRAME_SECONDS = {
+    "1m": 60,
+    "5m": 300,
+    "15m": 900,
+    "30m": 1800,
+    "1h": 3600,
+    "4h": 14400,
+    "1d": 86400,
+}
+
+
+def _stable_symbol_seed(symbol: str) -> int:
+    """跨進程穩定的 symbol seed（不使用會隨 PYTHONHASHSEED 變動的 hex()）。"""
+    digest = hashlib.sha256(symbol.encode("utf-8")).hexdigest()
+    return int(digest[:16], 16)
+
+
+def _synthetic_base_timestamp(timeframe: str) -> int:
+    """固定基準時間戳，使同 seed 的合成序列與時間戳均可重現。"""
+    step = TIMEFRAME_SECONDS.get(str(timeframe).lower(), 900)
+    # 以 UTC 2023-11-14 作為基準，避免呼叫時間影響結果
+    return 1_700_000_000 // step * step
+
+
 class PaperExchangeAdapter(ExchangeInterface):
     """Simulated venue used only when YAML account_mode is paper.
 
@@ -83,6 +109,7 @@ class PaperExchangeAdapter(ExchangeInterface):
         self._fee_rate = _as_decimal(os.getenv("PAPER_FEE_RATE", "0.0002"), "0.0002")
         self._last: Dict[str, Decimal] = {}
         self._orders: Dict[str, OrderData] = {}
+        self._all_orders: Dict[str, OrderData] = {}
         self._position_size = Decimal("0")
         self._entry_price = Decimal("0")
         self._realized = Decimal("0")
@@ -220,7 +247,43 @@ class PaperExchangeAdapter(ExchangeInterface):
         )
 
     async def get_ohlcv(self, symbol: str, timeframe: str, since=None, limit=None) -> List[OHLCVData]:
-        return []
+        """PAPER 合成 K 線：以 symbol 字串穩定 hash 為 seed 的確定性隨機遊走。
+
+        同 symbol 兩次呼叫結果完全相同（稽核 3.10），資料標記
+        ``raw_data={'synthetic': True}``（稽核 3.11）。不依賴真實行情，
+        也絕不誤認為真實歷史。
+        """
+        count = int(limit or 300)
+        seed = _stable_symbol_seed(symbol)
+        rng = _random.Random(seed)
+        # 起始價由 seed 決定：50～600 之間的可重現起點
+        price = Decimal(str(round(50.0 + (seed % 50000) / 100.0, 4)))
+        base_ts = _synthetic_base_timestamp(timeframe)
+        step_seconds = TIMEFRAME_SECONDS.get(str(timeframe).lower(), 900)
+        out: List[OHLCVData] = []
+        for i in range(count):
+            open_price = price
+            step = Decimal(str(rng.gauss(0, 0.004)))
+            close_price = (price * (1 + step)).quantize(Decimal("0.0001"))
+            high = (max(open_price, close_price) * (1 + abs(Decimal(str(rng.gauss(0, 0.001)))))).quantize(Decimal("0.0001"))
+            low = (min(open_price, close_price) * (1 - abs(Decimal(str(rng.gauss(0, 0.001)))))).quantize(Decimal("0.0001"))
+            volume = Decimal(str(round(rng.uniform(10, 1000), 4)))
+            ts = datetime.fromtimestamp(base_ts + i * step_seconds, tz=timezone.utc)
+            out.append(OHLCVData(
+                symbol=symbol,
+                timeframe=str(timeframe),
+                timestamp=ts,
+                open=open_price,
+                high=high,
+                low=low,
+                close=close_price,
+                volume=volume,
+                quote_volume=volume * close_price,
+                trades_count=rng.randint(10, 500),
+                raw_data={"synthetic": True, "venue": "paper"},
+            ))
+            price = close_price
+        return out
 
     async def get_trades(self, symbol: str, since=None, limit=None) -> List[TradeData]:
         return []
@@ -295,7 +358,9 @@ class PaperExchangeAdapter(ExchangeInterface):
             order_id = f"paper-{uuid.uuid4().hex[:12]}"
             client_id = None
             if params:
-                client_id = params.get("clientOrderId") or params.get("client_id")
+                client_id = (params.get("clientOrderId")
+                             or params.get("client_order_id")
+                             or params.get("client_id"))
             qty = _as_decimal(amount)
             limit = _as_decimal(price) if price is not None else self._last[symbol]
             now = datetime.now()
@@ -319,6 +384,9 @@ class PaperExchangeAdapter(ExchangeInterface):
                 params=params or {},
                 raw_data={"paper": True},
             )
+            self._all_orders[order_id] = order
+            if order.client_id and order.client_id != order_id:
+                self._all_orders[order.client_id] = order
             if order_type == OrderType.MARKET:
                 self._fill(order, self._last[symbol])
             else:
@@ -425,9 +493,10 @@ class PaperExchangeAdapter(ExchangeInterface):
         return cancelled
 
     async def get_order(self, order_id: str, symbol: str) -> OrderData:
-        if order_id in self._orders:
-            return self._orders[order_id]
-        raise Exception(f"paper order not found: {order_id}")
+        order = self._all_orders.get(order_id)
+        if order is None:
+            raise Exception(f"paper order not found: {order_id}")
+        return order
 
     async def get_open_orders(self, symbol: Optional[str] = None) -> List[OrderData]:
         return [

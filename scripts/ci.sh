@@ -19,7 +19,10 @@ python -m unittest \
   tests.test_dca_indicators \
   tests.test_dca_config_and_state \
   tests.test_dca_executor \
-  tests.test_dca_coordinator
+  tests.test_dca_coordinator \
+  tests.test_dca_config_loader \
+  tests.test_dca_ohlcv_cache \
+  tests.test_dca_paper_e2e
 
 if [[ "${SKIP_FRONTEND:-}" == "1" ]]; then
   exit 0
