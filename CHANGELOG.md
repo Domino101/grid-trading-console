@@ -6,6 +6,14 @@
 
 ### Added
 
+- **DCA 即時圖表與回測子系統 — 完整開發計畫（尚未實作）**: 新增 `docs/dca_chart_backtest_plan_zh-TW.md`，接手 `docs/dca_bot_implementation_plan_zh-TW.md` §8 排除項中的「回測」與「TradingView 圖表」。切為 8 個 Phase（C1 K線資料層 / C2 ReplayExchange / C3 ReplayDriver / C4 指標與掃描 / C5 後端 API / C6 圖表基礎 / C7 回測工作台 / C8 E2E 與文件），預估 19 新檔、~6750 行（含 ~2550 行測試）、9–11 次對話，與 DCA 主案同量級。
+  - **兩條可證偽性質**: BP-1（回測必須走真 `DcaCoordinator` + 真 `DcaOrderExecutor`，禁止第二套階梯/指標數學）、BP-2（回測零交易所寫入、零 `active_dca.json` 副作用）。
+  - **凍結資料契約**: `dca_klines` SQLite 表（TEXT 存十進位、180 天保留期、全參數化）、撮合規則 R-1～R-13（次棒才撮合、跳空以開盤價成交、同棒保守順序、棒時間時鐘、熔斷固定關閉）、績效指標定義（含 buy&hold 與 alpha 為必要指標、未知值一律 `None`）、四個新端點、圖表標記與價格線語意表。
+  - **決策凍結 D-6～D-11**（經使用者確認）: lightweight-charts（含 rule-07 豁免條件 E-6.1～E-6.5）、複用 Coordinator 回放、單一回放＋參數掃描、SQLite K 線快取、即時圖表以「已收線 K 棒＋snapshot 補最後一根」免新增 WS、撮合簡化事項必須在 API 與 UI 同時揭露。
+  - **全域規則新增 G-11～G-18**、風險登錄簿 RC-1～RC-16、8 個 Phase 共 100+ 項 P0/P1 稽核條件。
+  - **POC 實測證據（§11.4）**: 以 throwaway 腳本實跑證明 BP-1 可行（完整循環、零網路呼叫、INV-1/INV-2 每棒成立、引擎 `window_realigned` 邊界路徑照常觸發）；並量化 R-1 為 P0 的依據（跳空路徑下同棒撮合憑空創造部位回報 realized 0.2004，實盤為 0 成交）。
+  - 本輪僅產出計畫文件，未變更任何程式碼；`core/`、`web_ui/`、`run_*.py`、`config/` 零變更，無需重啟服務。
+
 - **DCA 機器人 Phase 7 — DCA 詳情工作台、端到端驗收與交付文件**:
   - **詳情工作台（`web_ui/frontend/src/components/DcaDetail.tsx`）**: 六分頁工作台（階梯 / 訂單 / 成交 / 事件 / 指標 / 設定），選取機器人卡片後由 `DcaDashboard` 切換為完整頁面。KPI 摘要與大盤卡片共用同一讀模型（stats + snapshot），確保均價/持倉/盈虧一致（稽核 7.7）；`armed` 狀態明確標示「監控中 · 交易所零掛單」且訂單分頁應為空（稽核 7.1）；成交分頁 50 筆分頁避免長列表卡頓（稽核 7.9）；錯誤路徑（下單被拒、熔斷、429、WS 斷線）以 `notice-error` 明確呈現、絕不顯示為正常（稽核 7.10）。
   - **階梯狀態表（`web_ui/frontend/src/components/DcaLadderTable.tsx`）**: 完整安全單表（slot / 偏移% / 價格 / 數量 / 名目 / 狀態），已成交/掛單中/未觸及三態徽章（＋急跌略過），標出當前價列與均價線圖例（稽核 7.8）；純顯示，零階梯數學（G-4，檔案級契約 grep 0 命中）。
