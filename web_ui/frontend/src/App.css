@@ -2635,3 +2635,165 @@
     justify-content: space-between;
   }
 }
+
+/* ── Phase C7：回測工作台（沿用既有 token）───────────────────────── */
+
+.dca-backtest-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+  margin-top: 0.85rem;
+}
+
+.dca-backtest-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 130px;
+}
+
+.dca-backtest-field > span {
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+}
+
+.dca-backtest-field select,
+.dca-backtest-field input {
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  padding: 0.45rem 0.6rem;
+}
+
+.dca-backtest-field input[aria-invalid='true'] {
+  border-color: var(--trading-red);
+}
+
+.dca-backtest-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.dca-backtest-disclosure {
+  margin-top: 1rem;
+  padding: 0.75rem 0.9rem;
+  background: var(--accent-amber-bg);
+  border: 1px solid var(--accent-amber-border);
+  border-radius: var(--radius-md);
+}
+
+.dca-backtest-disclosure-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--accent-amber);
+  font-size: 0.8rem;
+  margin-bottom: 0.35rem;
+}
+
+.dca-backtest-disclosure ul,
+.dca-backtest-warnings ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  list-style: disc;
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  line-height: 1.65;
+}
+
+.dca-backtest-result {
+  margin-top: 0.85rem;
+}
+
+.dca-metric-grid {
+  margin-top: 0.85rem;
+}
+
+.dca-metric-card small {
+  font-size: 0.68rem;
+}
+
+.dca-backtest-meta {
+  font-size: 0.76rem;
+  margin-top: 0.6rem;
+}
+
+.dca-backtest-subhead {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 0.6rem;
+}
+
+.dca-backtest-warnings {
+  margin-top: 0.85rem;
+}
+
+.dca-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.85rem;
+  margin-top: 0.85rem;
+}
+
+/* 掃描表 */
+.dca-sweep-best {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.85rem;
+  padding: 0.6rem 0.85rem;
+  background: var(--trading-green-bg);
+  border: 1px solid var(--trading-green-border);
+  border-radius: var(--radius-md);
+  color: var(--trading-green);
+  font-size: 0.82rem;
+}
+
+.dca-sweep-best-label {
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+}
+
+.dca-sweep-best strong {
+  color: var(--text-primary);
+}
+
+.dca-sweep-sort {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin-top: 0.85rem;
+  font-size: 0.76rem;
+}
+
+.dca-sweep-row-best {
+  background: var(--trading-green-bg);
+}
+
+.dca-wizard-backtest {
+  margin-top: 0.85rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+@media (max-width: 640px) {
+  .dca-backtest-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .dca-backtest-field {
+    min-width: 0;
+  }
+}

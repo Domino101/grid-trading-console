@@ -4,16 +4,22 @@ import {
     RefreshCcw,
     Activity,
     Layers,
+    Loader2,
     Sliders,
     Clock,
     LineChart,
     ListTree,
     AlertTriangle,
     CandlestickChart,
+    FlaskConical,
 } from 'lucide-react';
 import {
     api,
+    type BacktestResult,
+    type SweepResponse,
+    type DcaBacktestTimeframe,
     type DcaChartResponse,
+    type KlineCandle,
     type DcaEvent,
     type DcaFillsResponse,
     type DcaLadderResponse,
@@ -35,7 +41,13 @@ import {
 } from '../utils/dca';
 import DcaStatusBadge from './DcaStatusBadge';
 import DcaLadderTable from './DcaLadderTable';
+import DcaBacktestPanel from './DcaBacktestPanel';
 import { chartDataNotice, filterMarksForStatus } from '../utils/dcaChart';
+import { backtestErrorText } from '../utils/dca';
+
+// 回測結果較重（含圖表），與 DcaChart 同樣採動態匯入切成獨立 chunk。
+const DcaBacktestResult = lazy(() => import('./DcaBacktestResult'));
+const DcaSweepTable = lazy(() => import('./DcaSweepTable'));
 
 // E-6.2 / 稽核 6.10：圖表函式庫只在 DcaChart.tsx 內，並以動態匯入切成
 // 獨立 chunk（沿用 App.tsx 對 GridDetail 的模式），不得灌進 index-*.js 拖慢首屏。
@@ -47,7 +59,7 @@ interface DcaDetailProps {
     onUnauthorized: () => void;
 }
 
-type TabType = 'chart' | 'ladder' | 'orders' | 'fills' | 'events' | 'indicators' | 'specs';
+type TabType = 'chart' | 'backtest' | 'ladder' | 'orders' | 'fills' | 'events' | 'indicators' | 'specs';
 
 // 長列表門檻（稽核 7.9）：超過此數改為分頁，避免首屏卡頓。
 const PAGE_SIZE = 50;
@@ -59,6 +71,18 @@ const CHART_TIMEFRAMES = ['5m', '15m', '1h', '4h', '1d'] as const;
 type ChartTimeframe = (typeof CHART_TIMEFRAMES)[number];
 
 const CHART_LIMIT = 300;
+
+// D-11 固定簡化事項：執行前就揭露（稽核 7.2）。有結果後另外渲染 API 的 warnings。
+/** 把「1.0, 1.5, 2.0」解析成數字陣列；忽略空白與非數字項（純輸入解析，非金融計算）。 */
+const parseSweepAxis = (raw: string): number[] =>
+    raw.split(',').map((part) => Number(part.trim())).filter((n) => Number.isFinite(n));
+
+const BACKTEST_DISCLOSURES = [
+    '回測不模擬部分成交：每張單一次整張成交或完全不成交。',
+    '除跳空外不套用滑價模型；手續費採設定檔的 fee_rate。',
+    '未套用交易所最小名目限制（與實盤路徑一致）。',
+    '歷史績效不代表未來，回測結果僅供參考。',
+] as const;
 
 const num = (v: unknown): number | null =>
     typeof v === 'number' && Number.isFinite(v) ? v : null;
@@ -84,6 +108,25 @@ const DcaDetail: React.FC<DcaDetailProps> = ({ bot, onBack, onUnauthorized }) =>
     const [chartError, setChartError] = useState<string | null>(null);
     const [chartLoading, setChartLoading] = useState(false);
     const chartAbortRef = useRef<AbortController | null>(null);
+
+    // ── Phase C7 回測分頁狀態 ──
+    const [btTimeframe, setBtTimeframe] = useState<DcaBacktestTimeframe>('15m');
+    const [btBars, setBtBars] = useState(1000);
+    const [btCapital, setBtCapital] = useState('1000');
+    const [btResult, setBtResult] = useState<BacktestResult | null>(null);
+    const [btCandles, setBtCandles] = useState<KlineCandle[] | null>(null);
+    const [btError, setBtError] = useState<string | null>(null);
+    const [btRunning, setBtRunning] = useState(false);
+    const btAbortRef = useRef<AbortController | null>(null);
+
+    // 參數掃描（sweep）：與單次回測共用時框/棒數，僅多兩條掃描軸。
+    const [swTpRange, setSwTpRange] = useState('1.0, 1.5, 2.0');
+    const [swSoRange, setSwSoRange] = useState('2, 3, 4');
+    const [swBestBy, setSwBestBy] = useState('total_return_pct');
+    const [swResult, setSwResult] = useState<SweepResponse | null>(null);
+    const [swError, setSwError] = useState<string | null>(null);
+    const [swRunning, setSwRunning] = useState(false);
+    const swAbortRef = useRef<AbortController | null>(null);
 
     const botId = bot.bot_id;
 
@@ -182,6 +225,105 @@ const DcaDetail: React.FC<DcaDetailProps> = ({ bot, onBack, onUnauthorized }) =>
             chartAbortRef.current?.abort();
         };
     }, [activeTab, loadChart]);
+
+    // 回測執行：同時取回測結果與同區間 K 線（結果圖需要）。
+    // 稽核 7.5：執行中禁用按鈕；切離分頁或卸載時 abort。
+    const runBacktest = useCallback(async () => {
+        btAbortRef.current?.abort();
+        const controller = new AbortController();
+        btAbortRef.current = controller;
+        setBtRunning(true);
+        setBtError(null);
+        try {
+            const response = await api.runDcaBacktest(
+                { bot_id: botId, timeframe: btTimeframe, bars: btBars, initial_capital: btCapital },
+                controller.signal,
+            );
+            setBtResult(response.result);
+
+            // K 線與回測用同一組參數；失敗不影響指標與輪次表的呈現。
+            if (bot.symbol && bot.exchange) {
+                try {
+                    const klines = await api.getKlines(
+                        bot.symbol, bot.exchange, btTimeframe, btBars, controller.signal,
+                    );
+                    setBtCandles(klines.candles);
+                } catch {
+                    setBtCandles(null);
+                }
+            }
+        } catch (caught) {
+            if (caught instanceof ApiError && caught.isUnauthorized) {
+                onUnauthorized();
+                return;
+            }
+            if (caught instanceof DOMException && caught.name === 'AbortError') return;
+            const status = caught instanceof ApiError ? caught.status : null;
+            const fallback = caught instanceof Error ? caught.message : '回測失敗';
+            setBtError(backtestErrorText(status, fallback));
+            setBtResult(null);
+            setBtCandles(null);
+        } finally {
+            setBtRunning(false);
+        }
+    }, [botId, btTimeframe, btBars, btCapital, bot.symbol, bot.exchange, onUnauthorized]);
+
+    const runSweep = useCallback(async () => {
+        swAbortRef.current?.abort();
+        const controller = new AbortController();
+        swAbortRef.current = controller;
+        setSwRunning(true);
+        setSwError(null);
+        try {
+            const response = await api.runDcaSweep(
+                {
+                    bot_id: botId,
+                    timeframe: btTimeframe,
+                    bars: btBars,
+                    initial_capital: btCapital,
+                    best_by: swBestBy,
+                    take_profit_percent_range: parseSweepAxis(swTpRange),
+                    max_safety_orders_range: parseSweepAxis(swSoRange).map((n) => Math.round(n)),
+                },
+                controller.signal,
+            );
+            setSwResult(response);
+        } catch (caught) {
+            if (caught instanceof ApiError && caught.isUnauthorized) {
+                onUnauthorized();
+                return;
+            }
+            if (caught instanceof DOMException && caught.name === 'AbortError') return;
+            const status = caught instanceof ApiError ? caught.status : null;
+            const fallback = caught instanceof Error ? caught.message : '掃描失敗';
+            setSwError(backtestErrorText(status, fallback));
+            setSwResult(null);
+        } finally {
+            setSwRunning(false);
+        }
+    }, [botId, btTimeframe, btBars, btCapital, swBestBy, swTpRange, swSoRange, onUnauthorized]);
+
+    const cancelSweep = useCallback(() => {
+        swAbortRef.current?.abort();
+        setSwRunning(false);
+    }, []);
+
+    const cancelBacktest = useCallback(() => {
+        btAbortRef.current?.abort();
+        setBtRunning(false);
+    }, []);
+
+    // 稽核 7.5：離開回測分頁 / 卸載元件即取消進行中的長任務。
+    useEffect(() => {
+        if (activeTab === 'backtest') return;
+        btAbortRef.current?.abort();
+        swAbortRef.current?.abort();
+    }, [activeTab]);
+
+    useEffect(() => () => {
+        btAbortRef.current?.abort();
+        swAbortRef.current?.abort();
+    }, []);
 
     const openTab = useCallback((tab: TabType) => {
         setActiveTab(tab);
@@ -309,6 +451,10 @@ const DcaDetail: React.FC<DcaDetailProps> = ({ bot, onBack, onUnauthorized }) =>
                     <CandlestickChart size={15} />
                     <span>圖表</span>
                 </button>
+                <button className={`detail-tab ${activeTab === 'backtest' ? 'active' : ''}`} type="button" role="tab" aria-selected={activeTab === 'backtest'} onClick={() => openTab('backtest')}>
+                    <FlaskConical size={15} />
+                    <span>回測</span>
+                </button>
                 <button className={`detail-tab ${activeTab === 'ladder' ? 'active' : ''}`} type="button" onClick={() => openTab('ladder')}>
                     <ListTree size={15} />
                     <span>階梯</span>
@@ -415,6 +561,132 @@ const DcaDetail: React.FC<DcaDetailProps> = ({ bot, onBack, onUnauthorized }) =>
                         最後一根 K 棒尚未收線，以當前市價即時補畫（決策 D-10）。所有價格與百分比皆由後端提供，前端不做任何計算。
                     </p>
                 </section>
+            )}
+
+            {/* Tab: 回測（Phase C7） */}
+            {activeTab === 'backtest' && (
+                <>
+                    <DcaBacktestPanel
+                        timeframe={btTimeframe}
+                        bars={btBars}
+                        initialCapital={btCapital}
+                        running={btRunning}
+                        disclosures={BACKTEST_DISCLOSURES}
+                        onTimeframeChange={(tf) => setBtTimeframe(tf as DcaBacktestTimeframe)}
+                        onBarsChange={setBtBars}
+                        onInitialCapitalChange={setBtCapital}
+                        onRun={() => void runBacktest()}
+                        onCancel={cancelBacktest}
+                        scopeNote={`以歷史 K 線回放「${bot.symbol ?? botId}」目前的 YAML 設定；回測為唯讀操作，不會下任何真實訂單、也不會改動此機器人。`}
+                    />
+
+                    {/* 稽核 7.6：錯誤必須明確呈現，且不渲染任何結果 */}
+                    {btError && (
+                        <div className="notice notice-error" role="alert" style={{ marginTop: '0.85rem' }}>
+                            <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+                            <span>{btError}</span>
+                        </div>
+                    )}
+
+                    {btRunning && !btResult && (
+                        <p className="muted" style={{ padding: '2.5rem 0', textAlign: 'center' }}>
+                            回測執行中，請稍候…（{btBars} 根 {btTimeframe} K 棒）
+                        </p>
+                    )}
+
+                    {!btError && btResult && (
+                        <Suspense fallback={<p className="muted" style={{ padding: '2.5rem 0', textAlign: 'center' }}>載入結果中…</p>}>
+                            <DcaBacktestResult
+                                result={btResult}
+                                candles={btCandles}
+                                direction={activeDirection ?? bot.direction}
+                            />
+                        </Suspense>
+                    )}
+
+                    {!btError && !btResult && !btRunning && (
+                        <p className="muted" style={{ padding: '2.5rem 0', textAlign: 'center' }}>
+                            設定回測參數後按「執行回測」，即可看到虛擬下單標記與績效指標。
+                        </p>
+                    )}
+
+                    {/* ── 參數掃描：沿用上方的時框 / 棒數 / 初始資金 ── */}
+                    <div className="glass-panel dca-backtest-panel" style={{ marginTop: '1.25rem' }}>
+                        <div className="dca-backtest-subhead">
+                            <Layers size={16} />
+                            <span>參數掃描比較</span>
+                        </div>
+                        <p className="muted" style={{ fontSize: '0.76rem' }}>
+                            對多組參數各跑一次回測並排比較，使用上方的時框（{btTimeframe}）、棒數（{btBars}）與初始資金。
+                            組數＝兩軸長度相乘，過多會被後端預算截斷。
+                        </p>
+
+                        <div className="dca-backtest-controls">
+                            <label className="dca-backtest-field" style={{ minWidth: 180 }}>
+                                <span>止盈% 掃描軸（逗號分隔）</span>
+                                <input
+                                    value={swTpRange}
+                                    onChange={(e) => setSwTpRange(e.target.value)}
+                                    disabled={swRunning}
+                                    placeholder="1.0, 1.5, 2.0"
+                                />
+                            </label>
+                            <label className="dca-backtest-field" style={{ minWidth: 180 }}>
+                                <span>安全單張數掃描軸</span>
+                                <input
+                                    value={swSoRange}
+                                    onChange={(e) => setSwSoRange(e.target.value)}
+                                    disabled={swRunning}
+                                    placeholder="2, 3, 4"
+                                />
+                            </label>
+                            <label className="dca-backtest-field">
+                                <span>排名依據</span>
+                                <select
+                                    value={swBestBy}
+                                    onChange={(e) => setSwBestBy(e.target.value)}
+                                    disabled={swRunning}
+                                >
+                                    <option value="total_return_pct">總報酬%</option>
+                                    <option value="alpha_pct">Alpha%</option>
+                                    <option value="profit_factor">獲利因子</option>
+                                    <option value="win_rate_pct">勝率%</option>
+                                    <option value="max_drawdown_pct">最大回撤%</option>
+                                </select>
+                            </label>
+                            <div className="dca-backtest-actions">
+                                <button
+                                    className="btn btn-secondary"
+                                    type="button"
+                                    onClick={() => void runSweep()}
+                                    disabled={swRunning || parseSweepAxis(swTpRange).length === 0 || parseSweepAxis(swSoRange).length === 0}
+                                >
+                                    {swRunning
+                                        ? <><Loader2 size={15} className="spin" /> 掃描中…</>
+                                        : <>執行掃描（{parseSweepAxis(swTpRange).length * parseSweepAxis(swSoRange).length} 組）</>}
+                                </button>
+                                {swRunning && (
+                                    <button className="btn btn-outline" type="button" onClick={cancelSweep}>
+                                        取消
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    {swError && (
+                        <div className="notice notice-error" role="alert" style={{ marginTop: '0.85rem' }}>
+                            <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+                            <span>{swError}</span>
+                        </div>
+                    )}
+
+                    {!swError && swResult && (
+                        <Suspense fallback={<p className="muted" style={{ padding: '1.5rem 0', textAlign: 'center' }}>載入比較表中…</p>}>
+                            <DcaSweepTable response={swResult} />
+                        </Suspense>
+                    )}
+                </>
             )}
 
             {/* Tab: 階梯 */}

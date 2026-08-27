@@ -82,11 +82,18 @@ from web_ui.backend.schemas import (
     DcaSnapshotItem,
     DcaSnapshotResponse,
     DcaStatsResponse,
+    BacktestCycleRecord,
+    BacktestEquityPoint,
+    BacktestMetrics,
     BacktestRequest,
     BacktestResponse,
     BacktestResult,
+    BacktestTradeMark,
+    SweepBest,
+    SweepBudget,
     SweepRequest,
     SweepResponse,
+    SweepRunResult,
 )
 from core.services.dca.config_loader import dca_account_mode_from_yaml, load_dca_config
 from core.services.dca.ladder import build_ladder, stop_loss_price, take_profit_price
@@ -1613,26 +1620,25 @@ async def run_dca_backtest(
                      params={"bot_id": bot_id, "bars": payload.bars, "timeframe": payload.timeframe, "elapsed_seconds": round(elapsed, 2)},
                      result="success")
     
-    # 建立回應（轉換 core BacktestResult 到 API BacktestResult）
-    from schemas import BacktestMetrics as BacktestMetricsSchema
-    from schemas import BacktestEquityPoint as BacktestEquityPointSchema
-    from schemas import BacktestTradeMark as BacktestTradeMarkSchema
-    from schemas import BacktestCycleRecord as BacktestCycleRecordSchema
-    
+    # 建立回應（轉換 core BacktestResult 到 API BacktestResult）。
+    # 注意：schema 類別一律由模組頂端的 `web_ui.backend.schemas` 匯入。
+    # 此處若改用函式內 `from schemas import ...`，會建立與 response_model
+    # 不同的類別物件，pydantic 對每一筆 equity/marks/cycles 回報 model_type
+    # 驗證錯誤而導致整個端點 500（與 /chart 端點同一類缺陷）。
     backtest_response = BacktestResult(
         bars=result.bars,
         timeframe=result.timeframe,
         first_ts=result.first_ts,
         last_ts=result.last_ts,
-        metrics=BacktestMetricsSchema(**result.metrics),
+        metrics=BacktestMetrics(**result.metrics),
         equity=[
-            BacktestEquityPointSchema(**ep.to_dict()) for ep in result.equity
+            BacktestEquityPoint(**ep.to_dict()) for ep in result.equity
         ],
         marks=[
-            BacktestTradeMarkSchema(**mark.to_dict()) for mark in result.marks
+            BacktestTradeMark(**mark.to_dict()) for mark in result.marks
         ],
         cycles=[
-            BacktestCycleRecordSchema(**cycle.to_dict()) for cycle in result.cycles
+            BacktestCycleRecord(**cycle.to_dict()) for cycle in result.cycles
         ],
         data_status=result.data_status,
         source=result.source,
@@ -1847,9 +1853,8 @@ async def run_dca_sweep(
                      result="success")
     
     # 建立回應
-    from schemas import SweepRunResult as SweepRunResultSchema
-    from schemas import SweepBudget as SweepBudgetSchema
-    from schemas import BacktestMetrics as BacktestMetricsSchema
+    # schema 類別一律由模組頂端匯入；函式內 `from schemas import ...` 會建立
+    # 與 response_model 不同的類別物件而導致 pydantic model_type 500。
     
     runs = []
     for run in sweep_result.runs:
@@ -1867,22 +1872,32 @@ async def run_dca_sweep(
         if not metrics_dict:
             metrics_dict = {}
         
-        runs.append(SweepRunResultSchema(
+        runs.append(SweepRunResult(
             params=run_dict.get("params", {}),
-            metrics=BacktestMetricsSchema(**metrics_dict) if metrics_dict else BacktestMetricsSchema(),
+            metrics=BacktestMetrics(**metrics_dict) if metrics_dict else BacktestMetrics(),
             error=run_dict.get("error"),
         ))
     
-    budget = SweepBudgetSchema(
+    budget = SweepBudget(
         bars_used=sweep_result.budget.bars_used,
         bars_limit=sweep_result.budget.bars_limit,
-        runs_used=sweep_result.budget.runs_used,
+        runs_completed=sweep_result.budget.runs_completed,
+        runs_total=sweep_result.budget.runs_total,
         runs_limit=sweep_result.budget.runs_limit,
     )
     
+    # 最優組合由 core 的 _pick_best 判定並原樣透出，前端不得自行排序挑選（G-4）。
+    best_raw = sweep_result.best_by if isinstance(sweep_result.best_by, Mapping) else {}
+    best = SweepBest(
+        metric=str(best_raw.get("metric") or payload.best_by),
+        value=best_raw.get("value"),
+        params=best_raw.get("params"),
+    )
+
     return SweepResponse(
         runs=runs,
         best_by=payload.best_by,
+        best=best,
         truncated=sweep_result.truncated,
         budget=budget,
     )

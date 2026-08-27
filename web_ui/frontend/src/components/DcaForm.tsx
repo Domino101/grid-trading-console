@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import {
     AlertTriangle,
     CheckCircle,
@@ -7,11 +7,15 @@ import {
     Info,
     Loader2,
     Rocket,
+    FlaskConical,
 } from 'lucide-react';
 import {
     api,
     ApiError,
+    type BacktestResult,
+    type DcaBacktestTimeframe,
     type DcaCreateResponse,
+    type KlineCandle,
     type DcaPreviewResponse,
     type MarketInfo,
     type MarketIndicatorsResponse,
@@ -28,10 +32,23 @@ import {
     selectDcaSummary,
     validateDcaEntry,
     validateDcaStep3,
+    backtestErrorText,
     type DcaWizardForm,
 } from '../utils/dca';
 import IndicatorConfigPanel from './IndicatorConfigPanel';
 import DcaLadderPreview from './DcaLadderPreview';
+import DcaBacktestPanel from './DcaBacktestPanel';
+
+// 與 DcaDetail 相同的動態匯入，維持圖表函式庫的獨立 chunk（E-6.2）。
+const DcaBacktestResult = lazy(() => import('./DcaBacktestResult'));
+
+// D-11 固定簡化事項（與 DcaDetail 同一份文案）。
+const WIZARD_BACKTEST_DISCLOSURES = [
+    '回測不模擬部分成交：每張單一次整張成交或完全不成交。',
+    '除跳空外不套用滑價模型；手續費採表單的 fee_rate。',
+    '未套用交易所最小名目限制（與實盤路徑一致）。',
+    '歷史績效不代表未來，回測結果僅供參考。',
+] as const;
 
 interface DcaFormProps {
     onNavigateDashboard: () => void;
@@ -118,6 +135,17 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
         message?: string;
     }>({ kind: 'idle' });
     const previewAbortRef = useRef<AbortController | null>(null);
+
+    // ── Phase C7：精靈內「先回測看看」（稽核 7.9：送出的是表單當前參數 draft）──
+    const [wizardBtOpen, setWizardBtOpen] = useState(false);
+    const [wizardBtTimeframe, setWizardBtTimeframe] = useState<DcaBacktestTimeframe>('15m');
+    const [wizardBtBars, setWizardBtBars] = useState(1000);
+    const [wizardBtCapital, setWizardBtCapital] = useState('1000');
+    const [wizardBtResult, setWizardBtResult] = useState<BacktestResult | null>(null);
+    const [wizardBtCandles, setWizardBtCandles] = useState<KlineCandle[] | null>(null);
+    const [wizardBtError, setWizardBtError] = useState<string | null>(null);
+    const [wizardBtRunning, setWizardBtRunning] = useState(false);
+    const wizardBtAbortRef = useRef<AbortController | null>(null);
 
     const update = <K extends keyof DcaWizardForm>(key: K, value: DcaWizardForm[K]) =>
         setForm((f) => ({ ...f, [key]: value }));
@@ -221,6 +249,54 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
             form.direction === 'both' ? preview.ladder_long : preview.ladder,
           )
         : null;
+
+    // 稽核 7.9：draft 直接由「表單當前參數」組出（與 /preview 同一個 builder），
+    // 送的是使用者眼前正在調的參數，不是任何已建立的 bot。
+    const runWizardBacktest = useCallback(async () => {
+        if (currentPrice == null) return;
+        wizardBtAbortRef.current?.abort();
+        const controller = new AbortController();
+        wizardBtAbortRef.current = controller;
+        setWizardBtRunning(true);
+        setWizardBtError(null);
+        try {
+            const draft = buildDcaPreviewRequest(form, currentPrice) as unknown as Record<string, unknown>;
+            const response = await api.runDcaBacktest(
+                {
+                    draft,
+                    timeframe: wizardBtTimeframe,
+                    bars: wizardBtBars,
+                    initial_capital: wizardBtCapital,
+                },
+                controller.signal,
+            );
+            setWizardBtResult(response.result);
+            try {
+                const klines = await api.getKlines(
+                    form.symbol, form.exchange, wizardBtTimeframe, wizardBtBars, controller.signal,
+                );
+                setWizardBtCandles(klines.candles);
+            } catch {
+                setWizardBtCandles(null);
+            }
+        } catch (e) {
+            if (controller.signal.aborted) return;
+            const status = e instanceof ApiError ? e.status : null;
+            const fallback = e instanceof Error ? e.message : '回測失敗';
+            setWizardBtError(backtestErrorText(status, fallback));
+            setWizardBtResult(null);
+            setWizardBtCandles(null);
+        } finally {
+            setWizardBtRunning(false);
+        }
+    }, [form, currentPrice, wizardBtTimeframe, wizardBtBars, wizardBtCapital]);
+
+    const cancelWizardBacktest = useCallback(() => {
+        wizardBtAbortRef.current?.abort();
+        setWizardBtRunning(false);
+    }, []);
+
+    useEffect(() => () => { wizardBtAbortRef.current?.abort(); }, []);
 
     const funds = preview ? dcaFundsStatus(preview.required_capital, null) : 'unknown';
     const fundsBlocked = form.account_mode === 'live' && funds === 'insufficient';
@@ -755,6 +831,58 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                                 <div className="dca-review-row"><span>止盈</span><strong>{form.take_profit_percent}%</strong></div>
                                 {form.stop_loss_percent != null && (
                                     <div className="dca-review-row"><span>止損</span><strong>{form.stop_loss_percent}%</strong></div>
+                                )}
+                            </div>
+
+                            {/* 稽核 7.9：先回測看看 — 對「表單當前參數」跑回測，不建立任何機器人 */}
+                            <div className="field-full dca-wizard-backtest">
+                                <button
+                                    className="btn btn-outline"
+                                    type="button"
+                                    onClick={() => setWizardBtOpen((open) => !open)}
+                                    disabled={currentPrice == null}
+                                    title={currentPrice == null ? '等待市場價格載入' : undefined}
+                                >
+                                    <FlaskConical size={15} />
+                                    <span>{wizardBtOpen ? '收起回測' : '先回測看看'}</span>
+                                </button>
+                                <span className="muted" style={{ fontSize: '0.76rem', marginLeft: '0.6rem' }}>
+                                    以上方目前的參數跑歷史回放，不會建立機器人、也不會下單。
+                                </span>
+
+                                {wizardBtOpen && (
+                                    <div style={{ marginTop: '0.85rem' }}>
+                                        <DcaBacktestPanel
+                                            timeframe={wizardBtTimeframe}
+                                            bars={wizardBtBars}
+                                            initialCapital={wizardBtCapital}
+                                            running={wizardBtRunning}
+                                            disclosures={WIZARD_BACKTEST_DISCLOSURES}
+                                            onTimeframeChange={(tf) => setWizardBtTimeframe(tf as DcaBacktestTimeframe)}
+                                            onBarsChange={setWizardBtBars}
+                                            onInitialCapitalChange={setWizardBtCapital}
+                                            onRun={() => void runWizardBacktest()}
+                                            onCancel={cancelWizardBacktest}
+                                            scopeNote="回測對象＝上方表單當前參數（draft），與已建立的機器人無關；此操作為唯讀。"
+                                        />
+
+                                        {wizardBtError && (
+                                            <div className="notice notice-error" role="alert" style={{ marginTop: '0.85rem' }}>
+                                                <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+                                                <span>{wizardBtError}</span>
+                                            </div>
+                                        )}
+
+                                        {!wizardBtError && wizardBtResult && (
+                                            <Suspense fallback={<p className="muted" style={{ padding: '2rem 0', textAlign: 'center' }}>載入結果中…</p>}>
+                                                <DcaBacktestResult
+                                                    result={wizardBtResult}
+                                                    candles={wizardBtCandles}
+                                                    direction={form.direction}
+                                                />
+                                            </Suspense>
+                                        )}
+                                    </div>
                                 )}
                             </div>
 
