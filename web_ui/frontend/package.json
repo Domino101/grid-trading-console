@@ -7,10 +7,11 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "test": "node --experimental-strip-types --test tests/format.test.ts tests/auth.test.ts tests/dca.test.ts tests/dca-form.test.ts",
+    "test": "node --experimental-strip-types --test tests/format.test.ts tests/auth.test.ts tests/dca.test.ts tests/dca-form.test.ts tests/dca-chart.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {
+    "lightweight-charts": "^5.2.1",
     "lucide-react": "^1.14.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",

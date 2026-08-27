@@ -680,6 +680,78 @@ export interface DcaCreateResponse {
     command_id: string | null;
 }
 
+// ── Phase C6：K 線與 DCA 即時圖表契約 ────────────────────────────────
+// 對齊後端 web_ui/backend/schemas.py 的 KlineCandle / DcaChartResponse。
+// 未知一律 null（G-5）；前端不做任何計算（G-4）。
+
+export interface KlineCandle {
+    t: number; // 棒起點 unix 秒 (UTC)
+    o: number;
+    h: number;
+    l: number;
+    c: number;
+    v: number;
+}
+
+export interface KlinesResponse {
+    symbol: string;
+    exchange: string;
+    timeframe: string;
+    candles: KlineCandle[];
+    source: string; // cache / exchange / paper_synthetic / cache+exchange
+    data_status: DataStatus | (string & {});
+    gaps: number;
+    warnings: string[];
+    oldest_ts: number | null;
+}
+
+/** §4.7 凍結標記語意；kind 由後端決定，前端只做視覺映射。 */
+export type DcaChartMarkKind =
+    | 'order_placed'
+    | 'base_filled'
+    | 'safety_filled'
+    | 'take_profit_filled'
+    | 'stop_loss_filled'
+    | 'skipped'
+    | (string & {});
+
+export interface DcaChartMark {
+    ts: number;
+    price: number;
+    kind: DcaChartMarkKind;
+    role: string;
+    side: string;
+    quantity: number | null;
+    notional: number | null;
+    slot_index: number | null;
+    cycle_index: number;
+    realized_pct: number | null;
+}
+
+export type DcaChartLineKind =
+    | 'entry'
+    | 'average_cost'
+    | 'take_profit'
+    | 'next_safety'
+    | 'stop_loss'
+    | (string & {});
+
+export interface DcaChartLine {
+    kind: DcaChartLineKind;
+    price: number | null; // 未知為 null，前端不得畫 0（稽核 6.3）
+}
+
+export interface DcaChartResponse {
+    bot_id: string;
+    candles: KlineCandle[];
+    marks: DcaChartMark[];
+    lines: DcaChartLine[];
+    current_price: number | null;
+    data_status: DataStatus | (string & {});
+    source: string;
+    warnings: string[];
+}
+
 export interface MarketIndicatorResult {
     value: number | null;
     triggered_long: boolean | null;
@@ -987,6 +1059,29 @@ export const api = {
             headers: authHeaders(),
             body: JSON.stringify(request),
         }, '無法建立 DCA 機器人');
+    },
+
+    // ── Phase C6：K 線與 DCA 即時圖表（同源相對 URL）──
+
+    async getKlines(
+        symbol: string,
+        exchange: string,
+        timeframe = '15m',
+        limit = 300,
+        signal?: AbortSignal,
+    ): Promise<KlinesResponse> {
+        const qs = `?exchange=${encodeURIComponent(exchange)}&timeframe=${encodeURIComponent(timeframe)}&limit=${limit}`;
+        return requestJson(`/v1/market/klines/${encodeURIComponent(symbol)}${qs}`, { headers: authHeaders(), signal }, '無法讀取 K 線資料');
+    },
+
+    async getDcaChart(
+        botId: string,
+        timeframe = '15m',
+        limit = 300,
+        signal?: AbortSignal,
+    ): Promise<DcaChartResponse> {
+        const qs = `?timeframe=${encodeURIComponent(timeframe)}&limit=${limit}`;
+        return requestJson(`/v1/dca/${encodeURIComponent(botId)}/chart${qs}`, { headers: authHeaders(), signal }, `無法讀取 DCA ${botId} 圖表`);
     },
 
     async getMarketIndicators(

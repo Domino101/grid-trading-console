@@ -6,6 +6,20 @@
 
 ### Added
 
+- **DCA 即時圖表與回測子系統 Phase C6 — 前端圖表基礎（lightweight-charts 封裝 + DCA 詳情頁「圖表」分頁）**:
+  - **新依賴 `lightweight-charts@^5.2.1`（決策 D-6，Apache-2.0）**: `package.json` 與 `package-lock.json` 一併提交（E-6.5）。選型理由見計畫 §3.2：recharts 3.8.1 無原生蠟燭圖、無 markers、無縮放平移，手刻成本高於引入專用函式庫。
+  - **圖表元件（`web_ui/frontend/src/components/DcaChart.tsx`）**: 受控元件，props = `{candles, marks, lines, equity, direction, liveLastPrice, height, ariaLabel}`，**不做任何資料抓取**。K 線 + 標記 + 價格線 + 選配 equity 第二窗格；原生縮放平移與十字光標。**E-6.2 依賴隔離**：此為全前端唯一 import 圖表函式庫的檔案（契約測試以整棵 `src/` 掃描把關）。**RC-12 記憶體**：`useEffect` cleanup 呼叫 `chart.remove()` 並 `ResizeObserver.disconnect()`；price line 以 ref 保存，props 變動時先 `removePriceLine()` 再重建。主題色一律以 `getComputedStyle` 讀取既有 CSS token，不硬編碼色票。
+  - **純函式層（`web_ui/frontend/src/utils/dcaChart.ts`，E-6.3）**: `toCandleSeries` / `toMarkerSpecs` / `toPriceLineSpecs` / `toEquitySeries` / `markerText` / `chartDataNotice` / `filterMarksForStatus`。輸出「與函式庫無關的中性描述物件」，可被 node --test 完整覆蓋。**§4.7 凍結語意表**（`DCA_MARK_SEMANTICS` / `DCA_LINE_SEMANTICS`）以資料結構落地：kind → shape / color token / position 逐行對應，做空時 base/safety 自動翻轉。
+  - **G-5 未知不畫 0（稽核 6.3）**: `lines[].price=null` 不產生任何 price line；`realized_pct=null` 時 TP/SL 文字省略百分比而非顯示 `+0.00%`；`slot_index=null` 顯示 `S` 而非 `S0`。真實 0 與未知嚴格區分（`chartPercentText(0) === '+0.00%'`）。
+  - **D-10 即時最後一根**: 已收線 K 棒來自 `/chart` 端點，最後一根以 snapshot `current_price` 在客戶端更新 close 並擴張 high/low；**不新增 WS、不新增輪詢端點**。
+  - **詳情頁整合（`DcaDetail.tsx`）**: `TabType` 新增 `'chart'`（第七分頁，六個既有分頁不變）；時框切換 5m/15m/1h/4h/1d；圖表分頁啟用時 15s 輪詢（對齊 `DcaDashboard.tsx` 的 `REFRESH_MS`），**切離分頁/卸載即 `clearInterval` + `AbortController.abort()`**（稽核 6.5）。**稽核 6.10 chunk 隔離**：以 `lazy(() => import('./DcaChart'))` 動態匯入，圖表函式庫落在獨立 chunk。
+  - **誠實回報**: `data_status=unavailable` 或零棒 → 顯示「無法取得 K 線資料」/「資料不足」，不畫空白圖讓人誤以為市場無波動（稽核 6.8）；`source=paper_synthetic` → 角標「合成資料」，`stale` → 角標「陳舊資料」（稽核 6.9）；後端 `warnings` 常駐列出。
+  - **armed 語意（稽核 6.6）**: `status=armed` 顯示「監控中 · 交易所零掛單」提示條，且 `filterMarksForStatus` 將 `order_placed` 標記過濾為 0，避免與文案自相矛盾。
+  - **API 契約（`services/api.ts`）**: 新增 `KlineCandle` / `KlinesResponse` / `DcaChartMark` / `DcaChartLine` / `DcaChartResponse` 型別與 `getKlines()` / `getDcaChart()` 方法，全部走同源相對路徑。
+  - **樣式（`App.css`）**: 新增 12 個 `--dca-*` 圖表色 token，**每一個都指向既有語意色**（`var(--trading-green)` 等），不新增平行色票系統；工具列於 ≤640px 改為縱向堆疊（稽核 6.12 RWD）。
+  - **測試**: 新增 `web_ui/frontend/tests/dca-chart.test.ts`（27 項純函式測試，覆蓋稽核 6.1 / 6.3 / 6.6 / 6.8 / 6.9）並登記於 `package.json` test script；`tests/test_dca_frontend_contract.py` 新增 `DcaChartSourceContractTests`（13 項檔案級契約，覆蓋 6.2 / 6.4 / 6.5 / 6.6 / 6.7 / 6.10 / 6.12）。前端 **63/63 通過**（基線 36 + 新增 27），Python 契約 **41/41 通過**。
+  - **bundle 增量（稽核 6.10，對照 §5.0 基線）**: `index-*.js` gzip 101.58 → **101.27 kB（−0.31）**、`GridDetail-*.js` gzip **102.20 kB（不變）**、CSS gzip 8.16 → **8.44 kB（+0.28）**；新增獨立 `DcaChart-*.js` gzip **57.93 kB**，僅在使用者開啟圖表分頁時載入，**首屏未受影響**。`npm run lint` 0 error（維持既有 1 warning）、`npm run build` 成功。
+
 - **DCA 即時圖表與回測子系統 Phase C5 — 後端 API 層（klines/chart/backtest/sweep 端點 + 契約測試 + 稽核日誌）**:
   - **即時圖表端點（`GET /api/v1/dca/{bot_id}/chart`）**: K 線資料 + runtime 快照標記（基礎單成交/安全單成交/止盈/止損/掛單/略過）+ 價格線（entry/average_cost/take_profit/next_safety/stop_loss）；引擎零變更，純投影（G-4）；K 線來源複用 C1 `KlineService.get_candles()`（含 PAPER 合成）；標記與價格線由 `_fills` / `_orders` / `ladder_slots` 直接投影（§4.7 語意表）。
   - **回測端點（`POST /api/v1/dca/backtest`）**: 單一設定歷史回放，支援 `bot_id`（既有 YAML）或 `draft`（精靈 JSON，走與建立機器人同一套驗證函式）；A-4 上限守衛（bars ≤ 20000、timeframe ∈ {1m,5m,15m,30m,1h,4h,1d}）；A-5 執行時間守衛（60s timeout）；A-6 warnings 強制包含「回測不模擬部分成交」「未套用交易所最小名目限制」「歷史績效不代表未來」三條簡化事項揭露；A-7 稽核日誌（action=run_dca_backtest）。
@@ -120,6 +134,8 @@
   - **測試**: `tests/test_dca_{executor,coordinator}.py` 共 40 項測試（FakeExchange 確定性驅動，覆蓋計畫 Phase 2 稽核 2.1–2.21 全部斷言點，含 INV-1 全實管線 20 輪零掛單）；登入 `scripts/ci.sh` 與 `docs/github-actions-ci.yml`。全量後端 CI 157 項測試全綠，網格既有測試零回歸（稽核 2.22）。
 
 ### Fixed
+
+- **`GET /api/v1/dca/{bot_id}/chart` 全面 500（C5 遺留，C6 live 驗證發現）**: 端點內以 `from schemas import KlineCandle` 做函式內匯入，該路徑建立的類別與 `response_model` 參照的 `web_ui.backend.schemas.KlineCandle` 為**兩個不同的類別物件**，導致 pydantic 對每一根 K 棒回報 `model_type` 驗證錯誤、整個回應 500。C5 的 HTTP 契約測試以 `TestClient` 在無 token 情境下只斷言 401，故未觸及此路徑。改為由模組頂端統一匯入，並移除同段落中建構後即被丟棄的 `candles` 死碼（誤用 `DcaChartMark` 表示 K 棒）。實機驗證：`curl /chart?timeframe=15m&limit=50` → 200，50 根 K 棒、`data_status=paper`、`source=paper_synthetic`。
 
 - **DCA 熱插拔啟動全面失敗（Phase 5 live 驗證發現）**: `run_multiple_grids.py` 的 `run_single_dca_task()` 誤以 `await auto_fill_dca_precision(...)` 呼叫同步函式（`core/services/dca/config_loader.py`，回傳 `None`），導致**每一筆** DCA 熱插拔啟動都立即崩潰 `object NoneType can't be used in 'await' expression`（Phase 3 稽核只測 standby，paper E2E 又直接呼叫 coordinator，故未觸及）。移除 `await`；新增回歸測試 `tests/test_dca_paper_e2e.py::SupervisorPoolTests::test_run_single_dca_task_reaches_averaging_without_await_none`（真實 `run_single_dca_task` + 真實 PAPER adapter + 真實 YAML：斷言達到 AVERAGING、INV-2 TP 恰 1 張、持倉 > 0）。
 
