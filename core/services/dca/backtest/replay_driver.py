@@ -14,20 +14,21 @@ core/services/dca/backtest/replay_driver.py —— DCA 回放驅動器（真 Coo
 - 顯示層時間蓋章：複製 fills_snapshot 副本並蓋上棒時間 ts，絕不修改 coord._fills 原物件
 """
 
-import copy
 import time
 from decimal import Decimal
-from typing import Any, Callable, Dict, List, Optional, Sequence, Union
+from typing import Any, Dict, List, Optional, Sequence, Union
 
-from .candles import Candle, to_candles
+from .candles import to_candles
+from .metrics import compute_metrics
 from .models import BacktestResult, CycleRecord, EquityPoint, TradeMark
 from .replay_exchange import ReplayExchange
 from ..coordinator.dca_coordinator import DcaCoordinator
+from ..coordinator.entry_monitor import EntryMonitor
+from ..entry.evaluator import TriggerSeriesFn
 from ..execution.dca_order_executor import DcaOrderExecutor
 from ..ladder import build_ladder
 from ..models.dca_config import DcaConfig
-from ..models.dca_order import DcaOrderRole
-from ..models.dca_state import DcaStatus, SlotStatus
+from ..models.dca_state import DcaStatus
 from core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -105,6 +106,7 @@ class ReplayDriver:
         source: str = "cache",
         data_status: str = "live",
         bot_id: Optional[str] = None,
+        series_fns: Optional[Dict[type, TriggerSeriesFn]] = None,
     ):
         self._config = config
         self._candle_seq = to_candles(candles)
@@ -112,6 +114,7 @@ class ReplayDriver:
         self._source = source
         self._data_status = data_status
         self._bot_id = bot_id or "dca-backtest"
+        self._series_fns = series_fns
 
         if not self._candle_seq:
             raise ValueError("candles 不得為空序列")
@@ -152,11 +155,17 @@ class ReplayDriver:
             start = max(0, idx - limit + 1)
             return [float(c.close) for c in self._candle_seq[start : idx + 1]]
 
-        # 4. 真 Coordinator (BP-1)
+        # 4. 真 Coordinator (BP-1)；掃描模式可注入預計算 series_fns（稽核 4.8）
+        entry_monitor = EntryMonitor(
+            self._config,
+            ohlcv_provider=_ohlcv_provider,
+            series_fns=self._series_fns,
+        )
         self.coordinator = DcaCoordinator(
             config=self._config,
             bot_id=self._bot_id,
             executor=self.executor,
+            entry_monitor=entry_monitor,
             ohlcv_provider=_ohlcv_provider,
             time_fn=_virtual_clock,
         )
@@ -388,8 +397,26 @@ class ReplayDriver:
         elapsed = time.perf_counter() - start_time
         bars_per_sec = round(n_bars / elapsed, 2) if elapsed > 0 else 0.0
 
-        # ── 7. 計算績效指標 (§4.5) ──
-        metrics = self._calculate_metrics(candles, equity_points, cycles, holding_bars_count, bars_per_sec)
+        # ── 7. 計算績效指標 (§4.5) ── 一律走純函式 compute_metrics；
+        # 會計值取自引擎 build_statistics()（稽核 4.5，禁止加總 fills[].fee）
+        stats = self.coordinator.build_statistics(last_price=candles[-1].close)
+        direction = (
+            self._config.direction.value
+            if hasattr(self._config.direction, "value")
+            else str(self._config.direction)
+        )
+        metrics = compute_metrics(
+            equity=equity_points,
+            cycles=cycles,
+            candles=candles,
+            initial_capital=float(self._initial_capital),
+            realized_pnl=float(stats.realized_profit),
+            total_fees=float(stats.total_fees),
+            cycles_completed=int(stats.cycle_count),
+            holding_bars=holding_bars_count,
+            direction=direction,
+            bars_per_second=bars_per_sec,
+        )
 
         # ── 8. 警示與簡化事項揭露 (§A-6 / D-11) ──
         warnings = [
@@ -454,114 +481,3 @@ class ReplayDriver:
                     f"INV-6 違規（棒 {bar_idx}）：在世基礎/安全單同時存在多個方向: {sides}"
                 )
 
-    def _calculate_metrics(
-        self,
-        candles: Sequence[Candle],
-        equity_points: List[EquityPoint],
-        cycles: List[CycleRecord],
-        holding_bars: int,
-        bars_per_sec: float,
-    ) -> Dict[str, Any]:
-        """計算 §4.5 凍結指標字典。"""
-        initial_cap = float(self._initial_capital)
-        final_eq = equity_points[-1].equity if equity_points else initial_cap
-        total_return_pct = round((final_eq - initial_cap) / initial_cap * 100.0, 4)
-
-        # 基準 Buy & Hold 報酬率 (4.2)
-        c_first = float(candles[0].close)
-        c_last = float(candles[-1].close)
-        is_long = (
-            self._config.direction.value == "long"
-            if hasattr(self._config.direction, "value")
-            else str(self._config.direction) == "long"
-        )
-        if is_long:
-            buy_hold_return_pct = round((c_last - c_first) / c_first * 100.0, 4) if c_first > 0 else 0.0
-        else:
-            buy_hold_return_pct = round((c_first - c_last) / c_first * 100.0, 4) if c_first > 0 else 0.0
-
-        alpha_pct = round(total_return_pct - buy_hold_return_pct, 4)
-
-        # 引擎會計值 (4.5)
-        realized_pnl = float(self.coordinator._realized_profit)
-        total_fees = float(self.coordinator._total_fees)
-
-        # 未實現損益（以最後一根收盤評價）
-        unrealized_pnl = 0.0
-        if equity_points and equity_points[-1].position_quantity > 0:
-            pos_qty = Decimal(str(equity_points[-1].position_quantity))
-            avg_cost = Decimal(str(equity_points[-1].average_cost or c_last))
-            diff = (candles[-1].close - avg_cost) * pos_qty
-            if not is_long:
-                diff = -diff
-            unrealized_pnl = float(diff)
-
-        # 輪次勝率與盈虧比 (4.3 / 4.6)
-        completed_cycles = [c for c in cycles if c.exit_reason != "running"]
-        completed_count = len(completed_cycles)
-        win_cycles = [c for c in completed_cycles if c.exit_reason == "take_profit"]
-
-        win_rate_pct = (
-            round(len(win_cycles) / completed_count * 100.0, 2)
-            if completed_count > 0
-            else None
-        )
-
-        gross_profit = sum(c.realized_pnl for c in completed_cycles if c.realized_pnl and c.realized_pnl > 0)
-        gross_loss = sum(abs(c.realized_pnl) for c in completed_cycles if c.realized_pnl and c.realized_pnl < 0)
-
-        if gross_loss > 0:
-            profit_factor = round(gross_profit / gross_loss, 4)
-        else:
-            # 無虧損輪時回傳 None（不是 0，也不是 inf，4.3 / G-5）
-            profit_factor = None
-
-        # 最大回撤 MDD (4.4)
-        max_dd_pct = 0.0
-        if equity_points:
-            peak = equity_points[0].equity
-            for pt in equity_points:
-                if pt.equity > peak:
-                    peak = pt.equity
-                elif peak > 0:
-                    dd = (peak - pt.equity) / peak * 100.0
-                    if dd > max_dd_pct:
-                        max_dd_pct = dd
-        max_dd_pct = round(max_dd_pct, 4)
-
-        # 資金暴露率 Exposure %
-        total_bars = len(candles)
-        exposure_pct = round(holding_bars / total_bars * 100.0, 2) if total_bars > 0 else 0.0
-
-        # 平均每輪持倉棒數 / MFE / MAE
-        avg_cycle_bars = (
-            round(sum(c.bars for c in completed_cycles) / completed_count, 2)
-            if completed_count > 0
-            else None
-        )
-
-        mfe_list = [c.mfe_pct for c in completed_cycles if c.mfe_pct is not None]
-        avg_mfe_pct = round(sum(mfe_list) / len(mfe_list), 4) if mfe_list else None
-
-        mae_list = [c.mae_pct for c in completed_cycles if c.mae_pct is not None]
-        avg_mae_pct = round(sum(mae_list) / len(mae_list), 4) if mae_list else None
-
-        return {
-            "initial_capital": initial_cap,
-            "final_equity": round(final_eq, 4),
-            "total_return_pct": total_return_pct,
-            "buy_hold_return_pct": buy_hold_return_pct,
-            "alpha_pct": alpha_pct,
-            "realized_pnl": round(realized_pnl, 8),
-            "total_fees": round(total_fees, 8),
-            "unrealized_pnl": round(unrealized_pnl, 8),
-            "cycles_completed": self.coordinator.state.cycle_count,
-            "win_rate_pct": win_rate_pct,
-            "max_drawdown_pct": max_dd_pct,
-            "exposure_pct": exposure_pct,
-            "avg_cycle_bars": avg_cycle_bars,
-            "mfe_pct": avg_mfe_pct,
-            "mae_pct": avg_mae_pct,
-            "profit_factor": profit_factor,
-            "bars_per_second": bars_per_sec,
-        }
