@@ -29,7 +29,9 @@ python -m unittest \
   tests.test_dca_frontend_contract \
   tests.test_dca_kline_repository \
   tests.test_dca_replay_exchange \
-  tests.test_dca_replay_driver
+  tests.test_dca_replay_driver \
+  tests.test_dca_backtest_metrics \
+  tests.test_dca_backtest_sweep
 
 if [[ "${SKIP_FRONTEND:-}" == "1" ]]; then
   exit 0

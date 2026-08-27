@@ -2,9 +2,16 @@
 
 本專案的重要變更記錄於此檔案，格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/)。
 
-## [Unreleased] — 2026-08-26
+## [Unreleased] — 2026-08-27
 
 ### Added
+
+- **DCA 即時圖表與回測子系統 Phase C4 — 績效指標純函式與參數掃描（預算上限 + truncated + 預計算等價）**:
+  - **績效指標（`core/services/dca/backtest/metrics.py`）**: `compute_metrics()` 純函式輸出 §4.5 全部欄位。`realized_pnl` / `total_fees` 必須取自引擎 `build_statistics()`（禁止加總 `fills[].fee`，稽核 4.5）；`buy_hold_return_pct` 與 `alpha_pct` 為必要指標（做空為反向基準，稽核 4.2）；MDD 為峰值→谷底而非首尾差（`[100,120,90,110] → 25%`，稽核 4.4）；無虧損輪時 `profit_factor=None`（不是 0 / inf，稽核 4.3）；無輪次時 `win_rate_pct` / `avg_cycle_bars` / `mfe_pct` 皆為 `None`（G-5，稽核 4.6）。`ReplayDriver` 改呼叫此純函式，避免兩套口徑。
+  - **參數掃描（`core/services/dca/backtest/sweep.py`）**: `expand_grid()` 笛卡兒積；`run_sweep()` 以 `ThreadPoolExecutor` 並行（預設 `SWEEP_MAX_WORKERS=4`，同時執行中的 replay ≤ 4，稽核 4.7）；總棒數預算 `SWEEP_MAX_TOTAL_BARS`（預設 300000），超預算 `truncated=true` 且不回報未完成 run 的指標（稽核 4.9）；非法組合（如 `max_safety_orders=0`）標記中文 `error`、整體不崩潰（稽核 4.10）。
+  - **掃描加速與等價性（稽核 4.8）**: 固定 entry 時預先以 `indicator_trigger_series` 計算每一個 `fetch_limit` 視窗的觸發序列，經 `EntryEvaluator(series_fns=...)` 注入 `EntryMonitor` / `ReplayDriver`；P0 測試鎖定「每一棒 `should_enter` 完全相同」且最終 `BacktestResult` 逐欄位相同。
+  - **測試與驗證**: 新增 `tests/test_dca_backtest_metrics.py`（8 項，稽核 4.1–4.6 / 4.11）與 `tests/test_dca_backtest_sweep.py`（9 項，稽核 4.7–4.10 / 4.8 / 4.11）；已登錄 `scripts/ci.sh` 與 `docs/github-actions-ci.yml`。C4 模組 **17 項全綠（0.31s）**，連同 C2 ReplayExchange 共 30 項全綠。
+  - **零回歸保證**: `core/services/grid/` 與 `run_grid_trading.py` 零變更；本 Phase 為純核心庫，無需重啟服務。
 
 - **DCA 即時圖表與回測子系統 Phase C3 — `ReplayDriver` 回放驅動器（真 Coordinator + 真 Executor + 確定性與狀態守衛）**:
   - **資料契約模型（`core/services/dca/backtest/models.py`）**: `TradeMark`（下單/基礎單成交/安全單成交/止盈/止損/略過標記）、`EquityPoint`（每棒權益、持倉量、攤平均價、狀態）、`CycleRecord`（輪次索引、方向、進出場時間/價格、安全單成交數、MFE%/MAE%、持倉棒數、出場原因）、`BacktestRequest`、`BacktestResult`（§4.4 與 §4.5 凍結契約）。

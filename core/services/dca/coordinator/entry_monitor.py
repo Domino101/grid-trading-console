@@ -13,7 +13,7 @@ EntryMonitor —— armed 期間的入場條件輪詢（計畫 Phase 2 交付物
 
 from typing import Awaitable, Callable, Dict, List, Optional
 
-from ..entry.evaluator import EntryEvaluator, EntryVerdict
+from ..entry.evaluator import EntryEvaluator, EntryVerdict, TriggerSeriesFn
 from ..indicators import evaluate_indicator
 from ..indicators.base import IndicatorResult
 from ..models.dca_config import DcaConfig, EntryMode
@@ -25,9 +25,10 @@ class EntryMonitor:
     """單台 DCA 的入場監控器。"""
 
     def __init__(self, config: DcaConfig,
-                 ohlcv_provider: Optional[OhlcvProvider] = None):
+                 ohlcv_provider: Optional[OhlcvProvider] = None,
+                 series_fns: Optional[Dict[type, TriggerSeriesFn]] = None):
         self._config = config
-        self._evaluator = EntryEvaluator(config.entry)
+        self._evaluator = EntryEvaluator(config.entry, series_fns=series_fns)
         self._ohlcv_provider = ohlcv_provider
         self.last_verdicts: Dict[str, EntryVerdict] = {}
         self.last_indicator_results: Dict[str, List[IndicatorResult]] = {}
