@@ -988,17 +988,35 @@ class SweepRunResult(BaseModel):
 
 
 class SweepBudget(BaseModel):
-    """掃描預算使用狀況。"""
+    """掃描預算使用狀況。
+
+    欄位名稱與 `core.services.dca.backtest.sweep.SweepBudget` 一對一對齊，
+    避免序列化層改名造成 AttributeError（C5 曾以 `runs_used` 命名而 500）。
+    `runs_completed` / `runs_total` 是稽核 7.4「已完成 N/M 組」的資料來源。
+    """
     bars_used: int = Field(..., description="已使用棒數")
     bars_limit: int = Field(..., description="棒數上限")
-    runs_used: int = Field(..., description="已完成運行次數")
+    runs_completed: int = Field(..., description="已完成運行次數")
+    runs_total: int = Field(..., description="展開後的參數組合總數")
     runs_limit: Optional[int] = Field(default=None, description="運行次數上限")
+
+
+class SweepBest(BaseModel):
+    """已完成範圍內的最優組合（由後端判定，前端零計算 G-4）。
+
+    稽核 7.4：`truncated=true` 時這只是「已完成範圍內」的最優，
+    不得被呈現為全域最佳。value/params 在無任何可比較運行時為 null（G-5）。
+    """
+    metric: str = Field(..., description="排序依據的指標名稱")
+    value: Optional[float] = Field(default=None, description="最優值；無可比較運行時為 null")
+    params: Optional[Dict[str, Any]] = Field(default=None, description="最優參數組合；無則為 null")
 
 
 class SweepResponse(BaseModel):
     """POST /api/v1/dca/backtest/sweep 回應。"""
     runs: List[SweepRunResult] = Field(default_factory=list, description="掃描運行結果")
     best_by: str = Field(default="profit_factor", description="最優排序依據")
+    best: Optional[SweepBest] = Field(default=None, description="已完成範圍內的最優組合")
     truncated: bool = Field(default=False, description="是否因預算限制而截斷")
     budget: SweepBudget = Field(..., description="預算使用狀況")
 

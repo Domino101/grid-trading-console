@@ -604,3 +604,182 @@ export const dcaOrderRoleLabel = (role: string | null | undefined): string =>
 // 成交 side → 中文（buy/sell）。
 export const dcaSideLabel = (side: string | null | undefined): string =>
     side === 'buy' ? '買入' : side === 'sell' ? '賣出' : (side ?? '—');
+
+// ── Phase C7：回測工作台純函式 ────────────────────────────────────────
+//
+// 約束（稽核 7.1 / G-4）：本區塊**只做格式化與挑選**（小數位、%、時間、排序、
+// 錯誤訊息對照），**不做任何金融計算**。所有指標數值一律由 API 直接提供；
+// 任何「算出來」的數字都應該在後端算好再回傳。
+
+/** 回測期間選項（棒數 × 時框，僅供 UI 下拉；實際區間由後端依 bars 決定）。 */
+export const DCA_BACKTEST_TIMEFRAMES: readonly string[] = ['5m', '15m', '1h', '4h', '1d'];
+
+export interface DcaBacktestBarsOption {
+    value: number;
+    label: string;
+}
+
+export const DCA_BACKTEST_BARS_OPTIONS: readonly DcaBacktestBarsOption[] = [
+    { value: 300, label: '300 根' },
+    { value: 1000, label: '1000 根' },
+    { value: 2000, label: '2000 根' },
+    { value: 5000, label: '5000 根' },
+];
+
+/** 後端 A-4 上限（`schemas.py` BacktestRequest.bars le=20000）。 */
+export const DCA_BACKTEST_MAX_BARS = 20000;
+
+/**
+ * 指標顯示格式化：未知一律「—」，**絕不以 0 代替**（稽核 7.7）。
+ * 真實 0 仍會顯示為 0.00%，這與「未知」是不同語意。
+ */
+export const backtestPercentText = (value: number | null | undefined, digits = 2): string => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
+    return `${value.toFixed(digits)}%`;
+};
+
+/** 帶正負號的百分比（報酬/alpha 用）。未知為「—」。 */
+export const backtestSignedPercentText = (value: number | null | undefined, digits = 2): string => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
+    const sign = value > 0 ? '+' : value < 0 ? '−' : '';
+    return `${sign}${Math.abs(value).toFixed(digits)}%`;
+};
+
+/** 一般數值（profit_factor / 棒數等）。未知為「—」（稽核 7.7 的主要案例）。 */
+export const backtestNumberText = (value: number | null | undefined, digits = 2): string => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
+    return value.toFixed(digits);
+};
+
+/** 依數值正負回傳語意色調；未知為 neutral（不得誤導為正向）。 */
+export const backtestTone = (
+    value: number | null | undefined,
+): 'positive' | 'negative' | 'neutral' => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return 'neutral';
+    if (value > 0) return 'positive';
+    if (value < 0) return 'negative';
+    return 'neutral';
+};
+
+/** unix 秒 → 本地日期時間；未知為「—」。 */
+export const backtestTimeText = (ts: number | null | undefined): string => {
+    if (typeof ts !== 'number' || !Number.isFinite(ts)) return '—';
+    return new Date(ts * 1000).toLocaleString('zh-TW');
+};
+
+/** 回測涵蓋區間文字（純顯示層字串拼接）。 */
+export const backtestRangeText = (
+    firstTs: number | null | undefined,
+    lastTs: number | null | undefined,
+): string => {
+    if (typeof firstTs !== 'number' || typeof lastTs !== 'number') return '—';
+    return `${backtestTimeText(firstTs)} ～ ${backtestTimeText(lastTs)}`;
+};
+
+export const DCA_CYCLE_EXIT_REASON_LABELS: Record<string, string> = {
+    take_profit: '止盈出場',
+    stop_loss: '止損出場',
+    max_cycles: '達最大循環',
+    end_of_data: '資料結束仍持倉',
+    running: '進行中',
+};
+
+export const cycleExitReasonLabel = (reason: string | null | undefined): string =>
+    (reason && DCA_CYCLE_EXIT_REASON_LABELS[reason]) || (reason ?? '—');
+
+/**
+ * 錯誤碼 → 中文訊息（稽核 7.6）。
+ * 400/422（參數）、408（逾時）、429（頻率）、404（不存在）各有專屬文案，
+ * 其餘退回後端 detail 或通用訊息；**絕不把錯誤呈現為正常結果**。
+ */
+export const backtestErrorText = (status: number | null, fallback: string): string => {
+    switch (status) {
+        case 400:
+            return `參數不合法：${fallback}`;
+        case 404:
+            return '找不到此 DCA 設定，可能已被刪除。';
+        case 408:
+            return '回測執行逾時，請縮短回測棒數或改用較長的時框。';
+        case 422:
+            return `參數驗證失敗：${fallback}`;
+        case 429:
+            return '請求過於頻繁，請稍候再試（K 線來源有速率限制）。';
+        case 500:
+        case 502:
+        case 503:
+            return `伺服器錯誤，回測未完成：${fallback}`;
+        default:
+            return fallback;
+    }
+};
+
+/**
+ * `data_status=unavailable` 時回測結果不可信（稽核 7.6）：
+ * 回傳警示文案，呼叫端據此**不渲染結果圖**。
+ */
+export const backtestUnavailableText = (
+    dataStatus: string | null | undefined,
+): string | null =>
+    dataStatus === 'unavailable'
+        ? '無法取得足夠的歷史 K 線，此結果不可信，請改用其他時框或縮短回測長度。'
+        : null;
+
+/**
+ * truncated 文案（稽核 7.4）：必須說明「已完成 N/M 組」，
+ * 且最優僅限「已完成範圍內」，不得宣稱為全域最佳。
+ */
+export const sweepTruncatedText = (
+    truncated: boolean,
+    runsCompleted: number,
+    runsTotal: number,
+): string | null => {
+    if (!truncated) return null;
+    return `因預算限制，僅完成 ${runsCompleted}/${runsTotal} 組參數；以下最優僅為「已完成範圍內」的最優，並非全域最佳。`;
+};
+
+/** 最優標題文案：truncated 與否用字不同（稽核 7.4）。 */
+export const sweepBestLabel = (truncated: boolean): string =>
+    truncated ? '已完成範圍內最優' : '最優組合';
+
+/**
+ * 掃描列排序：依指定指標由大到小；null / 有 error 的列一律沉底
+ * （不得讓「算不出來」看起來像「排第一」）。純比較，不做計算。
+ */
+export interface SweepRunLike {
+    params: Record<string, unknown>;
+    metrics: Record<string, number | null>;
+    error: string | null;
+}
+
+export const sortSweepRuns = <T extends SweepRunLike>(runs: readonly T[], metric: string): T[] => {
+    const value = (run: T): number | null => {
+        if (run.error) return null;
+        const raw = run.metrics?.[metric];
+        return typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
+    };
+    return [...runs].sort((a, b) => {
+        const va = value(a);
+        const vb = value(b);
+        if (va === null && vb === null) return 0;
+        if (va === null) return 1;   // null 沉底
+        if (vb === null) return -1;
+        return vb - va;              // 由大到小
+    });
+};
+
+/** 參數組合 → 顯示字串（穩定排序，供表格與最優列共用）。 */
+export const sweepParamsText = (params: Record<string, unknown> | null | undefined): string => {
+    if (!params) return '—';
+    const keys = Object.keys(params).sort();
+    if (keys.length === 0) return '—';
+    return keys.map((k) => `${k}=${String(params[k])}`).join(' · ');
+};
+
+/** 兩個參數組合是否相同（用於在表中高亮最優列）。 */
+export const sweepParamsEqual = (
+    a: Record<string, unknown> | null | undefined,
+    b: Record<string, unknown> | null | undefined,
+): boolean => {
+    if (!a || !b) return false;
+    return sweepParamsText(a) === sweepParamsText(b);
+};

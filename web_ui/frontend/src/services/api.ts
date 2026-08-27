@@ -752,6 +752,144 @@ export interface DcaChartResponse {
     warnings: string[];
 }
 
+// ── Phase C7：回測與參數掃描契約 ──────────────────────────────────────
+// 對齊後端 web_ui/backend/schemas.py 的 BacktestRequest/Response 與 Sweep*。
+// 全部數字直讀 API（G-4）；未知一律 null，前端不得以 0 代替（G-5）。
+
+export type DcaBacktestTimeframe = '1m' | '5m' | '15m' | '30m' | '1h' | '4h' | '1d';
+
+export interface BacktestTradeMark {
+    ts: number;
+    price: number;
+    kind: DcaChartMarkKind;
+    role: string;
+    side: string;
+    quantity: number | null;
+    notional: number | null;
+    slot_index: number | null;
+    cycle_index: number;
+    realized_pct: number | null;
+}
+
+export interface BacktestEquityPoint {
+    ts: number;
+    equity: number;
+    position_quantity: number;
+    average_cost: number | null;
+    status: string;
+}
+
+export interface BacktestCycleRecord {
+    index: number;
+    direction: string;
+    entry_ts: number | null;
+    exit_ts: number | null;
+    entry_price: number | null;
+    average_cost: number | null;
+    exit_price: number | null;
+    safety_filled: number;
+    exit_reason: string;
+    realized_pnl: number | null;
+    realized_pct: number | null;
+    mfe_pct: number | null;
+    mae_pct: number | null;
+    bars: number;
+}
+
+/** §4.5 績效指標。每一欄都可能是 null（G-5），顯示層必須以「—」呈現。 */
+export interface BacktestMetrics {
+    initial_capital: number | null;
+    final_equity: number | null;
+    total_return_pct: number | null;
+    buy_hold_return_pct: number | null;
+    alpha_pct: number | null;
+    realized_pnl: number | null;
+    total_fees: number | null;
+    cycles_completed: number | null;
+    win_rate_pct: number | null;
+    max_drawdown_pct: number | null;
+    exposure_pct: number | null;
+    avg_cycle_bars: number | null;
+    mfe_pct: number | null;
+    mae_pct: number | null;
+    profit_factor: number | null;
+}
+
+export interface BacktestResult {
+    bars: number;
+    timeframe: string;
+    first_ts: number | null;
+    last_ts: number | null;
+    metrics: BacktestMetrics;
+    equity: BacktestEquityPoint[];
+    marks: BacktestTradeMark[];
+    cycles: BacktestCycleRecord[];
+    data_status: DataStatus | (string & {});
+    source: string;
+    /** D-11 簡化事項揭露；後端保證非空，UI 必須全部渲染（稽核 7.2）。 */
+    warnings: string[];
+    bars_per_second: number;
+}
+
+export interface BacktestResponse {
+    result: BacktestResult;
+}
+
+/** `bot_id` 與 `draft` 互斥；draft 走與建立機器人同一套驗證（A-3 / 稽核 7.9）。 */
+export interface BacktestRequest {
+    bot_id?: string;
+    draft?: Record<string, unknown>;
+    timeframe?: DcaBacktestTimeframe;
+    bars?: number;
+    initial_capital?: string;
+    exchange?: string;
+    symbol?: string;
+}
+
+export interface SweepRunResult {
+    params: Record<string, unknown>;
+    metrics: BacktestMetrics;
+    error: string | null;
+}
+
+export interface SweepBudget {
+    bars_used: number;
+    bars_limit: number;
+    runs_completed: number;
+    runs_total: number;
+    runs_limit: number | null;
+}
+
+/** 最優組合由後端判定（G-4）；truncated 時僅為「已完成範圍內」最優（稽核 7.4）。 */
+export interface SweepBest {
+    metric: string;
+    value: number | null;
+    params: Record<string, unknown> | null;
+}
+
+export interface SweepResponse {
+    runs: SweepRunResult[];
+    best_by: string;
+    best: SweepBest | null;
+    truncated: boolean;
+    budget: SweepBudget;
+}
+
+export interface SweepRequest {
+    bot_id?: string;
+    draft?: Record<string, unknown>;
+    timeframe?: DcaBacktestTimeframe;
+    bars?: number;
+    initial_capital?: string;
+    base_order_amount_range?: number[];
+    price_deviation_percent_range?: number[];
+    take_profit_percent_range?: number[];
+    max_safety_orders_range?: number[];
+    max_total_bars?: number;
+    max_workers?: number;
+    best_by?: string;
+}
+
 export interface MarketIndicatorResult {
     value: number | null;
     triggered_long: boolean | null;
@@ -1082,6 +1220,26 @@ export const api = {
     ): Promise<DcaChartResponse> {
         const qs = `?timeframe=${encodeURIComponent(timeframe)}&limit=${limit}`;
         return requestJson(`/v1/dca/${encodeURIComponent(botId)}/chart${qs}`, { headers: authHeaders(), signal }, `無法讀取 DCA ${botId} 圖表`);
+    },
+
+    // ── Phase C7：回測與參數掃描（同源相對 URL；長任務務必傳 signal 以支援取消）──
+
+    async runDcaBacktest(request: BacktestRequest, signal?: AbortSignal): Promise<BacktestResponse> {
+        return requestJson('/v1/dca/backtest', {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify(request),
+            signal,
+        }, '無法執行回測');
+    },
+
+    async runDcaSweep(request: SweepRequest, signal?: AbortSignal): Promise<SweepResponse> {
+        return requestJson('/v1/dca/backtest/sweep', {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify(request),
+            signal,
+        }, '無法執行參數掃描');
     },
 
     async getMarketIndicators(
