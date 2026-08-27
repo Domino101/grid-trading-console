@@ -116,3 +116,87 @@ Python 契約：`tests/test_dca_frontend_contract.py` **41/41 通過**。
 - `tests/test_dca_backtest_http_contract.py` 在此沙箱有 9 個 `setUpClass` ERROR
   （fixture 用了 `exchange: paper`，非合法值）。已用 `git stash` 比對確認**改動前後完全相同**，
   屬既有基線問題，非 C7 回歸。
+
+---
+
+# 附錄：`tests/test_dca_backtest_http_contract.py` 結構性修復
+
+日期：2026-08-27（C7 收尾後追加）
+
+## 1. 動機
+
+C7 驗收時發現此檔在沙箱有 9 個 `setUpClass` ERROR，等於**整個檔案從未真正執行過**。
+既然它是 C5 回測端點的唯一 HTTP 契約防線，而 C7 才剛修完三個「端點 100% 500」的缺陷，
+這個檔案的失效正是那些缺陷能長期潛伏的原因。
+
+## 2. 修復的 8 個缺陷
+
+| # | 缺陷 | 後果 |
+|---|---|---|
+| 1 | fixture 用 `exchange: "paper"`（合法值只有 binance/lighter/backpack/hyperliquid；`paper` 是 *account_mode* 的值） | `setUpClass` DcaConfigError → 9 測試全 ERROR |
+| 2 | 只把專案根加入 `sys.path`，但 `main.py` 內有 `from process_manager import ...` 同層匯入 | ModuleNotFoundError，整檔無法 import |
+| 3 | `auth._API_TOKEN` 在 import 當下凍結，環境變數設定時機太晚 | 「有 token」測試恆 401 |
+| 4 | 三個 5.8 契約測試把**全部斷言包在 `if status_code == 200:` 內** | 端點恆 500 時測試恆綠 ← **最嚴重** |
+| 5 | `test_5_4_bars_upper_limit` 斷言 400，實際 422（pydantic `le` 先於 route 守衛） | 斷言與實際行為不符 |
+| 6 | budget 斷言 `runs_used`，實際欄位為 `runs_completed` | 契約與 schema 脫節 |
+| 7 | 5.9 grep 契約只掃 C6 兩個檔，未涵蓋 C7 三個新元件 | 新元件無 G-4 防護 |
+| 8 | `_read_code` 對 Python 檔套用 JS 註解規則 | 把 `#` 註解誤判為違規（我自己先踩到並修正） |
+
+## 3. 新增的防護
+
+- `test_5_4_bars_upper_bound_is_accepted` — bars=20000 邊界不得被誤拒（off-by-one）。
+- `test_5_4_unknown_bot_returns_404` — 不存在的 bot 必須 404，不得 500。
+- `test_5_7_warnings_have_no_duplicates` — warnings 去重（前端全量渲染，重複即可見瑕疵）。
+- `test_backend_routes_use_absolute_imports` — 直接把「`from schemas import` 地雷」變成自動化防線。
+- `test_5_9_frontend_uses_same_origin_urls` — api.ts 不得寫死 localhost/127.0.0.1。
+- 5.8 契約擴充至前端實際直讀的**全部 15 個 metrics 欄位** + equity 點位 + run/best 形狀。
+- `test_5_13` 加入 `GRID_REGRESSION_BASE` 環境變數，可對照基準 commit 檢查**已提交**的網格改動
+  （原版只看未暫存的工作區，一旦 commit 就永遠是空字串 → 恆綠）。
+
+## 4. 突變測試（證明測試會失敗，而非只是變綠）
+
+不驗證「測試會紅」的測試等於沒有測試。逐一注入缺陷確認：
+
+| 突變 | 結果 |
+|---|---|
+| 移除 warnings 一條「歷史績效不代表未來」 | `test_5_7_backtest_warnings_disclosure` **FAIL** ✓ |
+| 在 sweep 端點插入 `from schemas import ...`（重現 C7 的 500） | grep 契約 + `test_5_8_sweep_response_contract` **雙雙 FAIL** ✓ |
+| schema 把 `runs_completed` 改名 `runs_used`（重現 C5 缺陷） | `test_5_8_sweep_response_contract` **FAIL** ✓ |
+| 對 `core/services/grid/` 加一行 | `test_5_13_grid_zero_regression` **FAIL** ✓ |
+
+全部突變後皆已用 `git diff --stat` 確認原始碼完整還原。
+
+## 5. 測試污染（過程中發現的真實問題）
+
+本檔單獨跑 16/16 綠，但整包 CI 跑時 6 個測試失敗 —— 這正是「單檔綠不代表 CI 綠」的實例。
+根因在 `tests/test_dca_http_contract.py:94`：
+
+```python
+dca_route._get_project_root = lambda: self.temp_dir.name   # 永久覆寫，從不還原
+auth._API_TOKEN = "contract-token"                          # 同上
+```
+
+該檔把模組級函式指向 TemporaryDirectory 後不還原，污染外溢到所有後續模組，
+使本檔的端點在真實 `config/` 之外找設定 → 一律 404。
+
+**根因在該檔，但我選擇先讓本檔自我防護**（`setUp` 內 `_restore_global_state()`
+把 `routes.dca` / `web_ui.backend.routes.dca` 兩個模組物件與 auth token 指回真實專案），
+理由是修改 `test_dca_http_contract.py` 超出本次範圍且可能牽動其它模組。
+**建議另開一次清理**，把該檔改用 `unittest.mock.patch` 搭配 `addCleanup` 自動還原。
+
+## 6. 驗收（before/after 集合 diff，非只看總數）
+
+```
+BEFORE（git stash 後）: 18 條 FAIL/ERROR
+AFTER                 : 17 條 FAIL/ERROR
+
+新增的失敗（回歸）: 無
+修好的失敗        : ERROR: setUpClass (TestDcaBacktestHttpContract)   ← 解鎖整個檔案
+```
+
+本檔在整包 CI 中 **0 失敗**；`python -m unittest tests.test_dca_backtest_http_contract` 16/16 OK。
+前端維持 90/90、lint 0 error、build 0 error。
+測試跑完 `git status` 無殘留檔案（fixture 正確清理）。
+
+剩餘 17 條為既有基線問題（`test_dca_http_contract`、`test_dashboard_snapshot` 等），
+與本次改動無關，未觸碰。
