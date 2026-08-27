@@ -2536,3 +2536,102 @@
   max-height: 420px;
   white-space: pre;
 }
+
+/* ── Phase C6：DCA 圖表面板（沿用既有 token，不新增平行樣式系統）───── */
+
+/* §4.7 標記/價格線色票：一律由既有語意色衍生，DcaChart.tsx 以 getComputedStyle 讀取。 */
+:root {
+  --dca-long: var(--trading-green);
+  --dca-short: var(--trading-red);
+  --dca-safety-long: var(--paper-blue);
+  --dca-safety-short: var(--accent-amber);
+  --dca-take-profit: var(--trading-green);
+  --dca-stop-loss: var(--trading-red);
+  --dca-order-placed: var(--text-muted);
+  --dca-skipped: var(--accent-amber);
+
+  --dca-line-entry: var(--text-muted);
+  --dca-line-average: var(--paper-blue);
+  --dca-line-take-profit: var(--trading-green);
+  --dca-line-next-safety: var(--accent-amber);
+  --dca-line-stop-loss: var(--trading-red);
+}
+
+.dca-chart-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.dca-chart-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.dca-chart-source-badge {
+  font-size: 0.68rem;
+}
+
+.dca-chart-timeframes {
+  display: inline-flex;
+  gap: 0.15rem;
+  padding: 0.15rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.dca-chart-tf {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.dca-chart-tf:hover {
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+}
+
+.dca-chart-tf.active {
+  background: var(--accent-primary);
+  color: #fff;
+}
+
+.dca-chart-canvas {
+  margin-top: 0.85rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-input);
+}
+
+.dca-chart-warnings {
+  margin: 0.85rem 0 0;
+  padding-left: 1.1rem;
+  list-style: disc;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  line-height: 1.6;
+}
+
+/* RWD（稽核 6.12）：375px 寬時工具列改為縱向堆疊，圖表仍可用。 */
+@media (max-width: 640px) {
+  .dca-chart-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .dca-chart-controls {
+    justify-content: space-between;
+  }
+}

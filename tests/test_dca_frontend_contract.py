@@ -6,6 +6,7 @@
 armed 顯示規則）必須與 `web_ui/frontend/tests/dca.test.ts` 完全對應。
 """
 
+import re
 import unittest
 
 # ── utils/dca.ts 的 Python 鏡像 ────────────────────────────────
@@ -157,6 +158,24 @@ _TESTS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 
 def _read(relpath):
     with open(os.path.join(_FRONTEND, relpath), encoding="utf-8") as f:
+        return f.read()
+
+
+_COMMENT_RE = re.compile(r"/\*.*?\*/|//[^\n]*", re.S)
+
+
+def _read_code(relpath):
+    """讀取原始碼並移除註解，讓 grep 契約只看真正會執行的程式碼。
+
+    必要性：JSDoc 的 `/**` 與說明文字中的 `localhost` 會讓樸素 grep 產生
+    偽陽性；契約應該檢查行為而非文件措辭。
+    """
+    return _COMMENT_RE.sub("", _read(relpath))
+
+
+def _read_css():
+    """Phase C6：讀取設計系統樣式表（圖表面板沿用既有 token）。"""
+    with open(os.path.join(_FRONTEND, "App.css"), encoding="utf-8") as f:
         return f.read()
 
 
@@ -449,6 +468,159 @@ class DcaDetailSourceContractTests(unittest.TestCase):
         src = _read(os.path.join("components", "DcaDetail.tsx"))
         self.assertIn("isDcaArmed", src)
         self.assertIn("零掛單", src)
+
+
+class DcaChartSourceContractTests(unittest.TestCase):
+    """Phase C6 檔案級契約（圖表基礎：依賴隔離 / 零計算 / 記憶體 / 輪詢）。"""
+
+    _LIB = "lightweight-charts"
+
+    def test_c6_1_chart_tab_registered_in_detail(self):
+        """C6：詳情頁新增第七個分頁 'chart'，且六個既有分頁未被移除。"""
+        src = _read(os.path.join("components", "DcaDetail.tsx"))
+        for tab in ("'chart'", "'ladder'", "'orders'", "'fills'",
+                    "'events'", "'indicators'", "'specs'"):
+            self.assertIn(tab, src, tab)
+
+    def test_c6_2_chart_wires_new_endpoints(self):
+        """C5 端點接線：getDcaChart / getKlines 存在於 api.ts，詳情頁使用 getDcaChart。"""
+        api_src = _read_code(os.path.join("services", "api.ts"))
+        for sig in ("async getDcaChart(", "async getKlines("):
+            self.assertIn(sig, api_src, sig)
+        # 走同源相對路徑（禁止 localhost / 127.0.0.1）
+        self.assertIn("/v1/dca/${encodeURIComponent(botId)}/chart", api_src)
+        self.assertIn("/v1/market/klines/", api_src)
+        self.assertNotIn("localhost", api_src)
+        self.assertNotIn("127.0.0.1", api_src)
+
+        detail_src = _read(os.path.join("components", "DcaDetail.tsx"))
+        self.assertIn("getDcaChart", detail_src)
+
+    def test_c6_7_chart_library_isolated_to_single_file(self):
+        """稽核 6.7 / E-6.2 / G-17：全前端只有 DcaChart.tsx 可觸及圖表函式庫。"""
+        hits = []
+        for dirpath, _dirnames, filenames in os.walk(_FRONTEND):
+            for name in filenames:
+                if not name.endswith((".ts", ".tsx")):
+                    continue
+                path = os.path.join(dirpath, name)
+                with open(path, "r", encoding="utf-8") as handle:
+                    if self._LIB in handle.read():
+                        hits.append(os.path.relpath(path, _FRONTEND))
+        self.assertEqual(
+            sorted(hits), [os.path.join("components", "DcaChart.tsx")],
+            f"圖表函式庫外洩到其他檔案: {hits}",
+        )
+
+    def test_c6_7_grid_components_untouched_by_c6(self):
+        """稽核 6.7 / E-6.1：不得回頭改寫運行中的網格實盤 UI。"""
+        grid_src = _read(os.path.join("components", "GridDetail.tsx"))
+        self.assertNotIn(self._LIB, grid_src)
+        self.assertNotIn("DcaChart", grid_src)
+        self.assertIn("recharts", grid_src, "網格頁應維持既有 recharts 實作")
+
+    def test_c6_2_chart_files_do_no_math(self):
+        """稽核 6.2 / G-4：圖表元件與純函式不得含階梯 / 均價 / ROI / 止盈價數學。"""
+        forbidden = (
+            "price_deviation_multiplier",
+            "price_deviation_percent",
+            "required_capital",
+            "take_profit_price",
+            "Math.pow",
+            "**",
+        )
+        for rel in (os.path.join("components", "DcaChart.tsx"),
+                    os.path.join("utils", "dcaChart.ts")):
+            src = _read_code(rel)
+            for token in forbidden:
+                self.assertNotIn(token, src, f"{rel} 含禁止的計算符號 {token}")
+
+    def test_c6_4_chart_cleanup_removes_chart(self):
+        """稽核 6.4 / RC-12：卸載必須 chart.remove()，價格線必須 removePriceLine()。"""
+        src = _read(os.path.join("components", "DcaChart.tsx"))
+        self.assertIn("chart.remove()", src)
+        self.assertIn("removePriceLine(", src)
+        self.assertIn("observer.disconnect()", src)
+
+    def test_c6_5_polling_is_scoped_and_cancellable(self):
+        """稽核 6.5：切離分頁後無新增請求（clearInterval + AbortController）。"""
+        src = _read(os.path.join("components", "DcaDetail.tsx"))
+        self.assertIn("CHART_REFRESH_MS", src)
+        self.assertIn("window.clearInterval(timer)", src)
+        self.assertIn("chartAbortRef.current?.abort()", src)
+        self.assertIn("if (activeTab !== 'chart') return;", src)
+
+    def test_c6_5_poll_interval_matches_dashboard_cadence(self):
+        """輪詢節奏對齊 DcaDashboard.tsx 的 REFRESH_MS（15 秒）。"""
+        detail_src = _read(os.path.join("components", "DcaDetail.tsx"))
+        dash_src = _read(os.path.join("components", "DcaDashboard.tsx"))
+        self.assertIn("const CHART_REFRESH_MS = 15_000;", detail_src)
+        self.assertIn("15_000", dash_src)
+
+    def test_c6_6_armed_semantics_on_chart(self):
+        """稽核 6.6：armed → 監控中提示，且 order_placed 標記被過濾為 0。"""
+        detail_src = _read(os.path.join("components", "DcaDetail.tsx"))
+        self.assertIn("filterMarksForStatus", detail_src)
+        util_src = _read(os.path.join("utils", "dcaChart.ts"))
+        self.assertIn("order_placed", util_src)
+        self.assertIn("filterMarksForStatus", util_src)
+
+    def test_c6_8_and_6_9_honest_data_status(self):
+        """稽核 6.8 / 6.9：資料不足要明講，合成資料要角標。"""
+        util_src = _read(os.path.join("utils", "dcaChart.ts"))
+        self.assertIn("chartDataNotice", util_src)
+        self.assertIn("paper_synthetic", util_src)
+        self.assertIn("合成資料", util_src)
+        self.assertIn("資料不足", util_src)
+        detail_src = _read(os.path.join("components", "DcaDetail.tsx"))
+        self.assertIn("chartDataNotice", detail_src)
+        self.assertIn("chartNotice.unavailable", detail_src)
+
+    def test_c6_10_chart_lazy_loaded_into_its_own_chunk(self):
+        """稽核 6.10：DcaChart 必須動態匯入（獨立 chunk），不得灌進 index-*.js。"""
+        src = _read(os.path.join("components", "DcaDetail.tsx"))
+        self.assertIn("lazy(() => import('./DcaChart'))", src)
+        self.assertIn("Suspense", src)
+
+    def test_c6_9_semantics_table_mirrors_plan_4_7(self):
+        """稽核 6.1 的 Python 鏡像：kind → shape / position 與 §4.7 凍結表逐行相符。"""
+        src = _read(os.path.join("utils", "dcaChart.ts"))
+        expected = {
+            "base_filled": ("arrowUp", "arrowDown", "belowBar", "aboveBar"),
+            "safety_filled": ("circle", "circle", "belowBar", "aboveBar"),
+            "take_profit_filled": ("arrowUp", None, "belowBar", None),
+            "stop_loss_filled": ("arrowDown", None, "aboveBar", None),
+            "order_placed": ("square", None, "inBar", None),
+            "skipped": ("cross", None, "inBar", None),
+        }
+        for kind in expected:
+            self.assertIn(f"{kind}: {{", src, kind)
+        # 表內出現的每一種形狀都必須是 §4.7 允許值
+        for shape in ("arrowUp", "arrowDown", "circle", "square", "cross"):
+            self.assertIn(f"'{shape}'", src, shape)
+
+    def test_c6_12_accessibility_hooks_present(self):
+        """稽核 6.12：圖表容器有 aria-label；時框切換有 aria-pressed。"""
+        chart_src = _read(os.path.join("components", "DcaChart.tsx"))
+        self.assertIn("aria-label", chart_src)
+        self.assertIn('role="img"', chart_src)
+        detail_src = _read(os.path.join("components", "DcaDetail.tsx"))
+        self.assertIn("aria-pressed", detail_src)
+        self.assertIn('role="tab"', detail_src)
+
+    def test_c6_theme_uses_existing_css_tokens(self):
+        """圖表色票一律由既有 token 衍生，不得硬編碼新色票。"""
+        css = _read_css()
+        for token in ("--dca-long", "--dca-short", "--dca-safety-long",
+                      "--dca-take-profit", "--dca-stop-loss",
+                      "--dca-order-placed", "--dca-skipped",
+                      "--dca-line-entry", "--dca-line-average",
+                      "--dca-line-take-profit", "--dca-line-next-safety",
+                      "--dca-line-stop-loss"):
+            self.assertIn(token, css, token)
+        # 每個新 token 都指向既有語意色，不是新的十六進位色碼
+        self.assertIn("--dca-long: var(--trading-green);", css)
+        self.assertIn("--dca-short: var(--trading-red);", css)
 
 
 if __name__ == "__main__":

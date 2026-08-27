@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ArrowLeft,
     RefreshCcw,
@@ -9,9 +9,11 @@ import {
     LineChart,
     ListTree,
     AlertTriangle,
+    CandlestickChart,
 } from 'lucide-react';
 import {
     api,
+    type DcaChartResponse,
     type DcaEvent,
     type DcaFillsResponse,
     type DcaLadderResponse,
@@ -33,6 +35,11 @@ import {
 } from '../utils/dca';
 import DcaStatusBadge from './DcaStatusBadge';
 import DcaLadderTable from './DcaLadderTable';
+import { chartDataNotice, filterMarksForStatus } from '../utils/dcaChart';
+
+// E-6.2 / 稽核 6.10：圖表函式庫只在 DcaChart.tsx 內，並以動態匯入切成
+// 獨立 chunk（沿用 App.tsx 對 GridDetail 的模式），不得灌進 index-*.js 拖慢首屏。
+const DcaChart = lazy(() => import('./DcaChart'));
 
 interface DcaDetailProps {
     bot: DcaSnapshotItem;
@@ -40,10 +47,18 @@ interface DcaDetailProps {
     onUnauthorized: () => void;
 }
 
-type TabType = 'ladder' | 'orders' | 'fills' | 'events' | 'indicators' | 'specs';
+type TabType = 'chart' | 'ladder' | 'orders' | 'fills' | 'events' | 'indicators' | 'specs';
 
 // 長列表門檻（稽核 7.9）：超過此數改為分頁，避免首屏卡頓。
 const PAGE_SIZE = 50;
+
+// 圖表分頁輪詢節奏（決策 D-10）：對齊 DcaDashboard.tsx 的 REFRESH_MS。
+const CHART_REFRESH_MS = 15_000;
+
+const CHART_TIMEFRAMES = ['5m', '15m', '1h', '4h', '1d'] as const;
+type ChartTimeframe = (typeof CHART_TIMEFRAMES)[number];
+
+const CHART_LIMIT = 300;
 
 const num = (v: unknown): number | null =>
     typeof v === 'number' && Number.isFinite(v) ? v : null;
@@ -62,6 +77,13 @@ const DcaDetail: React.FC<DcaDetailProps> = ({ bot, onBack, onUnauthorized }) =>
     const [loading, setLoading] = useState(false);
     const [fillsPage, setFillsPage] = useState(0);
     const abortRef = useRef<AbortController | null>(null);
+
+    // ── Phase C6 圖表分頁狀態 ──
+    const [chart, setChart] = useState<DcaChartResponse | null>(null);
+    const [chartTimeframe, setChartTimeframe] = useState<ChartTimeframe>('15m');
+    const [chartError, setChartError] = useState<string | null>(null);
+    const [chartLoading, setChartLoading] = useState(false);
+    const chartAbortRef = useRef<AbortController | null>(null);
 
     const botId = bot.bot_id;
 
@@ -121,6 +143,46 @@ const DcaDetail: React.FC<DcaDetailProps> = ({ bot, onBack, onUnauthorized }) =>
         }
     }, [yamlText, bot.config_path, onUnauthorized]);
 
+    // 圖表資料（K 線 + marks + lines）；此元件負責抓取，DcaChart 為純受控元件。
+    const loadChart = useCallback(async () => {
+        chartAbortRef.current?.abort();
+        const controller = new AbortController();
+        chartAbortRef.current = controller;
+        setChartLoading(true);
+        try {
+            const next = await api.getDcaChart(botId, chartTimeframe, CHART_LIMIT, controller.signal);
+            setChart(next);
+            setChartError(null);
+        } catch (caught) {
+            if (caught instanceof ApiError && caught.isUnauthorized) {
+                onUnauthorized();
+                return;
+            }
+            if (caught instanceof DOMException && caught.name === 'AbortError') return;
+            setChartError(caught instanceof Error ? caught.message : '無法載入圖表資料');
+        } finally {
+            setChartLoading(false);
+        }
+    }, [botId, chartTimeframe, onUnauthorized]);
+
+    // 稽核 6.5：只有停留在圖表分頁時才輪詢；切離分頁/卸載即 clearInterval + abort。
+    useEffect(() => {
+        if (activeTab !== 'chart') return;
+        // 首抓延後到 effect 之外（沿用本檔既有 load 的 setTimeout(0) 模式），
+        // 避免在 effect body 內同步 setState 造成串連 render。
+        const initial = window.setTimeout(() => {
+            void loadChart();
+        }, 0);
+        const timer = window.setInterval(() => {
+            void loadChart();
+        }, CHART_REFRESH_MS);
+        return () => {
+            window.clearTimeout(initial);
+            window.clearInterval(timer);
+            chartAbortRef.current?.abort();
+        };
+    }, [activeTab, loadChart]);
+
     const openTab = useCallback((tab: TabType) => {
         setActiveTab(tab);
         if (tab === 'specs') void loadYaml();
@@ -149,6 +211,16 @@ const DcaDetail: React.FC<DcaDetailProps> = ({ bot, onBack, onUnauthorized }) =>
         [fillRows, fillsPage],
     );
     const totalFillPages = Math.max(1, Math.ceil(fillRows.length / PAGE_SIZE));
+
+    // 圖表衍生值：全部走 utils/dcaChart.ts 純函式（G-4：此檔零計算）。
+    const chartMarks = useMemo(
+        () => filterMarksForStatus(chart?.marks, status),
+        [chart, status],
+    );
+    const chartNotice = useMemo(
+        () => chartDataNotice(chart?.data_status, chart?.source, chart?.candles?.length ?? 0),
+        [chart],
+    );
 
     return (
         <main className="dashboard dca-detail">
@@ -233,6 +305,10 @@ const DcaDetail: React.FC<DcaDetailProps> = ({ bot, onBack, onUnauthorized }) =>
 
             {/* 分頁導覽 */}
             <nav className="detail-nav-tabs" role="tablist">
+                <button className={`detail-tab ${activeTab === 'chart' ? 'active' : ''}`} type="button" role="tab" aria-selected={activeTab === 'chart'} onClick={() => openTab('chart')}>
+                    <CandlestickChart size={15} />
+                    <span>圖表</span>
+                </button>
                 <button className={`detail-tab ${activeTab === 'ladder' ? 'active' : ''}`} type="button" onClick={() => openTab('ladder')}>
                     <ListTree size={15} />
                     <span>階梯</span>
@@ -258,6 +334,88 @@ const DcaDetail: React.FC<DcaDetailProps> = ({ bot, onBack, onUnauthorized }) =>
                     <span>設定</span>
                 </button>
             </nav>
+
+            {/* Tab: 圖表（Phase C6） */}
+            {activeTab === 'chart' && (
+                <section className="glass-panel dca-chart-panel" style={{ padding: '1.25rem' }}>
+                    <div className="dca-chart-toolbar">
+                        <div>
+                            <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.25rem' }}>即時圖表</h3>
+                            <p className="muted" style={{ fontSize: '0.8rem' }}>
+                                K 線 + 本機器人實際下單／成交／止盈標記 + 階梯／均價／止盈價格線；每 15 秒自動更新。
+                            </p>
+                        </div>
+                        <div className="dca-chart-controls">
+                            {chartNotice.sourceBadge && (
+                                <span className="badge badge-paper dca-chart-source-badge">{chartNotice.sourceBadge}</span>
+                            )}
+                            <div className="dca-chart-timeframes" role="group" aria-label="K 線時框">
+                                {CHART_TIMEFRAMES.map((tf) => (
+                                    <button
+                                        key={tf}
+                                        type="button"
+                                        className={`dca-chart-tf ${chartTimeframe === tf ? 'active' : ''}`}
+                                        aria-pressed={chartTimeframe === tf}
+                                        onClick={() => setChartTimeframe(tf)}
+                                    >
+                                        {tf}
+                                    </button>
+                                ))}
+                            </div>
+                            <button className="btn btn-outline" type="button" onClick={() => void loadChart()} disabled={chartLoading}>
+                                <RefreshCcw size={14} className={chartLoading ? 'spin' : ''} />
+                                <span>更新</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* 稽核 6.6：armed 時交易所零掛單，圖上不會有任何 order_placed 標記。 */}
+                    {armed && (
+                        <div className="notice notice-warning" role="status" style={{ marginTop: '0.75rem' }}>
+                            <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+                            <span>監控中 · 交易所零掛單：入場條件成立前圖上不會出現掛單標記。</span>
+                        </div>
+                    )}
+
+                    {chartError && (
+                        <div className="notice notice-error" role="alert" style={{ marginTop: '0.75rem' }}>
+                            <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+                            <span>{chartError}</span>
+                        </div>
+                    )}
+
+                    {/* 稽核 6.8：資料不足必須明講，不得畫空白圖讓人誤以為無波動。 */}
+                    {chartNotice.unavailable ? (
+                        <p className="muted" style={{ padding: '3rem 0', textAlign: 'center' }}>
+                            {chart === null && chartLoading ? '載入 K 線中…' : chartNotice.message}
+                        </p>
+                    ) : (
+                        <Suspense fallback={<p className="muted" style={{ padding: '3rem 0', textAlign: 'center' }}>載入圖表元件中…</p>}>
+                            <DcaChart
+                                candles={chart?.candles}
+                                marks={chartMarks}
+                                lines={chart?.lines}
+                                direction={activeDirection}
+                                liveLastPrice={chart?.current_price ?? currentPrice}
+                                height={440}
+                                ariaLabel={`${bot.symbol ?? botId} ${chartTimeframe} K 線與 DCA 交易標記`}
+                            />
+                        </Suspense>
+                    )}
+
+                    {(chart?.warnings?.length ?? 0) > 0 && (
+                        <ul className="dca-chart-warnings">
+                            {chart?.warnings.map((w, i) => (
+                                <li key={`${i}-${w}`}>{w}</li>
+                            ))}
+                        </ul>
+                    )}
+
+                    <p className="muted" style={{ fontSize: '0.74rem', marginTop: '0.75rem' }}>
+                        最後一根 K 棒尚未收線，以當前市價即時補畫（決策 D-10）。所有價格與百分比皆由後端提供，前端不做任何計算。
+                    </p>
+                </section>
+            )}
 
             {/* Tab: 階梯 */}
             {activeTab === 'ladder' && (

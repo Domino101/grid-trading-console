@@ -61,6 +61,7 @@ from web_ui.backend.schemas import (
     DcaChartMark,
     DcaChartLine,
     DcaChartResponse,
+    KlineCandle,
     DcaCreateResponse,
     DcaEvent,
     DcaEventListResponse,
@@ -1309,25 +1310,9 @@ async def get_dca_chart(
             realized_pct=None,
         ))
     
-    # 建立 K 線回應
-    candles = [
-        DcaChartMark(
-            ts=int(c.ts),
-            price=float(c.open),
-            kind="candle",
-            role="candle",
-            side="candle",
-            quantity=None,
-            notional=None,
-            slot_index=None,
-            cycle_index=1,
-            realized_pct=None,
-        )
-        for c in kline_result.candles
-    ]
-    # 註：DcaChartMark 重用於 marks，但 K 線應該用 KlineCandle
-    # 修正：使用 KlineCandle
-    from schemas import KlineCandle
+    # 建立 K 線回應（KlineCandle 由模組頂端統一匯入；此處不得再做函式內 import，
+    # 否則 `from schemas import ...` 會建立與 response_model 不同的類別實例而觸發
+    # pydantic model_type 驗證錯誤 → 500）。
     chart_candles = [
         KlineCandle(
             t=int(c.ts),
