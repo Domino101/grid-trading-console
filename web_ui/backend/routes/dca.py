@@ -41,23 +41,26 @@ _project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-from audit import AuditLogger
-from auth import verify_token
-from dca_yaml_generator import DcaYAMLGenerator
-from safety_guard import SafetyGuard
-from grid_state_store import GridStateStore
-from command_repository import GridCommandRepository
-from runtime_repository import RuntimeSnapshotRepository
-from lifecycle import (
+from web_ui.backend.audit import AuditLogger
+from web_ui.backend.auth import verify_token
+from web_ui.backend.dca_yaml_generator import DcaYAMLGenerator
+from web_ui.backend.safety_guard import SafetyGuard
+from web_ui.backend.grid_state_store import GridStateStore
+from web_ui.backend.command_repository import GridCommandRepository
+from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
+from web_ui.backend.lifecycle import (
     data_status_from_runtime,
     delete_rejection,
     live_trading_enabled,
     start_rejection,
     write_json_atomic,
 )
-from schemas import (
+from web_ui.backend.schemas import (
     CreateDcaRequest,
     DcaActionResponse,
+    DcaChartMark,
+    DcaChartLine,
+    DcaChartResponse,
     DcaCreateResponse,
     DcaEvent,
     DcaEventListResponse,
@@ -78,10 +81,23 @@ from schemas import (
     DcaSnapshotItem,
     DcaSnapshotResponse,
     DcaStatsResponse,
+    BacktestRequest,
+    BacktestResponse,
+    BacktestResult,
+    SweepRequest,
+    SweepResponse,
 )
-from core.services.dca.config_loader import dca_account_mode_from_yaml
+from core.services.dca.config_loader import dca_account_mode_from_yaml, load_dca_config
 from core.services.dca.ladder import build_ladder, stop_loss_price, take_profit_price
 from core.services.dca.models.dca_config import DcaDirection
+from core.services.dca.backtest import (
+    ReplayDriver,
+    ReplayExchange,
+    compute_metrics,
+    run_sweep,
+    expand_grid,
+)
+from web_ui.backend.kline_service import KlineService
 
 logger = logging.getLogger("GridAPI.Dca")
 
@@ -1059,6 +1075,289 @@ async def stop_dca(
 
 
 # ────────────────────────────────────────────────────────
+# GET /api/v1/dca/{bot_id}/chart — 即時圖表（K線 + runtime 快照標記）
+# ────────────────────────────────────────────────────────
+@router.get("/{bot_id}/chart", response_model=DcaChartResponse)
+async def get_dca_chart(
+    bot_id: str,
+    timeframe: str = Query(default="15m", description="K 線時框 (1m/5m/15m/30m/1h/4h/1d)"),
+    limit: int = Query(default=300, ge=1, le=20000, description="K 棒數量 (上限 20000)"),
+    _token: str = Depends(verify_token),
+):
+    """
+    即時圖表：K 線 + 本機器人實際下單/成交/止盈標記 + 階梯/均價/止盈價格線（§4.7）。
+    
+    引擎零變更：下單/收益標記的資料已在心跳裡（§2.2 既有 _fills / _orders / ladder_slots）
+    此端點僅做投影，不做任何計算（G-4）。
+    """
+    _validate_bot_id(bot_id)
+    config_path = DcaYAMLGenerator.path_from_bot_id(bot_id)
+    active_dca = _read_active_dca()
+    
+    # 檢查 bot 存在
+    if config_path not in active_dca and not os.path.exists(
+        os.path.join(_get_project_root(), config_path)
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail=f"DCA 配置 {bot_id} 不存在")
+    
+    yaml_data = _read_dca_yaml(config_path) or {}
+    section = _dca_section(yaml_data)
+    runtime = GridStateStore.instance().get(config_path)
+    
+    symbol = str(section.get("symbol")) if section.get("symbol") else None
+    exchange = str(section.get("exchange")) if section.get("exchange") else None
+    account_mode = dca_account_mode_from_yaml(yaml_data)
+    
+    if symbol is None or exchange is None:
+        return DcaChartResponse(
+            bot_id=bot_id,
+            candles=[],
+            marks=[],
+            lines=[],
+            current_price=None,
+            data_status="unavailable",
+            source="yaml",
+            warnings=["找不到交易對符號或交易所資訊"],
+        )
+    
+    # 取得 K 線資料
+    kline_service = KlineService.instance()
+    kline_result = await kline_service.get_candles(
+        exchange=exchange,
+        symbol=symbol,
+        timeframe=timeframe,
+        limit=limit,
+        account_mode=account_mode,
+    )
+    
+    # 取得 runtime 快照資料
+    fills = (runtime or {}).get("fills") or []
+    open_orders = (runtime or {}).get("open_orders") or []
+    ladder_slots = (runtime or {}).get("ladder_slots") or []
+    position = (runtime or {}).get("position") or {}
+    current_price = _number((runtime or {}).get("current_price"))
+    active_direction = (runtime or {}).get("active_direction")
+    
+    # 方向解析
+    yaml_direction = section.get("direction")
+    effective_direction = active_direction
+    if effective_direction not in ("long", "short"):
+        effective_direction = yaml_direction if yaml_direction in ("long", "short") else None
+    
+    # 從 YAML 取得設定值
+    take_profit_pct = _number(section.get("take_profit_percent"))
+    stop_loss_pct = _number(section.get("stop_loss_percent"))
+    base_order_amount = _number(section.get("base_order_amount"))
+    
+    # 建立價格線
+    lines: List[DcaChartLine] = []
+    
+    # entry_price 線（本輪基礎單成交價）
+    entry_price = _number((runtime or {}).get("entry_price"))
+    if entry_price is not None:
+        lines.append(DcaChartLine(kind="entry", price=entry_price))
+    else:
+        lines.append(DcaChartLine(kind="entry", price=None))
+    
+    # average_cost 線（攤平均價）
+    avg_cost = _number(position.get("average_cost")) if position else None
+    if avg_cost is not None:
+        lines.append(DcaChartLine(kind="average_cost", price=avg_cost))
+    else:
+        lines.append(DcaChartLine(kind="average_cost", price=None))
+    
+    # take_profit 線（當前 TP 價）
+    if effective_direction and avg_cost is not None and take_profit_pct is not None:
+        try:
+            tp_price = float(take_profit_price(Decimal(str(avg_cost)), take_profit_pct, effective_direction))
+            lines.append(DcaChartLine(kind="take_profit", price=tp_price))
+        except Exception:
+            lines.append(DcaChartLine(kind="take_profit", price=None))
+    else:
+        lines.append(DcaChartLine(kind="take_profit", price=None))
+    
+    # next_safety 線（下一張安全單價）
+    next_safety_price = _number((runtime or {}).get("next_safety_order_price"))
+    if next_safety_price is not None:
+        lines.append(DcaChartLine(kind="next_safety", price=next_safety_price))
+    else:
+        lines.append(DcaChartLine(kind="next_safety", price=None))
+    
+    # stop_loss 線
+    if effective_direction and avg_cost is not None and stop_loss_pct is not None:
+        try:
+            sl_price = float(stop_loss_price(Decimal(str(avg_cost)), stop_loss_pct, effective_direction))
+            lines.append(DcaChartLine(kind="stop_loss", price=sl_price))
+        except Exception:
+            lines.append(DcaChartLine(kind="stop_loss", price=None))
+    else:
+        lines.append(DcaChartLine(kind="stop_loss", price=None))
+    
+    # 建立交易標記（從 fills）
+    marks: List[DcaChartMark] = []
+    for fill in fills:
+        if not isinstance(fill, Mapping):
+            continue
+        
+        ts = fill.get("occurred_at")
+        if ts is None:
+            continue
+        
+        # 嘗試把 timestamp 轉為 int（可能是 float 或 string）
+        try:
+            ts_int = int(float(ts))
+        except (ValueError, TypeError):
+            continue
+        
+        price = _number(fill.get("price"))
+        role = str(fill.get("role")) if fill.get("role") else "base"
+        side = str(fill.get("side")) if fill.get("side") else "buy"
+        quantity = _number(fill.get("quantity"))
+        notional = _number(fill.get("notional"))
+        slot_index = _int(fill.get("slot_index"))
+        cycle_index = _int(fill.get("cycle_index")) or 1
+        
+        # 判斷 kind
+        if role == "base":
+            kind = "base_filled"
+        elif role == "safety":
+            kind = "safety_filled"
+        elif role == "take_profit":
+            kind = "take_profit_filled"
+        elif role == "stop_loss":
+            kind = "stop_loss_filled"
+        else:
+            kind = "base_filled"
+        
+        marks.append(DcaChartMark(
+            ts=ts_int,
+            price=price if price is not None else 0.0,
+            kind=kind,
+            role=role,
+            side=side,
+            quantity=quantity,
+            notional=notional,
+            slot_index=slot_index,
+            cycle_index=cycle_index,
+            realized_pct=None,  # 即時圖表不顯示收益標記
+        ))
+    
+    # 從 open_orders 新增 order_placed 標記
+    for order in open_orders:
+        if not isinstance(order, Mapping):
+            continue
+        
+        ts = order.get("created_at") or order.get("occurred_at")
+        if ts is None:
+            continue
+        
+        try:
+            ts_int = int(float(ts))
+        except (ValueError, TypeError):
+            continue
+        
+        price = _number(order.get("price"))
+        role = str(order.get("role")) if order.get("role") else "base"
+        side = str(order.get("side")) if order.get("side") else "buy"
+        quantity = _number(order.get("quantity"))
+        
+        marks.append(DcaChartMark(
+            ts=ts_int,
+            price=price if price is not None else 0.0,
+            kind="order_placed",
+            role=role,
+            side=side,
+            quantity=quantity,
+            notional=None,
+            slot_index=None,
+            cycle_index=1,
+            realized_pct=None,
+        ))
+    
+    # 從 ladder_slots 新增 skipped 標記（急跌穿透）
+    for slot in ladder_slots:
+        if not isinstance(slot, Mapping):
+            continue
+        
+        slot_status = slot.get("status")
+        if slot_status != "skipped":
+            continue
+        
+        ts = slot.get("occurred_at")
+        if ts is None:
+            continue
+        
+        try:
+            ts_int = int(float(ts))
+        except (ValueError, TypeError):
+            continue
+        
+        price = _number(slot.get("planned_price"))
+        slot_index = _int(slot.get("index"))
+        
+        marks.append(DcaChartMark(
+            ts=ts_int,
+            price=price if price is not None else 0.0,
+            kind="skipped",
+            role="safety",
+            side="buy",
+            quantity=None,
+            notional=None,
+            slot_index=slot_index,
+            cycle_index=1,
+            realized_pct=None,
+        ))
+    
+    # 建立 K 線回應
+    candles = [
+        DcaChartMark(
+            ts=int(c.ts),
+            price=float(c.open),
+            kind="candle",
+            role="candle",
+            side="candle",
+            quantity=None,
+            notional=None,
+            slot_index=None,
+            cycle_index=1,
+            realized_pct=None,
+        )
+        for c in kline_result.candles
+    ]
+    # 註：DcaChartMark 重用於 marks，但 K 線應該用 KlineCandle
+    # 修正：使用 KlineCandle
+    from schemas import KlineCandle
+    chart_candles = [
+        KlineCandle(
+            t=int(c.ts),
+            o=float(c.open),
+            h=float(c.high),
+            l=float(c.low),
+            c=float(c.close),
+            v=float(c.volume),
+        )
+        for c in kline_result.candles
+    ]
+    
+    # 處理 warnings
+    warnings = list(kline_result.warnings)
+    if kline_result.data_status == "paper":
+        warnings.append("使用合成 K 線，非真實歷史")
+    
+    return DcaChartResponse(
+        bot_id=bot_id,
+        candles=chart_candles,
+        marks=marks,
+        lines=lines,
+        current_price=current_price,
+        data_status=kline_result.data_status,
+        source=kline_result.source,
+        warnings=warnings,
+    )
+
+
+# ────────────────────────────────────────────────────────
 # DELETE /api/v1/dca/{bot_id}
 # ────────────────────────────────────────────────────────
 @router.delete("/{bot_id}", response_model=DcaActionResponse)
@@ -1153,6 +1452,455 @@ async def delete_dca(
                          error_msg=f"刪除 DCA 異常: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail=f"刪除 DCA 異常: {e}")
+
+
+# ────────────────────────────────────────────────────────
+# POST /api/v1/dca/backtest — 單一設定回放（§4.6）
+# ────────────────────────────────────────────────────────
+@router.post("/backtest", response_model=BacktestResponse)
+async def run_dca_backtest(
+    payload: BacktestRequest,
+    source: str = Query(default="dashboard", description="來源"),
+    _token: str = Depends(verify_token),
+):
+    """
+    回測：對「既有 DCA 設定」或「建立精靈中尚未送出的參數」跑歷史回放（§4.6）。
+    
+    BP-1：回測路徑必須實例化真正的 DcaCoordinator 與真正的 DcaOrderExecutor
+    BP-2：回測請求處理期間，交易所寫入方法呼叫次數必須為 0；config/active_dca.json 內容不得變動
+    A-4：上限守衛（bars ≤ 20000, timeframe ∈ {1m,5m,15m,30m,1h,4h,1d}）
+    A-5：執行時間守衛（wall-clock 上限 60s）
+    A-6：warnings 必含簡化事項揭露
+    A-7：稽核日誌
+    """
+    project_root = _get_project_root()
+    audit_logger = AuditLogger.get_instance(project_root)
+    start_time = time.time()
+    
+    # A-4 上限守衛
+    if payload.bars > 20000:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="回測棒數上限為 20000，請調整參數",
+        )
+    
+    valid_timeframes = {"1m", "5m", "15m", "30m", "1h", "4h", "1d"}
+    if payload.timeframe not in valid_timeframes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"不支援的 timeframe '{payload.timeframe}'。僅支援 {valid_timeframes}",
+        )
+    
+    # 取得 DCA 設定
+    config = None
+    bot_id = None
+    exchange = None
+    symbol = None
+    
+    if payload.bot_id:
+        # 讀既有 YAML
+        bot_id = payload.bot_id
+        _validate_bot_id(bot_id)
+        config_path = DcaYAMLGenerator.path_from_bot_id(bot_id)
+        yaml_data = _read_dca_yaml(config_path)
+        if yaml_data is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"DCA 配置 {bot_id} 不存在",
+            )
+        config = load_dca_config(yaml_data)
+        exchange = str(yaml_data.get("dca", {}).get("exchange")) if yaml_data.get("dca") else None
+        symbol = str(yaml_data.get("dca", {}).get("symbol")) if yaml_data.get("dca") else None
+        
+    elif payload.draft:
+        # 使用精靈參數（走與建立機器人同一套驗證函式）
+        draft_params = payload.draft
+        errors = _generator.validate_params(draft_params)
+        if errors:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"message": "draft 參數驗證失敗", "errors": errors},
+            )
+        config = _generator.build_config(draft_params)
+        exchange = str(draft_params.get("exchange"))
+        symbol = str(draft_params.get("symbol"))
+        bot_id = "draft"
+        
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="必須提供 bot_id 或 draft 其中一個",
+        )
+    
+    if exchange is None or symbol is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="無法取得交易所或交易對符號",
+        )
+    
+    # 取得 K 線資料
+    kline_service = KlineService.instance()
+    kline_result = await kline_service.get_candles(
+        exchange=exchange,
+        symbol=symbol,
+        timeframe=payload.timeframe,
+        limit=payload.bars,
+        account_mode="paper",  # 回測用 PAPER 合成資料
+    )
+    
+    if not kline_result.candles:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"無法取得足夠的 K 線資料（取得 {len(kline_result.candles)} 棒）",
+        )
+    
+    # 取得初始資本
+    from core.services.dca.ladder import required_capital
+    initial_capital_decimal = None
+    if payload.initial_capital:
+        try:
+            initial_capital_decimal = Decimal(payload.initial_capital)
+        except Exception:
+            initial_capital_decimal = None
+    
+    if initial_capital_decimal is None:
+        # 使用 required_capital
+        try:
+            first_candle = kline_result.candles[0]
+            entry_price = Decimal(str(first_candle.close))
+            initial_capital_decimal = required_capital(config, entry_price)
+        except Exception:
+            initial_capital_decimal = Decimal("1000")
+    
+    # 轉換 K 線資料格式
+    from core.services.dca.backtest.candles import to_candles
+    candles = to_candles(kline_result.candles)
+    
+    # A-5 執行時間守衛：直接 await ReplayDriver.run()，使用 asyncio.wait_for
+    try:
+        driver = ReplayDriver(
+            config=config,
+            candles=candles,
+            initial_capital=str(initial_capital_decimal),
+            timeframe=payload.timeframe,
+            source=kline_result.source,
+            data_status=kline_result.data_status,
+            bot_id=bot_id,
+        )
+        result = await asyncio.wait_for(driver.run(), timeout=60)
+    except asyncio.TimeoutError:
+        audit_logger.log(source=source, action="run_dca_backtest", grid_id=bot_id,
+                         params={"bot_id": bot_id, "bars": payload.bars, "timeframe": payload.timeframe},
+                         result="error", error_msg="回測執行逾時（>60秒）")
+        raise HTTPException(
+            status_code=status.HTTP_408_REQUEST_TIMEOUT,
+            detail="回測執行逾時，請減少棒數或使用更大的時框",
+        )
+    except Exception as e:
+        audit_logger.log(source=source, action="run_dca_backtest", grid_id=bot_id,
+                         params={"bot_id": bot_id, "bars": payload.bars, "timeframe": payload.timeframe},
+                         result="error", error_msg=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"回測執行失敗: {str(e)}",
+        )
+    
+    # 記錄執行時間
+    elapsed = time.time() - start_time
+    
+    # 確保 warnings 包含簡化事項揭露（A-6 / D-11）
+    warnings = list(result.warnings)
+    required_warnings = [
+        "回測不模擬部分成交",
+        "未套用交易所最小名目限制",
+        "歷史績效不代表未來",
+    ]
+    for req_warning in required_warnings:
+        if req_warning not in warnings:
+            warnings.append(req_warning)
+    
+    if kline_result.data_status == "paper" or kline_result.source == "paper_synthetic":
+        if "使用合成 K 線，非真實歷史" not in warnings:
+            warnings.append("使用合成 K 線，非真實歷史")
+    
+    # 記錄稽核日誌（A-7）
+    audit_logger.log(source=source, action="run_dca_backtest", grid_id=bot_id,
+                     params={"bot_id": bot_id, "bars": payload.bars, "timeframe": payload.timeframe, "elapsed_seconds": round(elapsed, 2)},
+                     result="success")
+    
+    # 建立回應（轉換 core BacktestResult 到 API BacktestResult）
+    from schemas import BacktestMetrics as BacktestMetricsSchema
+    from schemas import BacktestEquityPoint as BacktestEquityPointSchema
+    from schemas import BacktestTradeMark as BacktestTradeMarkSchema
+    from schemas import BacktestCycleRecord as BacktestCycleRecordSchema
+    
+    backtest_response = BacktestResult(
+        bars=result.bars,
+        timeframe=result.timeframe,
+        first_ts=result.first_ts,
+        last_ts=result.last_ts,
+        metrics=BacktestMetricsSchema(**result.metrics),
+        equity=[
+            BacktestEquityPointSchema(**ep.to_dict()) for ep in result.equity
+        ],
+        marks=[
+            BacktestTradeMarkSchema(**mark.to_dict()) for mark in result.marks
+        ],
+        cycles=[
+            BacktestCycleRecordSchema(**cycle.to_dict()) for cycle in result.cycles
+        ],
+        data_status=result.data_status,
+        source=result.source,
+        warnings=warnings,
+        bars_per_second=result.bars_per_second,
+    )
+    
+    return BacktestResponse(result=backtest_response)
+
+
+# ────────────────────────────────────────────────────────
+# POST /api/v1/dca/backtest/sweep — 參數掃描（§4.6）
+# ────────────────────────────────────────────────────────
+@router.post("/backtest/sweep", response_model=SweepResponse)
+async def run_dca_sweep(
+    payload: SweepRequest,
+    source: str = Query(default="dashboard", description="來源"),
+    _token: str = Depends(verify_token),
+):
+    """
+    參數掃描：對多個參數組合跑回測（§4.6）。
+    
+    BP-1：回測路徑必須實例化真正的 DcaCoordinator 與真正的 DcaOrderExecutor
+    BP-2：回測請求處理期間，交易所寫入方法呼叫次數必須為 0；config/active_dca.json 內容不得變動
+    A-4：上限守衛
+    A-6：warnings 必含簡化事項揭露
+    A-7：稽核日誌
+    """
+    project_root = _get_project_root()
+    audit_logger = AuditLogger.get_instance(project_root)
+    start_time = time.time()
+    
+    # A-4 上限守衛
+    if payload.bars > 20000:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="回測棒數上限為 20000，請調整參數",
+        )
+    
+    valid_timeframes = {"1m", "5m", "15m", "30m", "1h", "4h", "1d"}
+    if payload.timeframe not in valid_timeframes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"不支援的 timeframe '{payload.timeframe}'。僅支援 {valid_timeframes}",
+        )
+    
+    # 取得基礎 DCA 設定
+    base_config = None
+    bot_id = None
+    exchange = None
+    symbol = None
+    
+    if payload.bot_id:
+        # 讀既有 YAML
+        bot_id = payload.bot_id
+        _validate_bot_id(bot_id)
+        config_path = DcaYAMLGenerator.path_from_bot_id(bot_id)
+        yaml_data = _read_dca_yaml(config_path)
+        if yaml_data is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"DCA 配置 {bot_id} 不存在",
+            )
+        base_config = load_dca_config(yaml_data)
+        exchange = str(yaml_data.get("dca", {}).get("exchange")) if yaml_data.get("dca") else None
+        symbol = str(yaml_data.get("dca", {}).get("symbol")) if yaml_data.get("dca") else None
+        
+    elif payload.draft:
+        # 使用精靈參數（走與建立機器人同一套驗證函式）
+        draft_params = payload.draft
+        errors = _generator.validate_params(draft_params)
+        if errors:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"message": "draft 參數驗證失敗", "errors": errors},
+            )
+        base_config = _generator.build_config(draft_params)
+        exchange = str(draft_params.get("exchange"))
+        symbol = str(draft_params.get("symbol"))
+        bot_id = "draft"
+        
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="必須提供 bot_id 或 draft 其中一個",
+        )
+    
+    if exchange is None or symbol is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="無法取得交易所或交易對符號",
+        )
+    
+    # 取得 K 線資料
+    kline_service = KlineService.instance()
+    kline_result = await kline_service.get_candles(
+        exchange=exchange,
+        symbol=symbol,
+        timeframe=payload.timeframe,
+        limit=payload.bars,
+        account_mode="paper",
+    )
+    
+    if not kline_result.candles:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"無法取得足夠的 K 線資料（取得 {len(kline_result.candles)} 棒）",
+        )
+    
+    # 取得初始資本
+    from core.services.dca.ladder import required_capital
+    initial_capital_decimal = None
+    if payload.initial_capital:
+        try:
+            initial_capital_decimal = Decimal(payload.initial_capital)
+        except Exception:
+            initial_capital_decimal = None
+    
+    if initial_capital_decimal is None:
+        try:
+            first_candle = kline_result.candles[0]
+            entry_price = Decimal(str(first_candle.close))
+            initial_capital_decimal = required_capital(base_config, entry_price)
+        except Exception:
+            initial_capital_decimal = Decimal("1000")
+    
+    # 轉換 K 線資料格式
+    from core.services.dca.backtest.candles import to_candles
+    candles = to_candles(kline_result.candles)
+    
+    # 准備掃描參數 axes（run_sweep 期望的格式）
+    from core.services.dca.backtest.sweep import run_sweep
+    
+    candles = to_candles(kline_result.candles)
+    
+    # 准備掃描參數 axes（run_sweep 期望的格式）
+    sweep_axes = {}
+    if payload.base_order_amount_range:
+        sweep_axes["base_order_amount"] = payload.base_order_amount_range
+    if payload.price_deviation_percent_range:
+        sweep_axes["price_deviation_percent"] = payload.price_deviation_percent_range
+    if payload.take_profit_percent_range:
+        sweep_axes["take_profit_percent"] = payload.take_profit_percent_range
+    if payload.max_safety_orders_range:
+        sweep_axes["max_safety_orders"] = payload.max_safety_orders_range
+    
+    if not sweep_axes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="至少需要指定一個掃描參數範圍",
+        )
+    
+    # A-5 執行時間守衛：run_sweep 是同步函式，使用 ThreadPoolExecutor
+    import concurrent.futures
+    
+    def run_sweep_sync():
+        """同步執行掃描。"""
+        try:
+            return run_sweep(
+                base_config=base_config,
+                candles=candles,
+                axes=sweep_axes,
+                initial_capital=str(initial_capital_decimal),
+                timeframe=payload.timeframe,
+                max_workers=payload.max_workers,
+                max_total_bars=payload.max_total_bars,
+                best_metric=payload.best_by,
+            )
+        except Exception as e:
+            logger.error(f"掃描執行失敗: {e}")
+            raise
+    
+    try:
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(run_sweep_sync)
+            
+            # 等待最多 120 秒
+            try:
+                sweep_result = future.result(timeout=120)
+            except concurrent.futures.TimeoutError:
+                future.cancel()
+                audit_logger.log(source=source, action="run_dca_sweep", grid_id=bot_id,
+                                 params={"bot_id": bot_id, "bars": payload.bars, "timeframe": payload.timeframe},
+                                 result="error", error_msg="掃描執行逾時（>120秒）")
+                raise HTTPException(
+                    status_code=status.HTTP_408_REQUEST_TIMEOUT,
+                    detail="掃描執行逾時，請減少參數組合數或棒數",
+                )
+            except Exception as e:
+                audit_logger.log(source=source, action="run_dca_sweep", grid_id=bot_id,
+                                 params={"bot_id": bot_id, "bars": payload.bars, "timeframe": payload.timeframe},
+                                 result="error", error_msg=str(e))
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"掃描執行失敗: {str(e)}",
+                )
+    except Exception as e:
+        audit_logger.log(source=source, action="run_dca_sweep", grid_id=bot_id,
+                         params={"bot_id": bot_id, "bars": payload.bars, "timeframe": payload.timeframe},
+                         result="error", error_msg=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"掃描執行失敗: {str(e)}",
+        )
+    
+    # 記錄執行時間
+    elapsed = time.time() - start_time
+    
+    # 記錄稽核日誌（A-7）
+    audit_logger.log(source=source, action="run_dca_sweep", grid_id=bot_id,
+                     params={"bot_id": bot_id, "bars": payload.bars, "timeframe": payload.timeframe, "elapsed_seconds": round(elapsed, 2)},
+                     result="success")
+    
+    # 建立回應
+    from schemas import SweepRunResult as SweepRunResultSchema
+    from schemas import SweepBudget as SweepBudgetSchema
+    from schemas import BacktestMetrics as BacktestMetricsSchema
+    
+    runs = []
+    for run in sweep_result.runs:
+        if hasattr(run, 'to_dict'):
+            run_dict = run.to_dict()
+        else:
+            run_dict = {
+                "params": run.params,
+                "metrics": run.metrics,
+                "error": run.error,
+            }
+        
+        # 確保 metrics 有值
+        metrics_dict = run_dict.get("metrics", {})
+        if not metrics_dict:
+            metrics_dict = {}
+        
+        runs.append(SweepRunResultSchema(
+            params=run_dict.get("params", {}),
+            metrics=BacktestMetricsSchema(**metrics_dict) if metrics_dict else BacktestMetricsSchema(),
+            error=run_dict.get("error"),
+        ))
+    
+    budget = SweepBudgetSchema(
+        bars_used=sweep_result.budget.bars_used,
+        bars_limit=sweep_result.budget.bars_limit,
+        runs_used=sweep_result.budget.runs_used,
+        runs_limit=sweep_result.budget.runs_limit,
+    )
+    
+    return SweepResponse(
+        runs=runs,
+        best_by=payload.best_by,
+        truncated=sweep_result.truncated,
+        budget=budget,
+    )
 
 
 def _prune_params(params: Mapping[str, Any]) -> dict:

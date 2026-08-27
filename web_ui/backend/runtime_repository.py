@@ -13,7 +13,7 @@ import threading
 import time
 from typing import Optional
 
-from lifecycle import connect_sqlite
+from web_ui.backend.lifecycle import connect_sqlite
 
 
 class RuntimeSnapshotRepository:

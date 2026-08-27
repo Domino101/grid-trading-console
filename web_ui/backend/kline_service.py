@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
-from kline_repository import KlineRepository, StoredKline, TIMEFRAME_SECONDS
+from web_ui.backend.kline_repository import KlineRepository, StoredKline, TIMEFRAME_SECONDS
 
 logger = logging.getLogger("GridAPI.KlineService")
 

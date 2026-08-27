@@ -16,7 +16,7 @@ class GridStateStore:
         self._states: Dict[str, dict] = {}
         self._updated_at: Dict[str, float] = {}
         self._last_refresh = 0.0
-        from runtime_repository import RuntimeSnapshotRepository
+        from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
         self._repository = RuntimeSnapshotRepository.instance()
         self._refresh_from_repository(force=True)
 

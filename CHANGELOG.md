@@ -6,6 +6,16 @@
 
 ### Added
 
+- **DCA 即時圖表與回測子系統 Phase C5 — 後端 API 層（klines/chart/backtest/sweep 端點 + 契約測試 + 稽核日誌）**:
+  - **即時圖表端點（`GET /api/v1/dca/{bot_id}/chart`）**: K 線資料 + runtime 快照標記（基礎單成交/安全單成交/止盈/止損/掛單/略過）+ 價格線（entry/average_cost/take_profit/next_safety/stop_loss）；引擎零變更，純投影（G-4）；K 線來源複用 C1 `KlineService.get_candles()`（含 PAPER 合成）；標記與價格線由 `_fills` / `_orders` / `ladder_slots` 直接投影（§4.7 語意表）。
+  - **回測端點（`POST /api/v1/dca/backtest`）**: 單一設定歷史回放，支援 `bot_id`（既有 YAML）或 `draft`（精靈 JSON，走與建立機器人同一套驗證函式）；A-4 上限守衛（bars ≤ 20000、timeframe ∈ {1m,5m,15m,30m,1h,4h,1d}）；A-5 執行時間守衛（60s timeout）；A-6 warnings 強制包含「回測不模擬部分成交」「未套用交易所最小名目限制」「歷史績效不代表未來」三條簡化事項揭露；A-7 稽核日誌（action=run_dca_backtest）。
+  - **掃描端點（`POST /api/v1/dca/backtest/sweep`）**: 參數網格展開 + ThreadPool 並行（預設 max_workers=4）+ 總棒數預算（預設 300000）+ truncated 誠實回報；支援 `base_order_amount_range` / `price_deviation_percent_range` / `take_profit_percent_range` / `max_safety_orders_range` 四個可掃描參數；A-5 執行時間守衛（120s timeout）；A-7 稽核日誌（action=run_dca_sweep）。
+  - **API 契約模型（`web_ui/backend/schemas.py` 擴充）**: `DcaChartMark` / `DcaChartLine` / `DcaChartResponse`（§4.7 圖表契約）、`BacktestRequest` / `BacktestResponse` / `BacktestMetrics` / `BacktestEquityPoint` / `BacktestTradeMark` / `BacktestCycleRecord`（§4.4/§4.5 回測契約）、`SweepRequest` / `SweepResponse` / `SweepRunResult` / `SweepBudget`（§4.4 掃描契約）。
+  - **稽核日誌擴充（`web_ui/backend/audit.py`）**: 新增 `run_dca_backtest` / `run_dca_sweep` 兩個 action 類型（§5.10）。
+  - **HTTP 契約測試（`tests/test_dca_backtest_http_contract.py`）**: 5.1 認證（四個端點無 token → 401）、5.4 上限守衛（bars=20001/不支援 timeframe）、5.8 契約（chart/backtest/sweep 回應欄位完整性）、5.7 warnings 揭露、5.13 網格零回歸、5.9 前端零計算 grep 契約、5.11 不阻塞事件迴圈 grep 契約。
+  - **CI 雙登記**: `scripts/ci.sh` 與 `docs/github-actions-ci.yml` 同步登錄 `tests.test_dca_backtest_http_contract`。
+  - **零回歸保證**: `core/services/grid/` 與 `run_grid_trading.py` 零變更（G-1/G-2，§5.13）。
+
 - **DCA 即時圖表與回測子系統 Phase C4 — 績效指標純函式與參數掃描（預算上限 + truncated + 預計算等價）**:
   - **績效指標（`core/services/dca/backtest/metrics.py`）**: `compute_metrics()` 純函式輸出 §4.5 全部欄位。`realized_pnl` / `total_fees` 必須取自引擎 `build_statistics()`（禁止加總 `fills[].fee`，稽核 4.5）；`buy_hold_return_pct` 與 `alpha_pct` 為必要指標（做空為反向基準，稽核 4.2）；MDD 為峰值→谷底而非首尾差（`[100,120,90,110] → 25%`，稽核 4.4）；無虧損輪時 `profit_factor=None`（不是 0 / inf，稽核 4.3）；無輪次時 `win_rate_pct` / `avg_cycle_bars` / `mfe_pct` 皆為 `None`（G-5，稽核 4.6）。`ReplayDriver` 改呼叫此純函式，避免兩套口徑。
   - **參數掃描（`core/services/dca/backtest/sweep.py`）**: `expand_grid()` 笛卡兒積；`run_sweep()` 以 `ThreadPoolExecutor` 並行（預設 `SWEEP_MAX_WORKERS=4`，同時執行中的 replay ≤ 4，稽核 4.7）；總棒數預算 `SWEEP_MAX_TOTAL_BARS`（預設 300000），超預算 `truncated=true` 且不回報未完成 run 的指標（稽核 4.9）；非法組合（如 `max_safety_orders=0`）標記中文 `error`、整體不崩潰（稽核 4.10）。
