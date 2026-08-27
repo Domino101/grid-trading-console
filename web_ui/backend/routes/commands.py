@@ -2,9 +2,9 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from auth import verify_token
-from command_repository import GridCommandRepository
-from schemas import GridCommandListResponse, GridCommandResponse, GridEventListResponse
+from web_ui.backend.auth import verify_token
+from web_ui.backend.command_repository import GridCommandRepository
+from web_ui.backend.schemas import GridCommandListResponse, GridCommandResponse, GridEventListResponse
 
 router = APIRouter(prefix="/api/v1/commands", tags=["commands"])
 

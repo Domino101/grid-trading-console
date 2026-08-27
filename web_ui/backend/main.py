@@ -20,19 +20,19 @@ try:
 except ImportError:
     pass
 
-from process_manager import process_manager
-from file_manager import file_manager
-from models import ProcessStatus, StartProcessRequest
-from auth import token_matches, verify_token
-from lifecycle import cors_settings
+from web_ui.backend.process_manager import process_manager
+from web_ui.backend.file_manager import file_manager
+from web_ui.backend.models import ProcessStatus, StartProcessRequest
+from web_ui.backend.auth import token_matches, verify_token
+from web_ui.backend.lifecycle import cors_settings
 
 # 🆕 Hermes Grid API v1 路由
-from routes.system import router as system_router
-from routes.grids import router as grids_router
-from routes.dca import router as dca_router
-from routes.dashboard import router as dashboard_router
-from routes.commands import router as commands_router
-from routes.market import router as market_router
+from web_ui.backend.routes.system import router as system_router
+from web_ui.backend.routes.grids import router as grids_router
+from web_ui.backend.routes.dca import router as dca_router
+from web_ui.backend.routes.dashboard import router as dashboard_router
+from web_ui.backend.routes.commands import router as commands_router
+from web_ui.backend.routes.market import router as market_router
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -74,7 +74,7 @@ async def readiness_probe():
     details remain behind the authenticated /api/v1/system/health endpoint.
     """
     try:
-        from runtime_repository import RuntimeSnapshotRepository
+        from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
         RuntimeSnapshotRepository.instance().load_all()
         return {"status": "ok"}
     except Exception:

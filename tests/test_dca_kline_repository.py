@@ -26,16 +26,12 @@ import unittest
 from decimal import Decimal
 from typing import Any, List, Optional
 
-_backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../web_ui/backend"))
-if _backend_dir not in sys.path:
-    sys.path.insert(0, _backend_dir)
-
 from fastapi.testclient import TestClient
-from main import app
-from kline_repository import KlineRepository, StoredKline, TIMEFRAME_SECONDS
-from kline_service import KlineService, KlineResult
-from schemas import KlinesResponse, KlineCandle
-from lifecycle import connect_sqlite
+from web_ui.backend.main import app
+from web_ui.backend.kline_repository import KlineRepository, StoredKline, TIMEFRAME_SECONDS
+from web_ui.backend.kline_service import KlineService, KlineResult
+from web_ui.backend.schemas import KlinesResponse, KlineCandle
+from web_ui.backend.lifecycle import connect_sqlite
 
 
 class TestDcaKlineRepository(unittest.TestCase):
@@ -49,7 +45,8 @@ class TestDcaKlineRepository(unittest.TestCase):
 
     def test_audit_1_1_parameterized_queries(self):
         """1.1 P0: All queries must use '?' parameter placeholders."""
-        repo_file = os.path.join(_backend_dir, "kline_repository.py")
+        backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../web_ui/backend"))
+        repo_file = os.path.join(backend_dir, "kline_repository.py")
         with open(repo_file, "r", encoding="utf-8") as f:
             code = f.read()
 
@@ -332,7 +329,7 @@ class TestDcaKlineRepository(unittest.TestCase):
 
     def test_audit_1_12_http_endpoint_contract(self):
         """1.12 & 4.6 API Contract test for GET /api/v1/market/klines/{symbol}."""
-        import auth
+        from web_ui.backend import auth
         auth._API_TOKEN = "test-token"
         client = TestClient(app)
         headers = {"Authorization": "Bearer test-token"}

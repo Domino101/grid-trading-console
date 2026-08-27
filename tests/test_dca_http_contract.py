@@ -73,13 +73,13 @@ class PaperDcaGuard:
 class DcaHttpContractTests(unittest.TestCase):
     def setUp(self):
         from fastapi.testclient import TestClient
-        import auth
-        from audit import AuditLogger
-        from command_repository import GridCommandRepository
-        from grid_state_store import GridStateStore
-        from runtime_repository import RuntimeSnapshotRepository
-        import routes.dca as dca_route
-        import routes.market as market_route
+        from web_ui.backend import auth
+        from web_ui.backend.audit import AuditLogger
+        from web_ui.backend.command_repository import GridCommandRepository
+        from web_ui.backend.grid_state_store import GridStateStore
+        from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
+        from web_ui.backend.routes import dca as dca_route
+        from web_ui.backend.routes import market as market_route
 
         self.temp_dir = tempfile.TemporaryDirectory()
         os.makedirs(os.path.join(self.temp_dir.name, "config", "dca"))
@@ -98,7 +98,7 @@ class DcaHttpContractTests(unittest.TestCase):
         self._stash_global(dca_route, "_get_project_root", lambda: self.temp_dir.name)
         self._stash_global(dca_route, "SafetyGuard", PaperDcaGuard)
 
-        import main
+        from web_ui.backend import main
         self.client = TestClient(main.app)
         self.repository = GridCommandRepository.instance()
 
@@ -158,8 +158,8 @@ class DcaHttpContractTests(unittest.TestCase):
     def test_preview_matches_build_ladder_directly_and_vector_a(self):
         payload = _preview_payload(max_safety_orders=20)
         # ccxt 全掛也不影響 preview（純函式，零外部呼叫）
-        with patch("routes.market._lookup_market_from_ccxt_sync", side_effect=Exception("network down")), \
-             patch("routes.dca._fetch_ticker_price_sync", side_effect=Exception("network down")):
+        with patch("web_ui.backend.routes.market._lookup_market_from_ccxt_sync", side_effect=Exception("network down")), \
+             patch("web_ui.backend.routes.dca._fetch_ticker_price_sync", side_effect=Exception("network down")):
             response = self.client.post("/api/v1/dca/preview", headers=self._headers(), json=payload)
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
@@ -258,19 +258,19 @@ class DcaHttpContractTests(unittest.TestCase):
 
     # ── 4.12 / 4.13 LIVE feature flag / min_notional 全階梯 ──
     def test_live_create_requires_feature_flag(self):
-        with patch("routes.dca.live_trading_enabled", return_value=False):
+        with patch("web_ui.backend.routes.dca.live_trading_enabled", return_value=False):
             response = self._create(account_mode="live")
         self.assertEqual(response.status_code, 403, response.text)
 
     def test_live_create_checks_min_notional_every_safety_order(self):
-        from schemas import MarketInfoResponse
+        from web_ui.backend.schemas import MarketInfoResponse
         fake_market = MarketInfoResponse(
             symbol="ETH/USDC:USDC", exchange="binance",
             price_precision=2, quantity_precision=6,
             min_order_amount=0.001, min_notional=1000.0,
         )
-        with patch("routes.dca.live_trading_enabled", return_value=True), \
-             patch("routes.market._lookup_market_from_ccxt_sync", return_value=fake_market):
+        with patch("web_ui.backend.routes.dca.live_trading_enabled", return_value=True), \
+             patch("web_ui.backend.routes.market._lookup_market_from_ccxt_sync", return_value=fake_market):
             response = self._create(account_mode="live", entry_price=2500.0, base_order_amount=20)
         self.assertEqual(response.status_code, 422, response.text)
         errors = response.json()["detail"]["errors"]
@@ -280,7 +280,7 @@ class DcaHttpContractTests(unittest.TestCase):
 
     # ── 4.15 併發總量上限（網格 + DCA） ──
     def test_combined_cap_includes_grids_and_dca(self):
-        from safety_guard import SafetyGuard
+        from web_ui.backend.safety_guard import SafetyGuard
         os.makedirs(os.path.join(self.temp_dir.name, "config", "grid"), exist_ok=True)
         os.makedirs(os.path.join(self.temp_dir.name, "config", "dca"), exist_ok=True)
         with open(os.path.join(self.temp_dir.name, "config", "active_grids.json"), "w", encoding="utf-8") as handle:
@@ -321,7 +321,7 @@ class DcaHttpContractTests(unittest.TestCase):
 
     # ── 4.17 / 4.18 稽核日誌與不洩密 ──
     def test_audit_logs_create_start_stop_and_no_secrets(self):
-        from audit import AuditLogger
+        from web_ui.backend.audit import AuditLogger
         created = self._create(metadata={"source": "hermes", "reason": "test", "token": "SECRET_VALUE"})
         self.assertEqual(created.status_code, 201, created.text)
         bot_id = created.json()["bot_id"]
@@ -360,12 +360,12 @@ class DcaHttpContractTests(unittest.TestCase):
             with self.subTest(bad=bad):
                 response = self.client.get(f"/api/v1/dca/{bad}/stats", headers=self._headers())
                 self.assertIn(response.status_code, (400, 404), response.text)
-        from dca_yaml_generator import DcaYAMLGenerator
+        from web_ui.backend.dca_yaml_generator import DcaYAMLGenerator
         self.assertFalse(DcaYAMLGenerator.is_valid_bot_id("../evil"))
 
     # ── 4.19 指標端點 60 秒快取 ──
     def test_indicators_endpoint_caches_fetch_ohlcv(self):
-        from schemas import MarketIndicatorsResponse
+        from web_ui.backend.schemas import MarketIndicatorsResponse
         calls = {"count": 0}
 
         def fake_compute(symbol, exchange, timeframe, limit):
@@ -378,7 +378,7 @@ class DcaHttpContractTests(unittest.TestCase):
             )
 
         self.market_route._indicators_cache.clear()
-        with patch("routes.market._compute_indicators_sync", side_effect=fake_compute):
+        with patch("web_ui.backend.routes.market._compute_indicators_sync", side_effect=fake_compute):
             first = self.client.get("/api/v1/market/indicators/ETH/USDC:USDC", headers=self._headers())
             second = self.client.get("/api/v1/market/indicators/ETH/USDC:USDC", headers=self._headers())
             third = self.client.get("/api/v1/market/indicators/ETH/USDC:USDC", headers=self._headers())
@@ -390,7 +390,7 @@ class DcaHttpContractTests(unittest.TestCase):
 
     # ── Phase 7：詳情端點讀取引擎快照（orders / fills / ladder） ──
     def test_detail_endpoints_read_engine_runtime_snapshot(self):
-        from grid_state_store import GridStateStore
+        from web_ui.backend.grid_state_store import GridStateStore
         created = self._create()
         self.assertEqual(created.status_code, 201, created.text)
         bot_id = created.json()["bot_id"]

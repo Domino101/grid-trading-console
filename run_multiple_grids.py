@@ -62,11 +62,8 @@ from core.logging import get_system_logger
 # 導入單網格啟動腳本中的配置解析和適配器創建函數
 from run_grid_trading import create_grid_config, detect_market_type, create_exchange_adapter, auto_fill_precision
 
-_backend_dir = str(project_root / "web_ui" / "backend")
-if _backend_dir not in sys.path:
-    sys.path.insert(0, _backend_dir)
-from control_plane import publish_lifecycle, publish_runtime
-from lifecycle import account_mode_from_yaml, iter_hotplug_starts, live_trading_enabled, start_rejection
+from web_ui.backend.control_plane import publish_lifecycle, publish_runtime
+from web_ui.backend.lifecycle import account_mode_from_yaml, iter_hotplug_starts, live_trading_enabled, start_rejection
 
 # 優化的日誌系統
 setup_optimized_logging(use_colored=True)

@@ -38,10 +38,10 @@ def _yaml(symbol, direction="long", account_mode="paper", base_amount="20", max_
 class DcaSnapshotTests(unittest.TestCase):
     def setUp(self):
         import asyncio
-        from command_repository import GridCommandRepository
-        from grid_state_store import GridStateStore
-        from runtime_repository import RuntimeSnapshotRepository
-        import routes.dca as dca_route
+        from web_ui.backend.command_repository import GridCommandRepository
+        from web_ui.backend.grid_state_store import GridStateStore
+        from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
+        from web_ui.backend.routes import dca as dca_route
 
         self.temp_dir = tempfile.TemporaryDirectory()
         os.makedirs(os.path.join(self.temp_dir.name, "config", "dca"))
@@ -65,10 +65,10 @@ class DcaSnapshotTests(unittest.TestCase):
         return f"config/dca/{name}"
 
     def _snapshot(self, active: dict):
-        from routes.dca import get_dca_snapshot
+        from web_ui.backend.routes.dca import get_dca_snapshot
 
-        with patch("routes.dca._read_active_dca", return_value=active), \
-             patch("routes.dca._read_dca_yaml", autospec=True, side_effect=lambda p: self._read_yaml(p)):
+        with patch("web_ui.backend.routes.dca._read_active_dca", return_value=active), \
+             patch("web_ui.backend.routes.dca._read_dca_yaml", autospec=True, side_effect=lambda p: self._read_yaml(p)):
             return self.asyncio.run(get_dca_snapshot("test-token"))
 
     def _read_yaml(self, config_path: str):

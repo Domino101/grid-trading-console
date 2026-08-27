@@ -12,7 +12,7 @@ if BACKEND_DIR not in sys.path:
 
 class GridCommandRepositoryTests(unittest.TestCase):
     def test_command_can_be_retrieved_and_transitioned(self):
-        from command_repository import GridCommandRepository
+        from web_ui.backend.command_repository import GridCommandRepository
 
         with tempfile.TemporaryDirectory() as temp_dir:
             repository = GridCommandRepository(os.path.join(temp_dir, "runtime.sqlite3"))
@@ -26,7 +26,7 @@ class GridCommandRepositoryTests(unittest.TestCase):
             self.assertEqual(repository.latest_for_grid("strategy-a")["command_id"], command["command_id"])
 
     def test_idempotency_key_and_timeout_are_durable(self):
-        from command_repository import GridCommandRepository
+        from web_ui.backend.command_repository import GridCommandRepository
 
         with tempfile.TemporaryDirectory() as temp_dir:
             repository = GridCommandRepository(os.path.join(temp_dir, "runtime.sqlite3"))

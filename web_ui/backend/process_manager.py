@@ -175,7 +175,7 @@ class ProcessManager:
         解析 [STATS_JSON] 並更新 GridStateStore
         """
         import re
-        from grid_state_store import GridStateStore
+        from web_ui.backend.grid_state_store import GridStateStore
         
         # 相容 [STATS_JSON][SYMBOL] {...} 和 [STATS_JSON] {...}
         STATS_PATTERN = re.compile(r'\[STATS_JSON\](?:\[(.+?)\])?\s*(\{.+\})')
@@ -229,7 +229,7 @@ class ProcessManager:
             lifecycle_status = payload.get("status")
             if not config_path or lifecycle_status not in {"running", "stopped", "failed"}:
                 return
-            from command_repository import GridCommandRepository
+            from web_ui.backend.command_repository import GridCommandRepository
             grid_id = os.path.splitext(os.path.basename(config_path))[0]
             repository = GridCommandRepository.instance()
             repository.record_event(grid_id, "engine_lifecycle", lifecycle_status, payload.get("detail"))

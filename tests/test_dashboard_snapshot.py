@@ -20,9 +20,9 @@ HAS_FASTAPI = importlib.util.find_spec("fastapi") is not None
 @unittest.skipUnless(HAS_FASTAPI, "FastAPI is installed from requirements.txt in CI/release environments")
 class DashboardSnapshotTests(unittest.TestCase):
     def setUp(self):
-        from command_repository import GridCommandRepository
-        from grid_state_store import GridStateStore
-        from runtime_repository import RuntimeSnapshotRepository
+        from web_ui.backend.command_repository import GridCommandRepository
+        from web_ui.backend.grid_state_store import GridStateStore
+        from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
 
         self.temp_dir = tempfile.TemporaryDirectory()
         database_path = os.path.join(self.temp_dir.name, "runtime.sqlite3")
@@ -39,11 +39,11 @@ class DashboardSnapshotTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def _snapshot(self, active=True):
-        from routes.dashboard import get_dashboard_snapshot
+        from web_ui.backend.routes.dashboard import get_dashboard_snapshot
 
         with patch(
-            "routes.dashboard._read_active_grids", return_value={self.config_path: active}
-        ), patch("routes.grids._get_project_root", return_value=self.temp_dir.name):
+            "web_ui.backend.routes.dashboard._read_active_grids", return_value={self.config_path: active}
+        ), patch("web_ui.backend.routes.grids._get_project_root", return_value=self.temp_dir.name):
             return asyncio.run(get_dashboard_snapshot("test-token"))
 
     def test_missing_runtime_is_unavailable_not_zero(self):

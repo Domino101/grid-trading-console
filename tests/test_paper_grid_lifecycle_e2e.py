@@ -19,9 +19,9 @@ if BACKEND_DIR not in sys.path:
 
 class PaperGridLifecycleE2E(unittest.TestCase):
     def test_paper_create_start_stop_and_restart_recovery(self):
-        from audit import AuditLogger
-        from command_repository import GridCommandRepository
-        from runtime_repository import RuntimeSnapshotRepository
+        from web_ui.backend.audit import AuditLogger
+        from web_ui.backend.command_repository import GridCommandRepository
+        from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
 
         grid_id = "paper-btc-usdt"
         config_path = f"config/grid/{grid_id}.yaml"

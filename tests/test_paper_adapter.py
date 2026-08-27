@@ -116,7 +116,7 @@ class AccountModeHelperTests(unittest.TestCase):
         backend = os.path.join(ROOT, "web_ui", "backend")
         if backend not in sys.path:
             sys.path.insert(0, backend)
-        from lifecycle import account_mode_from_yaml
+        from web_ui.backend.lifecycle import account_mode_from_yaml
 
         self.assertEqual(account_mode_from_yaml({"grid_system": {"account_mode": "paper"}}), "paper")
         self.assertEqual(account_mode_from_yaml({"grid_system": {"account_mode": "live"}}), "live")

@@ -314,7 +314,7 @@ class SafetyGuard:
                 min_price = None
                 # 先嘗試從快取 (GridStateStore) 讀取
                 try:
-                    from grid_state_store import GridStateStore
+                    from web_ui.backend.grid_state_store import GridStateStore
                     store = GridStateStore.instance()
                     for path, stats in store.get_all().items():
                         if stats.get("symbol") == symbol:

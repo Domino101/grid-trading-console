@@ -501,36 +501,41 @@ class DcaChartBacktestE2ETests(unittest.TestCase):
     # ── 8.6 單例一致性（C8 修復的根因回歸防護）──
 
     def test_8_6_backend_modules_are_not_imported_twice(self):
-        """`auth` 與 `web_ui.backend.auth` 必須是同一個模組物件。
+        """每個 backend 模組檔只能被載入一次（單拼法收斂後的契約）。
 
-        兩個拼法各執行一次檔案時，模組級單例會出現兩份：
-        兩個 API token、兩個 SQLite repository、兩份 GridStateStore 快取。
-        這正是 C8 之前 15 個測試回報 `401 Invalid or missing API token`、
-        以及 `test_dashboard_snapshot` 讀到真實 runtime 資料庫的根因。
+        C8 之前 `auth` 與 `web_ui.backend.auth` 兩個拼法會把同一檔案執行兩次，
+        模組級單例出現兩份：兩個 API token、兩個 SQLite repository、
+        兩份 GridStateStore 快取——15 個測試回報
+        `401 Invalid or missing API token` 的根因。
+
+        收尾階段已把全庫收斂為單一拼法 `web_ui.backend.*`（並移除 C8 的
+        meta-path 別名 finder）。本測試改以「每個檔案的模組物件恰好一個」
+        作為不依賴執行順序的斷言：只要任何程式碼再以頂層拼法 import，
+        sys.modules 就會出現第二個指向同一檔案的模組物件而在此現形。
+        拼法本身的把關在 `tests/test_backend_import_contract.py`（grep 契約）。
         """
-        import auth as auth_top
-        import runtime_repository as repo_top
-        import command_repository as cmd_top
-        import grid_state_store as store_top
-        import schemas as schemas_top
-        from web_ui.backend import auth as auth_pkg
-        from web_ui.backend import runtime_repository as repo_pkg
-        from web_ui.backend import command_repository as cmd_pkg
-        from web_ui.backend import grid_state_store as store_pkg
-        from web_ui.backend import schemas as schemas_pkg
+        from web_ui.backend import auth, schemas
+        from web_ui.backend import runtime_repository
+        from web_ui.backend import command_repository
+        from web_ui.backend import grid_state_store
+        from web_ui.backend import lifecycle, audit
+        from web_ui.backend.routes import dca
 
-        for top, pkg, name in (
-            (auth_top, auth_pkg, "auth"),
-            (repo_top, repo_pkg, "runtime_repository"),
-            (cmd_top, cmd_pkg, "command_repository"),
-            (store_top, store_pkg, "grid_state_store"),
-            (schemas_top, schemas_pkg, "schemas"),
-        ):
-            self.assertIs(top, pkg, f"{name} 被載入兩次（模組級單例會分岔）")
-
-        import routes.dca as dca_top
-        from web_ui.backend.routes import dca as dca_pkg
-        self.assertIs(dca_top, dca_pkg, "routes.dca 被載入兩次")
+        candidates = [
+            auth, schemas, runtime_repository, command_repository,
+            grid_state_store, lifecycle, audit, dca,
+        ]
+        for module in candidates:
+            module_file = os.path.realpath(module.__file__)
+            loaded = [
+                name for name, other in sys.modules.items()
+                if getattr(other, "__file__", None)
+                and os.path.realpath(other.__file__) == module_file
+            ]
+            self.assertEqual(
+                len(loaded), 1,
+                f"{module.__name__}（{module_file}）被載入了 {len(loaded)} 次：{loaded}",
+            )
 
 
 if __name__ == "__main__":

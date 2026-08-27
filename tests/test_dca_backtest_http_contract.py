@@ -96,21 +96,18 @@ class TestDcaBacktestHttpContract(unittest.TestCase):
 
     @staticmethod
     def _restore_global_state():
-        """把被其他測試污染的模組級狀態指回真實專案。"""
-        real_root = _project_root
+        """把被其他測試污染的模組級狀態指回真實專案。
 
-        # routes.dca 可能同時以 `routes.dca` 與 `web_ui.backend.routes.dca`
-        # 兩個模組物件存在（sys.path 有兩個入口），兩份都要修。
-        for name in ("routes.dca", "web_ui.backend.routes.dca"):
-            module = sys.modules.get(name)
-            if module is not None:
-                module._get_project_root = lambda: real_root
+        收尾 C9 後全庫已收斂為單一拼法 `web_ui.backend.*`（且移除模組別名
+        finder），`routes.dca` 與 `web_ui.backend.routes.dca` 必然是同一個
+        模組物件，不再需要雙名迴圈。
+        """
+        from web_ui.backend import auth as auth_module
+        from web_ui.backend.routes import dca as dca_module
 
+        dca_module._get_project_root = lambda: _project_root
         # verify_token 實際讀的是它自身模組的 _API_TOKEN
-        for name in ("auth", "web_ui.backend.auth"):
-            module = sys.modules.get(name)
-            if module is not None:
-                module._API_TOKEN = TEST_API_TOKEN
+        auth_module._API_TOKEN = TEST_API_TOKEN
 
     @classmethod
     def tearDownClass(cls):
