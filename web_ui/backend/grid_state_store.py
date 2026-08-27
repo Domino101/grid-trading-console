@@ -51,7 +51,7 @@ class GridStateStore:
             self._updated_at[config_path] = updated_at
         self._repository.save(config_path, stats, updated_at)
         try:
-            from command_repository import GridCommandRepository
+            from web_ui.backend.command_repository import GridCommandRepository
             grid_id = os.path.splitext(os.path.basename(config_path))[0]
             command = GridCommandRepository.instance().latest_for_grid(grid_id)
             if command and command["action"] == "start" and command["status"] == "pending_engine":

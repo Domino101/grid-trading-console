@@ -12,7 +12,7 @@ if BACKEND_DIR not in sys.path:
 
 class RuntimeSnapshotRepositoryTests(unittest.TestCase):
     def test_snapshot_survives_repository_recreation(self):
-        from runtime_repository import RuntimeSnapshotRepository
+        from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
 
         with tempfile.TemporaryDirectory() as temp_dir:
             path = os.path.join(temp_dir, "runtime.sqlite3")

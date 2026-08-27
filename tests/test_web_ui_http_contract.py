@@ -23,13 +23,13 @@ for path in (BACKEND, ROOT):
 class WebUiHttpContractTests(unittest.TestCase):
     def setUp(self):
         from fastapi.testclient import TestClient
-        import auth
-        from audit import AuditLogger
-        from command_repository import GridCommandRepository
-        from grid_state_store import GridStateStore
-        from runtime_repository import RuntimeSnapshotRepository
-        import routes.dashboard as dashboard_route
-        import routes.grids as grids_route
+        from web_ui.backend import auth
+        from web_ui.backend.audit import AuditLogger
+        from web_ui.backend.command_repository import GridCommandRepository
+        from web_ui.backend.grid_state_store import GridStateStore
+        from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
+        from web_ui.backend.routes import dashboard as dashboard_route
+        from web_ui.backend.routes import grids as grids_route
 
         self.temp_dir = tempfile.TemporaryDirectory()
         os.makedirs(os.path.join(self.temp_dir.name, "config", "grid"))
@@ -62,7 +62,7 @@ class WebUiHttpContractTests(unittest.TestCase):
         dashboard_route._build_grid_info = grids_route._build_grid_info
 
         # Import after dependency singletons have been isolated for this test.
-        import main
+        from web_ui.backend import main
         self.client = TestClient(main.app)
         self.repository = GridCommandRepository.instance()
 
@@ -190,7 +190,7 @@ class WebUiHttpContractTests(unittest.TestCase):
         self.assertIn(denied.status_code, (401, 403))
 
     def test_market_info_precision_conversion_and_lookup(self):
-        from routes.market import _precision_to_decimals, _lookup_market_from_ccxt_sync
+        from web_ui.backend.routes.market import _precision_to_decimals, _lookup_market_from_ccxt_sync
         from unittest.mock import MagicMock, patch
 
         # Test precision conversion logic
@@ -258,7 +258,7 @@ class WebUiHttpContractTests(unittest.TestCase):
         headers = {"Authorization": "Bearer contract-token"}
         with patch("ccxt.binance", return_value=fake_ex):
             # Clear cache
-            from routes.market import _market_cache
+            from web_ui.backend.routes.market import _market_cache
             _market_cache.clear()
 
             resp = self.client.get("/api/v1/market/info/ETH/USDC:USDC?exchange=binance", headers=headers)

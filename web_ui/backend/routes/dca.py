@@ -594,7 +594,7 @@ async def create_dca(
                              params=_prune_params(params), result="rejected", reason=reason,
                              error_msg=message)
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=message)
-        from routes.market import _lookup_market_from_ccxt_sync
+        from web_ui.backend.routes.market import _lookup_market_from_ccxt_sync
         market_info = await asyncio.get_running_loop().run_in_executor(
             None, _lookup_market_from_ccxt_sync, params["symbol"], params["exchange"]
         )

@@ -33,7 +33,8 @@ python -m unittest \
   tests.test_dca_backtest_metrics \
   tests.test_dca_backtest_sweep \
   tests.test_dca_backtest_http_contract \
-  tests.test_dca_chart_backtest_e2e
+  tests.test_dca_chart_backtest_e2e \
+  tests.test_backend_import_contract
 
 if [[ "${SKIP_FRONTEND:-}" == "1" ]]; then
   exit 0

@@ -11,18 +11,18 @@ import time
 
 from fastapi import APIRouter, Depends
 
-from auth import verify_token
-from grid_state_store import GridStateStore
-from command_repository import GridCommandRepository
-from lifecycle import (
+from web_ui.backend.auth import verify_token
+from web_ui.backend.grid_state_store import GridStateStore
+from web_ui.backend.command_repository import GridCommandRepository
+from web_ui.backend.lifecycle import (
     account_mode_from_yaml,
     aggregate_read_models,
     build_grid_read_model,
     live_trading_enabled,
     registered_config_paths,
 )
-from schemas import DashboardAggregate, DashboardGridItem, DashboardSnapshotResponse
-from routes.grids import _build_grid_info, _read_active_grids, _read_yaml_config
+from web_ui.backend.schemas import DashboardAggregate, DashboardGridItem, DashboardSnapshotResponse
+from web_ui.backend.routes.grids import _build_grid_info, _read_active_grids, _read_yaml_config
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 

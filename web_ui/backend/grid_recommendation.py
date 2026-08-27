@@ -21,7 +21,7 @@ _backend_dir = os.path.abspath(os.path.dirname(__file__))
 if _backend_dir not in sys.path:
     sys.path.insert(0, _backend_dir)
 
-from lifecycle import connect_sqlite
+from web_ui.backend.lifecycle import connect_sqlite
 
 logger = logging.getLogger("GridAPI.Recommendation")
 

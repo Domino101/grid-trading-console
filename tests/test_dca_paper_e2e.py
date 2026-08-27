@@ -241,9 +241,9 @@ class DcaRuntimeSnapshotPublishTests(unittest.TestCase):
         backend = os.path.join(os.path.dirname(__file__), "..", "web_ui", "backend")
         if backend not in sys.path:
             sys.path.insert(0, backend)
-        import control_plane
-        from command_repository import GridCommandRepository
-        from runtime_repository import RuntimeSnapshotRepository
+        from web_ui.backend import control_plane
+        from web_ui.backend.command_repository import GridCommandRepository
+        from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
 
         RuntimeSnapshotRepository.reset_instance()
         GridCommandRepository.reset_instance()

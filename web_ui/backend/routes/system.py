@@ -19,12 +19,12 @@ _project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-from auth import verify_token
-from schemas import SystemHealthResponse, CircuitBreakerInfo, ApiThrottleInfo, EngineInfo, AuditLogListResponse
-from safety_guard import SafetyGuard, MAX_CONCURRENT_GRIDS
-from audit import AuditLogger
-from grid_state_store import GridStateStore
-from lifecycle import data_status_from_runtime, live_trading_enabled
+from web_ui.backend.auth import verify_token
+from web_ui.backend.schemas import SystemHealthResponse, CircuitBreakerInfo, ApiThrottleInfo, EngineInfo, AuditLogListResponse
+from web_ui.backend.safety_guard import SafetyGuard, MAX_CONCURRENT_GRIDS
+from web_ui.backend.audit import AuditLogger
+from web_ui.backend.grid_state_store import GridStateStore
+from web_ui.backend.lifecycle import data_status_from_runtime, live_trading_enabled
 
 logger = logging.getLogger("GridAPI.System")
 

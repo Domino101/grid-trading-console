@@ -4,6 +4,12 @@
 
 ## [Unreleased] — 2026-08-27
 
+### Changed
+
+- **後端匯入拼法收斂為單一 `web_ui.backend.*`（C8 工作紀錄 §7 建議的後續重構）**: C8 以 meta-path 別名緩解「同一檔案被以 `auth` 與 `web_ui.backend.auth` 兩種拼法各執行一次、模組級單例分岔」的 P0 問題；本次把**全庫**（`web_ui/backend/**`、引擎入口 `run_multiple_grids.py`、`tests/**`）機械式統一為套件拼法，並**移除 `web_ui/backend/__init__.py` 的別名 finder**（`__init__.py` 回復為空套件標記 + 約定說明）。同時刪除僅為頂層拼法服務的 `sys.path` 注入（`run_multiple_grids.py`、`grid_recommendation.py`、`test_dca_kline_repository.py` 等）。
+  - **新契約測試 `tests/test_backend_import_contract.py`（4 項）**: ① grep 契約禁止全 repo 出現頂層拼法 import（自動剝離 docstring/註解，prose 不會誤報）；② `patch(...)` 目標必須為套件拼法；③ 執行期「每個 backend 模組檔在 `sys.modules` 恰好一個模組物件」的單載入檢查（不依賴測試順序）；④ `web_ui.backend.main` 可作為 uvicorn/測試入口匯入。已雙登記 `scripts/ci.sh` 與 `docs/github-actions-ci.yml`。
+  - **清理冗餘防護**: `tests/test_dca_backtest_http_contract._restore_global_state()` 的「雙拼法迴圈」不再需要（兩種拼法現在必然指向同一模組物件），簡化為套件拼法直取；`test_8_6` 改寫為以 `__file__` 計數的單載入斷言。**行為零變更**：`python3 main.py`（`start_web_ui.sh` 入口）與 `run_multiple_grids.py`（PM2 引擎入口）都走同一支程式，C8 的 17 條修復不因 finder 退場而回歸。
+
 ### Fixed
 
 - **後端模組被載入兩次導致模組級單例分岔（P0，`web_ui/backend/__init__.py` 新增）**: `web_ui/backend` 既在 `sys.path` 上、又可作為套件匯入，`main.py` 與 grid 路由用 `from auth import …`、DCA/market 路由用 `from web_ui.backend.auth import …`，Python 因而**把同一個檔案執行兩次**，產生兩份 `auth._API_TOKEN`、兩份 `RuntimeSnapshotRepository` / `GridCommandRepository` SQLite 連線、兩份 `GridStateStore` 記憶體快取與兩個 `AuditLogger`。後果：CI 有 **17 條測試紅燈**（15 條 `401 Invalid or missing API token`、`test_dashboard_snapshot` 讀到真實 runtime 資料庫而回報 `live` 而非 `degraded`、2 條連鎖 ERROR），正式環境則是一顆計時炸彈（同一份狀態存在兩份）。修法為 meta-path 匯入別名：兩種拼法映射到同一模組物件，且**只在對應模組已載入且 `__file__` 指向 backend 目錄下同一檔案時**才建立別名，第三方套件與專案他處的同名模組不受影響。**後端需重啟才會生效**。

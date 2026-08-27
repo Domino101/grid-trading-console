@@ -10,8 +10,8 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from command_repository import GridCommandRepository
-from runtime_repository import RuntimeSnapshotRepository
+from web_ui.backend.command_repository import GridCommandRepository
+from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
 
 
 def _grid_id(config_path: str) -> str:

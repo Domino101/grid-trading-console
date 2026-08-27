@@ -27,8 +27,8 @@ if _backend_dir not in sys.path:
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-from main import app
-import auth
+from web_ui.backend.main import app
+from web_ui.backend import auth
 from tools.hermes_grid_client import HermesGridClient, HermesGridController, HermesDecision
 
 # Ensure token is mock-configured
@@ -64,14 +64,14 @@ class TestHermesGridClient(unittest.IsolatedAsyncioTestCase):
 
     async def test_is_system_ready_healthy(self):
         """Verify is_system_ready returns True when FastAPI health endpoint is OK"""
-        from safety_guard import SafetyGuard
+        from web_ui.backend.safety_guard import SafetyGuard
         
         original_get_engine_pid = SafetyGuard.get_engine_pid
         SafetyGuard.get_engine_pid = lambda *args: 12345  # simulate engine running
         
         # Patch BinanceRest adapter circuit status and active grids
         with patch("core.adapters.exchanges.adapters.binance_rest.BinanceRest") as mock_binance_rest, \
-             patch("safety_guard.SafetyGuard._read_active_grids", return_value={}):
+             patch("web_ui.backend.safety_guard.SafetyGuard._read_active_grids", return_value={}):
             mock_binance_rest._is_adapter_circuit_open.return_value = False
             mock_binance_rest.get_throttle_stats.return_value = {}
             
@@ -82,8 +82,8 @@ class TestHermesGridClient(unittest.IsolatedAsyncioTestCase):
 
     async def test_create_neutral_grid_success(self):
         """Verify create_neutral_grid makes a POST to grids endpoint with valid inputs"""
-        import routes.grids as grids_route
-        from safety_guard import SafetyGuard
+        from web_ui.backend.routes import grids as grids_route
+        from web_ui.backend.safety_guard import SafetyGuard
         
         # Bypass safety guards since we are running offline
         original_check_rate_limit = SafetyGuard.check_rate_limit
@@ -141,8 +141,8 @@ class TestHermesGridClient(unittest.IsolatedAsyncioTestCase):
 
     async def test_stop_grid_success(self):
         """Verify stop_grid posts request to stop endpoint"""
-        import routes.grids as grids_route
-        from safety_guard import SafetyGuard
+        from web_ui.backend.routes import grids as grids_route
+        from web_ui.backend.safety_guard import SafetyGuard
         
         # Stub the active_grids.json lookup
         original_read_active = grids_route._read_active_grids
@@ -164,9 +164,9 @@ class TestHermesGridClient(unittest.IsolatedAsyncioTestCase):
 
     async def test_get_pnl_summary_success(self):
         """Verify get_pnl_summary aggregates active grid state correctly"""
-        import routes.grids as grids_route
-        from grid_state_store import GridStateStore
-        from runtime_repository import RuntimeSnapshotRepository
+        from web_ui.backend.routes import grids as grids_route
+        from web_ui.backend.grid_state_store import GridStateStore
+        from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
 
         RuntimeSnapshotRepository.reset_instance()
         GridStateStore.reset_instance()

@@ -20,15 +20,15 @@ from typing import Optional
 
 import yaml
 from fastapi import APIRouter, Depends, Header, HTTPException, status, Query
-from audit import AuditLogger
+from web_ui.backend.audit import AuditLogger
 
 # 加入專案根目錄到 sys.path 以便匯入 core 模組
 _project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-from auth import verify_token
-from schemas import (
+from web_ui.backend.auth import verify_token
+from web_ui.backend.schemas import (
     CreateGridRequest,
     GridCreateResponse,
     GridActionResponse,
@@ -40,12 +40,12 @@ from schemas import (
     GridFillsResponse,
     GridSummaryResponse,
 )
-from yaml_generator import GridYAMLGenerator
-from safety_guard import SafetyGuard
-from grid_state_store import GridStateStore
-from command_repository import GridCommandRepository
-from runtime_repository import RuntimeSnapshotRepository
-from lifecycle import (
+from web_ui.backend.yaml_generator import GridYAMLGenerator
+from web_ui.backend.safety_guard import SafetyGuard
+from web_ui.backend.grid_state_store import GridStateStore
+from web_ui.backend.command_repository import GridCommandRepository
+from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
+from web_ui.backend.lifecycle import (
     account_mode_from_yaml,
     build_grid_read_model,
     delete_rejection,
@@ -481,7 +481,7 @@ async def create_grid(
             audit_logger.log(source=source, action="create_grid", grid_id=None, params=params, result="rejected", reason=reason, error_msg=message)
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=message)
         import asyncio
-        from routes.market import _lookup_market_from_ccxt_sync
+        from web_ui.backend.routes.market import _lookup_market_from_ccxt_sync
         market_info = await asyncio.get_running_loop().run_in_executor(
             None, _lookup_market_from_ccxt_sync, params["symbol"], params["exchange"]
         )

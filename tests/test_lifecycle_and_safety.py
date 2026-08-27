@@ -13,20 +13,20 @@ if BACKEND_DIR not in sys.path:
 
 class LifecyclePolicyTests(unittest.TestCase):
     def test_paper_start_is_allowed(self):
-        from lifecycle import start_rejection
+        from web_ui.backend.lifecycle import start_rejection
 
         self.assertIsNone(start_rejection("paper", False))
         self.assertIsNone(start_rejection("paper", True))
 
     def test_live_requires_flag_unknown_is_legacy_allowed(self):
-        from lifecycle import start_rejection
+        from web_ui.backend.lifecycle import start_rejection
 
         self.assertIsNotNone(start_rejection("live", False))
         self.assertIsNone(start_rejection("live", True))
         self.assertIsNone(start_rejection("unknown", False))
 
     def test_delete_rejects_inflight_lifecycle(self):
-        from lifecycle import delete_rejection
+        from web_ui.backend.lifecycle import delete_rejection
 
         self.assertIsNotNone(delete_rejection("running"))
         self.assertIsNotNone(delete_rejection("starting"))
@@ -35,7 +35,7 @@ class LifecyclePolicyTests(unittest.TestCase):
         self.assertIsNone(delete_rejection("stopped", "stopped"))
 
     def test_unknown_runtime_is_not_zero(self):
-        from lifecycle import build_grid_read_model, finite_number
+        from web_ui.backend.lifecycle import build_grid_read_model, finite_number
 
         self.assertIsNone(finite_number(None))
         self.assertIsNone(finite_number("1.0"))
@@ -57,7 +57,7 @@ class LifecyclePolicyTests(unittest.TestCase):
         self.assertIsNone(model["start_blocked_reason"])
 
     def test_heartbeat_not_desired_state_makes_running(self):
-        from lifecycle import build_grid_read_model
+        from web_ui.backend.lifecycle import build_grid_read_model
 
         model = build_grid_read_model(
             grid_id="x",
@@ -74,7 +74,7 @@ class LifecyclePolicyTests(unittest.TestCase):
         self.assertEqual(model["net_pnl"], 1.5)
 
     def test_cors_star_disables_credentials(self):
-        from lifecycle import cors_settings
+        from web_ui.backend.lifecycle import cors_settings
 
         origins, credentials = cors_settings("*")
         self.assertEqual(origins, ["*"])
@@ -84,7 +84,7 @@ class LifecyclePolicyTests(unittest.TestCase):
         self.assertIn("http://127.0.0.1:5173", default_origins)
 
     def test_registered_paths_skip_archived_and_non_yaml(self):
-        from lifecycle import registered_config_paths
+        from web_ui.backend.lifecycle import registered_config_paths
 
         paths = registered_config_paths({
             "config/grid/a.yaml": True,
@@ -96,7 +96,7 @@ class LifecyclePolicyTests(unittest.TestCase):
         self.assertEqual(paths, ["config/grid/a.yaml", "config/grid/b.yaml"])
 
     def test_hotplug_accepts_new_yaml_outside_startup_list(self):
-        from lifecycle import iter_hotplug_starts
+        from web_ui.backend.lifecycle import iter_hotplug_starts
 
         starts = iter_hotplug_starts(
             {"config/grid/new.yaml": True, "config/grid/paper.yaml": True},
@@ -108,7 +108,7 @@ class LifecyclePolicyTests(unittest.TestCase):
         self.assertEqual(starts, ["config/grid/new.yaml", "config/grid/paper.yaml"])
 
     def test_live_and_paper_aggregates_are_not_mixed(self):
-        from lifecycle import aggregate_read_models
+        from web_ui.backend.lifecycle import aggregate_read_models
 
         rolled = aggregate_read_models([
             {"mode": "live", "status": "running", "data_status": "live", "source": "engine_runtime", "realized_pnl": 10, "unrealized_pnl": 0, "fees": 1, "volume": 100, "completed_cycles": 1},
@@ -120,7 +120,7 @@ class LifecyclePolicyTests(unittest.TestCase):
         self.assertEqual(rolled["aggregate_live"]["net_pnl"], 9)
 
     def test_atomic_json_replace(self):
-        from lifecycle import write_json_atomic
+        from web_ui.backend.lifecycle import write_json_atomic
 
         with tempfile.TemporaryDirectory() as root:
             path = os.path.join(root, "active_grids.json")
@@ -131,14 +131,14 @@ class LifecyclePolicyTests(unittest.TestCase):
 
 class FileManagerSafetyTests(unittest.TestCase):
     def test_exchange_configs_are_blocked(self):
-        from file_manager import FileManager
+        from web_ui.backend.file_manager import FileManager
 
         manager = FileManager()
         with self.assertRaises(PermissionError):
             manager._safe_config_path("config/exchanges/binance_config.yaml")
 
     def test_path_escape_is_blocked(self):
-        from file_manager import FileManager
+        from web_ui.backend.file_manager import FileManager
 
         manager = FileManager()
         with self.assertRaises(ValueError):
@@ -147,7 +147,7 @@ class FileManagerSafetyTests(unittest.TestCase):
 
 class CommandIdempotencyTests(unittest.TestCase):
     def test_idempotency_is_scoped_to_grid(self):
-        from command_repository import GridCommandRepository
+        from web_ui.backend.command_repository import GridCommandRepository
 
         with tempfile.TemporaryDirectory() as temp_dir:
             repository = GridCommandRepository(os.path.join(temp_dir, "runtime.sqlite3"))
@@ -162,9 +162,9 @@ class CommandIdempotencyTests(unittest.TestCase):
 
 class ControlPlanePersistenceTests(unittest.TestCase):
     def test_engine_publish_promotes_pending_start(self):
-        from command_repository import GridCommandRepository
-        from control_plane import publish_lifecycle, publish_runtime
-        from runtime_repository import RuntimeSnapshotRepository
+        from web_ui.backend.command_repository import GridCommandRepository
+        from web_ui.backend.control_plane import publish_lifecycle, publish_runtime
+        from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
 
         with tempfile.TemporaryDirectory() as temp_dir:
             database = os.path.join(temp_dir, "runtime.sqlite3")

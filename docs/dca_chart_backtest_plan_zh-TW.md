@@ -1093,3 +1093,4 @@ PY
 | 日期 | 變更 |
 |---|---|
 | 2026-08-26 | 初版。依 branch `arena/01a03da6-grid-trading-console`（commit `62e3ba4`）實際盤點撰寫；D-6 ～ D-11 經使用者確認凍結。所有 `file:line` 引用經逐條 `sed -n` 驗證；§11.4 為 POC 實跑證據。 |
+| 2026-08-27 | C1–C8 全部完成（最終稽核見 `docs/dca_chart_backtest_audit_report_zh-TW.md`）。C8 之後的收尾重構與整體稽核見 `docs/dca_chart_backtest_phase9_worklog_20260827.md`（匯入拼法收斂為 `web_ui.backend.*`、meta-path finder 退場、新增單拼法契約測試；CI 337 tests OK）。 |

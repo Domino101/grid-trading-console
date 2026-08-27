@@ -27,7 +27,7 @@ class TestYAMLGenerator(unittest.TestCase):
     """測試 YAML 配置自動生成器"""
 
     def setUp(self):
-        from yaml_generator import GridYAMLGenerator
+        from web_ui.backend.yaml_generator import GridYAMLGenerator
         self.gen = GridYAMLGenerator()
 
     # ── validate_params ──
@@ -268,7 +268,7 @@ class TestSafetyGuard(unittest.TestCase):
         self.tmpdir = tempfile.mkdtemp()
         os.makedirs(os.path.join(self.tmpdir, "config", "grid"), exist_ok=True)
 
-        from safety_guard import SafetyGuard
+        from web_ui.backend.safety_guard import SafetyGuard
         self.guard = SafetyGuard(self.tmpdir)
 
     def tearDown(self):
@@ -314,7 +314,7 @@ class TestSafetyGuard(unittest.TestCase):
 
     def test_max_grids_at_limit(self):
         """運行中網格數已達上限 → 失敗"""
-        from safety_guard import MAX_CONCURRENT_GRIDS
+        from web_ui.backend.safety_guard import MAX_CONCURRENT_GRIDS
 
         ag_path = os.path.join(self.tmpdir, "config", "active_grids.json")
         data = {f"config/grid/grid-{i}.yaml": True for i in range(MAX_CONCURRENT_GRIDS)}
@@ -364,7 +364,7 @@ class TestSchemas(unittest.TestCase):
 
     def test_create_grid_request_minimal(self):
         """最小合法請求 → 成功建立"""
-        from schemas import CreateGridRequest
+        from web_ui.backend.schemas import CreateGridRequest
 
         req = CreateGridRequest(
             symbol="SOL/USDC:USDC",
@@ -381,7 +381,7 @@ class TestSchemas(unittest.TestCase):
 
     def test_create_grid_request_full(self):
         """完整請求（含所有可選欄位）→ 成功建立"""
-        from schemas import CreateGridRequest, GridMetadata
+        from web_ui.backend.schemas import CreateGridRequest, GridMetadata
 
         req = CreateGridRequest(
             symbol="SOL/USDC:USDC",
@@ -408,7 +408,7 @@ class TestSchemas(unittest.TestCase):
 
     def test_create_grid_request_validation_error(self):
         """grid_interval <= 0 → ValidationError"""
-        from schemas import CreateGridRequest
+        from web_ui.backend.schemas import CreateGridRequest
         from pydantic import ValidationError
 
         with self.assertRaises(ValidationError):
@@ -422,7 +422,7 @@ class TestSchemas(unittest.TestCase):
 
     def test_model_dump_exclude_none(self):
         """model_dump(exclude_none=True) 排除 None 欄位"""
-        from schemas import CreateGridRequest
+        from web_ui.backend.schemas import CreateGridRequest
 
         req = CreateGridRequest(
             symbol="SOL/USDC:USDC",
@@ -438,7 +438,7 @@ class TestSchemas(unittest.TestCase):
 
     def test_system_health_response(self):
         """SystemHealthResponse 序列化"""
-        from schemas import (
+        from web_ui.backend.schemas import (
             SystemHealthResponse,
             CircuitBreakerInfo,
             ApiThrottleInfo,
@@ -469,7 +469,7 @@ class TestAuth(unittest.TestCase):
         original = os.environ.get("GRID_API_TOKEN")
         try:
             os.environ["GRID_API_TOKEN"] = "test-token-12345"
-            from auth import _resolve_api_token
+            from web_ui.backend.auth import _resolve_api_token
             token = _resolve_api_token()
             self.assertEqual(token, "test-token-12345")
         finally:
@@ -482,8 +482,7 @@ class TestAuth(unittest.TestCase):
         """驗證 verify_token / token_matches 使用 secrets.compare_digest"""
         import secrets
         import inspect
-        import auth
-
+        from web_ui.backend import auth
         source = inspect.getsource(auth.token_matches)
         self.assertIn("compare_digest", source)
 
@@ -493,7 +492,7 @@ class TestGridStateStore(unittest.TestCase):
 
     def setUp(self):
         import time
-        from grid_state_store import GridStateStore
+        from web_ui.backend.grid_state_store import GridStateStore
         self.store = GridStateStore.instance()
         # 清除快取，確保單元測試獨立性
         with self.store._lock:
@@ -572,8 +571,8 @@ class TestProcessManagerParseStats(unittest.TestCase):
     """測試 ProcessManager stdout 攔截與解析 [STATS_JSON]"""
 
     def setUp(self):
-        from process_manager import ProcessManager
-        from grid_state_store import GridStateStore
+        from web_ui.backend.process_manager import ProcessManager
+        from web_ui.backend.grid_state_store import GridStateStore
         self.pm = ProcessManager()
         self.store = GridStateStore.instance()
         
@@ -645,13 +644,13 @@ class TestGridStatsEndpoints(unittest.TestCase):
 
     def setUp(self):
         # 設置 token
-        import auth
+        from web_ui.backend import auth
         self.original_api_token = auth._API_TOKEN
         auth._API_TOKEN = "test-token"
         
         from fastapi.testclient import TestClient
-        from main import app
-        from grid_state_store import GridStateStore
+        from web_ui.backend.main import app
+        from web_ui.backend.grid_state_store import GridStateStore
         self.client = TestClient(app)
         self.headers = {"Authorization": "Bearer test-token"}
         self.store = GridStateStore.instance()
@@ -664,7 +663,7 @@ class TestGridStatsEndpoints(unittest.TestCase):
         # 模擬 active_grids 檔案讀寫
         self.original_read = app.dependency_overrides.get("read_active_grids")
         # 建立模擬
-        import routes.grids as grids_route
+        from web_ui.backend.routes import grids as grids_route
         self.original_read_active = grids_route._read_active_grids
         grids_route._read_active_grids = lambda: {"config/grid/test-sol.yaml": True}
         
@@ -672,10 +671,10 @@ class TestGridStatsEndpoints(unittest.TestCase):
         grids_route._read_yaml_config = lambda p: {"grid_system": {"symbol": "SOL/USDC:USDC"}} if "test-sol.yaml" in p else None
 
     def tearDown(self):
-        import auth
+        from web_ui.backend import auth
         auth._API_TOKEN = self.original_api_token
         
-        import routes.grids as grids_route
+        from web_ui.backend.routes import grids as grids_route
         grids_route._read_active_grids = self.original_read_active
         grids_route._read_yaml_config = self.original_read_yaml
         os.environ.pop("GRID_API_TOKEN", None)
@@ -688,9 +687,9 @@ class TestGridStatsEndpoints(unittest.TestCase):
     def test_stats_running_but_empty(self):
         """測試查詢運行中但尚未有統計數據的網格 → 回傳 stale: True 預設結構"""
         # test-sol.yaml 是存在且運行的，但 store 裡無資料
-        import routes.grids as grids_route
-        from grid_state_store import GridStateStore
-        from runtime_repository import RuntimeSnapshotRepository
+        from web_ui.backend.routes import grids as grids_route
+        from web_ui.backend.grid_state_store import GridStateStore
+        from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
 
         # 清除單例狀態與持久化快照
         RuntimeSnapshotRepository.reset_instance()
@@ -718,7 +717,7 @@ class TestGridStatsEndpoints(unittest.TestCase):
 
     def test_stats_success(self):
         """測試查詢有數據的網格 → 200 成功"""
-        import routes.grids as grids_route
+        from web_ui.backend.routes import grids as grids_route
         original_exists = os.path.exists
         os.path.exists = lambda p: True if "test-sol.yaml" in str(p) else original_exists(p)
 
@@ -748,7 +747,7 @@ class TestGridStatsEndpoints(unittest.TestCase):
 
     def test_summary_success(self):
         """測試全局摘要 → 200 成功"""
-        import routes.grids as grids_route
+        from web_ui.backend.routes import grids as grids_route
         original_exists = os.path.exists
         os.path.exists = lambda p: True if "test-sol.yaml" in str(p) else original_exists(p)
 
@@ -774,7 +773,7 @@ class TestAuditLogger(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        from audit import AuditLogger
+        from web_ui.backend.audit import AuditLogger
         self.audit_logger = AuditLogger(self.tmpdir)
 
     def tearDown(self):
@@ -830,11 +829,11 @@ class TestSafetyGuardPhase3(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
         os.makedirs(os.path.join(self.tmpdir, "config", "grid"), exist_ok=True)
-        from safety_guard import SafetyGuard
+        from web_ui.backend.safety_guard import SafetyGuard
         self.guard = SafetyGuard(self.tmpdir)
 
         # 重置 rate limiter 單例狀態
-        from safety_guard import rate_limiter
+        from web_ui.backend.safety_guard import rate_limiter
         with rate_limiter._lock:
             rate_limiter._history.clear()
 
@@ -893,18 +892,18 @@ class TestAuditRoute(unittest.TestCase):
     """測試 /api/v1/system/audit API 路由"""
 
     def setUp(self):
-        import auth
+        from web_ui.backend import auth
         self.original_api_token = auth._API_TOKEN
         auth._API_TOKEN = "test-token"
 
         from fastapi.testclient import TestClient
-        from main import app
+        from web_ui.backend.main import app
         self.client = TestClient(app)
         self.headers = {"Authorization": "Bearer test-token"}
 
         # 模擬 AuditLogger
         self.tmpdir = tempfile.mkdtemp()
-        from audit import AuditLogger
+        from web_ui.backend.audit import AuditLogger
         self.mock_audit = AuditLogger(self.tmpdir)
         self.original_get_instance = AuditLogger.get_instance
         AuditLogger.get_instance = lambda *args, **kwargs: self.mock_audit
@@ -920,10 +919,10 @@ class TestAuditRoute(unittest.TestCase):
         )
 
     def tearDown(self):
-        import auth
+        from web_ui.backend import auth
         auth._API_TOKEN = self.original_api_token
 
-        from audit import AuditLogger
+        from web_ui.backend.audit import AuditLogger
         AuditLogger.get_instance = self.original_get_instance
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 

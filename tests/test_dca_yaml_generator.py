@@ -5,15 +5,13 @@ import sys
 import unittest
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-BACKEND = os.path.join(PROJECT_ROOT, "web_ui", "backend")
-for path in (BACKEND, PROJECT_ROOT):
-    if path not in sys.path:
-        sys.path.insert(0, path)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 import yaml
 
 from core.services.dca.config_loader import load_dca_config
-from dca_yaml_generator import DcaYAMLGenerator
+from web_ui.backend.dca_yaml_generator import DcaYAMLGenerator
 
 
 def _base_params(**overrides):
