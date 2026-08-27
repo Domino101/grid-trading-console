@@ -1,94 +1,143 @@
 """
-DCA 回測 HTTP 契約測試（Phase C5 稽核 5.8 / 5.9）
+DCA 回測 HTTP 契約測試（Phase C5 稽核 5.1-5.13，C7 修復並延伸）
 
 依據：docs/dca_chart_backtest_plan_zh-TW.md §5.1-5.13
 
-測試重點：
-- 5.1 認證：四個端點無 token → 401；有 token → 200
-- 5.2 BP-2 零交易所寫入：回測端點測試以 mock exchange 計數 create_order/cancel_order = 0
-- 5.3 BP-2 零副作用：回測前後 config/active_dca.json 位元組相同；config/dca/ 無新檔
-- 5.4 上限守衛：bars=20001 → 400 中文訊息；timeframe="2m" → 400；請求體 > 64KB → 413/400
-- 5.5 逾時守衛：mock 一個超慢回測 → 回明確逾時錯誤
-- 5.6 data_status 誠實：合成資料 → "paper"；抓取失敗有快取 → "stale"；無資料 → "unavailable" 且 candles=[]
-- 5.7 warnings 揭露：任何回測回應 warnings 含 §A-6 三條
-- 5.8 契約測試：覆蓋前端所需全部欄位（逐一斷言 key 存在與型別）
-- 5.9 前端零計算契约：Python 端 grep 契約
-- 5.10 稽核日誌：跑一次回測 → audit 表新增一筆 run_dca_backtest
-- 5.11 不阻塞事件迴圈：回測以 threadpool 執行
-- 5.12 LIVE 閘門不受影響：GRID_LIVE_TRADING_ENABLED 關閉時回測仍可用
-- 5.13 網格零回歸：git diff --stat core/services/grid/ run_grid_trading.py 為空
+═══════════════════════════════════════════════════════════════════
+本檔在 C7 經過一次結構性修復。原版存在「恆綠」盲區，紀錄於此以免重蹈：
+
+1. fixture 用 `exchange: "paper"` 建立配置，但合法值只有
+   binance/lighter/backpack/hyperliquid → `setUpClass` 直接 DcaConfigError，
+   9 個測試全部 ERROR，等於整個檔案沒在跑。
+   （`paper` 是 *account_mode* 的值，不是 exchange。）
+2. 只把專案根加入 sys.path，但 `web_ui/backend/main.py` 內部有
+   `from process_manager import ...` 這種同層匯入 → ModuleNotFoundError。
+   必須同時把 `web_ui/backend` 加入 sys.path。
+3. token 取自 `GRID_API_TOKEN`，但 `web_ui.backend.auth` 在 **import 當下**
+   就把 `_API_TOKEN` 定死。環境變數必須在 import app 之前設好，
+   否則 auth 會自行亂數生成 token，「有 token」的測試永遠 401。
+4. 三個 5.8 契約測試把**所有斷言包在 `if response.status_code == 200:` 內**。
+   端點恆 500 時測試恆綠 —— 這正是 C7 發現三個 500 缺陷前沒被擋下的原因。
+   → 現在一律硬斷言 200，且不得有任何條件式包住斷言。
+5. `test_5_4_bars_upper_limit` 斷言 400，實際是 **422**：pydantic 的
+   `le=20000` 先於 route 的 400 守衛觸發。
+6. `budget` 斷言 `runs_used`，實際欄位是 `runs_completed`
+   （C5 曾在 schema 改名導致 AttributeError 500，之後已對齊 core）。
+7. 5.9 的 grep 契約只掃 C6 的兩個檔，未涵蓋 C7 新增的三個回測元件。
+═══════════════════════════════════════════════════════════════════
 """
 
-import asyncio
 import json
 import os
+import re
+import subprocess
 import sys
-import tempfile
-import time
 import unittest
-from pathlib import Path
-from typing import Any, Dict, List, Optional
 
-# 加入專案根目錄到 sys.path
+# ── sys.path：專案根 + web_ui/backend（後者供 main.py 的同層匯入使用）──
 _project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if _project_root not in sys.path:
-    sys.path.insert(0, _project_root)
+_backend_root = os.path.join(_project_root, "web_ui", "backend")
+for _p in (_project_root, _backend_root):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
-from fastapi.testclient import TestClient
-from web_ui.backend.main import app
-from web_ui.backend.audit import AuditLogger
-from web_ui.backend.dca_yaml_generator import DcaYAMLGenerator
-from core.services.dca.config_loader import load_dca_config
+# ── Token 解析 ──
+# `web_ui.backend.auth` 在 **import 當下** 就把 `_API_TOKEN` 解析並凍結。
+# 若先設 GRID_API_TOKEN 再 import，單獨跑本檔可行；但整包 CI 跑時，
+# 其他測試模組可能已先 import 過 auth，環境變數就來不及生效 → 全部 401。
+# 因此改為「若尚未凍結才設環境變數，之後一律回讀 auth 真正在用的 token」。
+os.environ.setdefault("GRID_API_TOKEN", "dca-backtest-contract-token")
+
+from fastapi.testclient import TestClient  # noqa: E402
+from web_ui.backend import auth as _auth  # noqa: E402
+from web_ui.backend.main import app  # noqa: E402
+from web_ui.backend.dca_yaml_generator import DcaYAMLGenerator  # noqa: E402
+
+#: auth 模組實際生效中的 token（不受本檔與其他模組的 import 先後影響）
+TEST_API_TOKEN = _auth._API_TOKEN
+
+TEST_BOT_ID = "test-dca-backtest"
+TEST_CONFIG_REL = f"config/dca/{TEST_BOT_ID}.yaml"
+
+
+def _auth_headers():
+    return {"Authorization": f"Bearer {TEST_API_TOKEN}"}
 
 
 class TestDcaBacktestHttpContract(unittest.TestCase):
-    """DCA 回測 HTTP 契約測試。"""
+    """DCA 回測 HTTP 契約測試（走完整成功路徑，不用條件式包住斷言）。"""
 
     @classmethod
     def setUpClass(cls):
-        """測試前初始化。"""
         cls.test_client = TestClient(app)
         cls.project_root = _project_root
         cls.generator = DcaYAMLGenerator()
-        
-        # 確保測試用的 DCA 配置存在
-        cls._ensure_test_dca_exists()
-        
-        # 記錄初始 active_dca.json 狀態
+
         active_dca_path = os.path.join(cls.project_root, "config", "active_dca.json")
         if os.path.exists(active_dca_path):
             with open(active_dca_path, "rb") as f:
                 cls.initial_active_dca = f.read()
         else:
             cls.initial_active_dca = b"{}"
-    
+
+        cls._ensure_test_dca_exists()
+
+    def setUp(self):
+        """每個測試前修復全域狀態，使本檔不依賴測試模組的執行順序。
+
+        `tests/test_dca_http_contract.py` 會把 `routes.dca._get_project_root`
+        永久指向一個 TemporaryDirectory 且**從不還原**，也會覆寫
+        `auth._API_TOKEN`。整包 CI 跑時這些污染會外溢到後續模組，
+        讓本檔的端點在真實 config/ 之外尋找設定 → 一律 404。
+        （根因在該檔，這裡先自我防護，避免順序性假失敗。）
+        """
+        self._restore_global_state()
+        type(self)._ensure_test_dca_exists()
+
+    @staticmethod
+    def _restore_global_state():
+        """把被其他測試污染的模組級狀態指回真實專案。"""
+        real_root = _project_root
+
+        # routes.dca 可能同時以 `routes.dca` 與 `web_ui.backend.routes.dca`
+        # 兩個模組物件存在（sys.path 有兩個入口），兩份都要修。
+        for name in ("routes.dca", "web_ui.backend.routes.dca"):
+            module = sys.modules.get(name)
+            if module is not None:
+                module._get_project_root = lambda: real_root
+
+        # verify_token 實際讀的是它自身模組的 _API_TOKEN
+        for name in ("auth", "web_ui.backend.auth"):
+            module = sys.modules.get(name)
+            if module is not None:
+                module._API_TOKEN = TEST_API_TOKEN
+
     @classmethod
     def tearDownClass(cls):
-        """測試後清理。"""
-        # 恢復 active_dca.json
         active_dca_path = os.path.join(cls.project_root, "config", "active_dca.json")
-        if hasattr(cls, 'initial_active_dca'):
+        if hasattr(cls, "initial_active_dca"):
             with open(active_dca_path, "wb") as f:
                 f.write(cls.initial_active_dca)
-        
-        # 刪除測試用的 DCA 配置
         cls._cleanup_test_dca()
-    
+
     @classmethod
     def _ensure_test_dca_exists(cls):
-        """確保測試用的 DCA 配置存在。"""
+        """建立測試用 DCA 配置。
+
+        注意：`exchange` 必須是真實交易所（binance/lighter/backpack/hyperliquid）；
+        「模擬」是靠 `account_mode: paper` 表達，不是 `exchange: paper`。
+        """
         config_dir = os.path.join(cls.project_root, "config", "dca")
         os.makedirs(config_dir, exist_ok=True)
-        
-        # 如果已經存在 test-dca-backtest，就不用重新建立
-        test_config_path = os.path.join(config_dir, "test-dca-backtest.yaml")
-        if os.path.exists(test_config_path):
+
+        # 可重入：檔案還在就直接沿用（generator 檔名帶時間戳，重複產生會留下垃圾）
+        existing = getattr(cls, "generated_config_rel", None)
+        if existing and os.path.exists(os.path.join(cls.project_root, existing)):
             return
-        
-        # 建立一個測試用的 DCA 配置
+
         test_params = {
-            "symbol": "BTC/USDC:USDC",
-            "exchange": "paper",
+            "symbol": "ETH/USDC:USDC",
+            "exchange": "binance",
             "direction": "long",
             "account_mode": "paper",
             "base_order_amount": 100,
@@ -128,14 +177,13 @@ class TestDcaBacktestHttpContract(unittest.TestCase):
             },
             "auto_start": False,
         }
-        
+
         yaml_content, config_path = cls.generator.generate(test_params)
         abs_config_path = os.path.join(cls.project_root, config_path)
-        
         with open(abs_config_path, "w", encoding="utf-8") as f:
             f.write(yaml_content)
-        
-        # 更新 active_dca.json
+        cls.generated_config_rel = config_path
+
         active_dca_path = os.path.join(cls.project_root, "config", "active_dca.json")
         active_dca = {}
         if os.path.exists(active_dca_path):
@@ -144,241 +192,307 @@ class TestDcaBacktestHttpContract(unittest.TestCase):
         active_dca[config_path] = False
         with open(active_dca_path, "w", encoding="utf-8") as f:
             json.dump(active_dca, f, indent=2, ensure_ascii=False)
-    
+
     @classmethod
     def _cleanup_test_dca(cls):
-        """清理測試用的 DCA 配置。"""
-        config_dir = os.path.join(cls.project_root, "config", "dca")
-        test_config_path = os.path.join(config_dir, "test-dca-backtest.yaml")
-        if os.path.exists(test_config_path):
-            os.remove(test_config_path)
-        
-        # 移除 active_dca 中的測試配置
+        rel = getattr(cls, "generated_config_rel", TEST_CONFIG_REL)
+        abs_path = os.path.join(cls.project_root, rel)
+        if os.path.exists(abs_path):
+            os.remove(abs_path)
+
         active_dca_path = os.path.join(cls.project_root, "config", "active_dca.json")
         if os.path.exists(active_dca_path):
             with open(active_dca_path, "r", encoding="utf-8") as f:
                 active_dca = json.load(f)
-            
-            # 移除測試配置
-            config_path = "config/dca/test-dca-backtest.yaml"
-            if config_path in active_dca:
-                del active_dca[config_path]
-            
+            active_dca.pop(rel, None)
             with open(active_dca_path, "w", encoding="utf-8") as f:
                 json.dump(active_dca, f, indent=2, ensure_ascii=False)
-    
-    def _get_token(self) -> str:
-        """取得測試用的 token。"""
-        return os.getenv("GRID_API_TOKEN", "test-token")
 
-    # ── 5.1 認證測試 ──
-    
+    @property
+    def bot_id(self):
+        rel = getattr(type(self), "generated_config_rel", TEST_CONFIG_REL)
+        return os.path.splitext(os.path.basename(rel))[0]
+
+    # ── 5.1 認證 ──
+
     def test_5_1_authentication_required(self):
-        """5.1 P0: 四個端點無 token → 401；有 token → 200"""
-        # 測試 /chart 端點
-        response = self.test_client.get("/api/v1/dca/test-dca-backtest/chart")
-        self.assertEqual(response.status_code, 401)
-        
-        # 測試 /backtest 端點
-        response = self.test_client.post("/api/v1/dca/backtest")
-        self.assertEqual(response.status_code, 401)
-        
-        # 測試 /backtest/sweep 端點
-        response = self.test_client.post("/api/v1/dca/backtest/sweep")
-        self.assertEqual(response.status_code, 401)
-    
+        """5.1 P0: 端點無 token → 401。"""
+        self.assertEqual(
+            self.test_client.get(f"/api/v1/dca/{self.bot_id}/chart").status_code, 401
+        )
+        self.assertEqual(self.test_client.post("/api/v1/dca/backtest").status_code, 401)
+        self.assertEqual(
+            self.test_client.post("/api/v1/dca/backtest/sweep").status_code, 401
+        )
+
     def test_5_1_with_token_access_granted(self):
-        """5.1 P0: 有 token → 200（至少 /chart 端點應該可用）"""
-        token = self._get_token()
-        # 測試 /chart 端點
+        """5.1 P0: 有 token → 200（硬斷言，不接受 401/500）。"""
         response = self.test_client.get(
-            "/api/v1/dca/test-dca-backtest/chart",
-            headers={"Authorization": f"Bearer {token}"}
+            f"/api/v1/dca/{self.bot_id}/chart",
+            headers=_auth_headers(),
+            params={"timeframe": "15m", "limit": 100},
         )
-        # 可能因為 K 線資料不足而返回其他狀態碼，但不應該是 401
-        self.assertNotEqual(response.status_code, 401)
+        self.assertEqual(
+            response.status_code, 200, f"預期 200，實得 {response.status_code}: {response.text[:300]}"
+        )
 
-    # ── 5.4 上限守衛測試 ──
-    
+    # ── 5.4 上限守衛 ──
+
     def test_5_4_bars_upper_limit(self):
-        """5.4 P0: bars=20001 → 400 中文訊息"""
-        token = self._get_token()
-        response = self.test_client.post(
-            "/api/v1/dca/backtest",
-            headers={"Authorization": f"Bearer {token}"},
-            json={
-                "bot_id": "test-dca-backtest",
-                "bars": 20001,
-                "timeframe": "15m",
-            }
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("上限", response.json().get("detail", ""))
-    
-    def test_5_4_invalid_timeframe(self):
-        """5.4 P0: timeframe="2m" → 400"""
-        token = self._get_token()
-        response = self.test_client.post(
-            "/api/v1/dca/backtest",
-            headers={"Authorization": f"Bearer {token}"},
-            json={
-                "bot_id": "test-dca-backtest",
-                "bars": 100,
-                "timeframe": "2m",
-            }
-        )
-        self.assertEqual(response.status_code, 400)
+        """5.4 P0: bars=20001 被拒。
 
-    # ── 5.8 契約測試 ──
-    
-    def test_5_8_chart_response_contract(self):
-        """5.8 P0: GET /chart 回應欄位契約"""
-        token = self._get_token()
-        response = self.test_client.get(
-            "/api/v1/dca/test-dca-backtest/chart",
-            headers={"Authorization": f"Bearer {token}"},
-            params={"timeframe": "15m", "limit": 100}
-        )
-        
-        # 如果成功取得資料
-        if response.status_code == 200:
-            data = response.json()
-            required_fields = ["bot_id", "candles", "marks", "lines", "current_price", "data_status", "source", "warnings"]
-            for field in required_fields:
-                self.assertIn(field, data, f"缺少必需欄位: {field}")
-            
-            # candles 應該是陣列
-            self.assertIsInstance(data["candles"], list)
-            self.assertIsInstance(data["marks"], list)
-            self.assertIsInstance(data["lines"], list)
-            self.assertIsInstance(data["warnings"], list)
-    
-    def test_5_8_backtest_response_contract(self):
-        """5.8 P0: POST /backtest 回應欄位契約"""
-        token = self._get_token()
+        pydantic `le=20000` 先於 route 的 400 守衛觸發，故為 422。
+        兩者都是「明確拒絕」，重點是不得放行、也不得 500。
+        """
         response = self.test_client.post(
             "/api/v1/dca/backtest",
-            headers={"Authorization": f"Bearer {token}"},
-            json={
-                "bot_id": "test-dca-backtest",
-                "bars": 50,  # 小棒數以快速完成
-                "timeframe": "15m",
-            }
+            headers=_auth_headers(),
+            json={"bot_id": self.bot_id, "bars": 20001, "timeframe": "15m"},
         )
-        
-        # 如果成功
-        if response.status_code == 200:
-            data = response.json()
-            self.assertIn("result", data)
-            result = data["result"]
-            required_fields = ["bars", "timeframe", "first_ts", "last_ts", "metrics", "equity", "marks", "cycles", "data_status", "source", "warnings", "bars_per_second"]
-            for field in required_fields:
-                self.assertIn(field, result, f"缺少必需欄位: {field}")
-            
-            # metrics 應該包含主要指標
-            metrics = result["metrics"]
-            metric_fields = ["initial_capital", "final_equity", "total_return_pct", "buy_hold_return_pct", "alpha_pct", "realized_pnl", "total_fees"]
-            for field in metric_fields:
-                self.assertIn(field, metrics, f"metrics 缺少必需欄位: {field}")
-    
+        self.assertEqual(response.status_code, 422, response.text[:300])
+
+    def test_5_4_bars_upper_bound_is_accepted(self):
+        """5.4 邊界：bars=20000 恰好合法，不得被誤拒（off-by-one 防護）。"""
+        response = self.test_client.post(
+            "/api/v1/dca/backtest",
+            headers=_auth_headers(),
+            json={"bot_id": self.bot_id, "bars": 20000, "timeframe": "15m"},
+        )
+        self.assertNotEqual(response.status_code, 422, "20000 應在允許範圍內")
+
+    def test_5_4_invalid_timeframe(self):
+        """5.4 P0: timeframe="2m" → 400 且訊息為中文。"""
+        response = self.test_client.post(
+            "/api/v1/dca/backtest",
+            headers=_auth_headers(),
+            json={"bot_id": self.bot_id, "bars": 100, "timeframe": "2m"},
+        )
+        self.assertEqual(response.status_code, 400, response.text[:300])
+        detail = str(response.json().get("detail", ""))
+        self.assertIn("不支援", detail)
+
+    def test_5_4_unknown_bot_returns_404(self):
+        """5.4: 不存在的 bot_id → 404，不得 500。"""
+        response = self.test_client.post(
+            "/api/v1/dca/backtest",
+            headers=_auth_headers(),
+            json={"bot_id": "no-such-bot-xyz", "bars": 50, "timeframe": "15m"},
+        )
+        self.assertEqual(response.status_code, 404, response.text[:300])
+
+    # ── 5.8 回應契約（硬斷言 200；禁止條件式包住斷言）──
+
+    def test_5_8_chart_response_contract(self):
+        """5.8 P0: GET /chart 回應欄位契約。"""
+        response = self.test_client.get(
+            f"/api/v1/dca/{self.bot_id}/chart",
+            headers=_auth_headers(),
+            params={"timeframe": "15m", "limit": 100},
+        )
+        self.assertEqual(response.status_code, 200, response.text[:300])
+        data = response.json()
+
+        for field in ("bot_id", "candles", "marks", "lines",
+                      "current_price", "data_status", "source", "warnings"):
+            self.assertIn(field, data, f"缺少必需欄位: {field}")
+
+        for field in ("candles", "marks", "lines", "warnings"):
+            self.assertIsInstance(data[field], list, f"{field} 應為陣列")
+
+    def test_5_8_backtest_response_contract(self):
+        """5.8 P0: POST /backtest 回應欄位契約（前端 C7 直讀的全部欄位）。"""
+        response = self.test_client.post(
+            "/api/v1/dca/backtest",
+            headers=_auth_headers(),
+            json={"bot_id": self.bot_id, "bars": 50, "timeframe": "15m"},
+        )
+        self.assertEqual(response.status_code, 200, response.text[:300])
+        data = response.json()
+        self.assertIn("result", data)
+        result = data["result"]
+
+        for field in ("bars", "timeframe", "first_ts", "last_ts", "metrics",
+                      "equity", "marks", "cycles", "data_status", "source",
+                      "warnings", "bars_per_second"):
+            self.assertIn(field, result, f"缺少必需欄位: {field}")
+
+        # 前端 DcaBacktestResult.tsx 的 8 張指標卡逐一直讀這些鍵
+        metrics = result["metrics"]
+        for field in ("initial_capital", "final_equity", "total_return_pct",
+                      "buy_hold_return_pct", "alpha_pct", "realized_pnl",
+                      "total_fees", "cycles_completed", "win_rate_pct",
+                      "max_drawdown_pct", "exposure_pct", "avg_cycle_bars",
+                      "mfe_pct", "mae_pct", "profit_factor"):
+            self.assertIn(field, metrics, f"metrics 缺少必需欄位: {field}")
+
+        # 稽核 7.7：profit_factor 允許為 null，前端須顯示「—」而非 0。
+        # 契約要求「鍵存在」，型別為 float 或 None，不得是字串。
+        self.assertTrue(
+            metrics["profit_factor"] is None or isinstance(metrics["profit_factor"], (int, float)),
+            "profit_factor 必須是數字或 null",
+        )
+
+        self.assertIsInstance(result["equity"], list)
+        self.assertIsInstance(result["marks"], list)
+        self.assertIsInstance(result["cycles"], list)
+
+        # equity 點位契約（前端第二窗格直讀）
+        if result["equity"]:
+            point = result["equity"][0]
+            for field in ("ts", "equity", "position_quantity", "average_cost", "status"):
+                self.assertIn(field, point, f"equity 點缺少欄位: {field}")
+
     def test_5_8_sweep_response_contract(self):
-        """5.8 P0: POST /backtest/sweep 回應欄位契約"""
-        token = self._get_token()
+        """5.8 P0: POST /backtest/sweep 回應欄位契約。"""
         response = self.test_client.post(
             "/api/v1/dca/backtest/sweep",
-            headers={"Authorization": f"Bearer {token}"},
+            headers=_auth_headers(),
             json={
-                "bot_id": "test-dca-backtest",
+                "bot_id": self.bot_id,
                 "bars": 50,
                 "timeframe": "15m",
                 "base_order_amount_range": [100, 200],
                 "max_total_bars": 1000,
                 "max_workers": 2,
-            }
+            },
         )
-        
-        # 如果成功
-        if response.status_code == 200:
-            data = response.json()
-            required_fields = ["runs", "best_by", "truncated", "budget"]
-            for field in required_fields:
-                self.assertIn(field, data, f"缺少必需欄位: {field}")
-            
-            # budget 應該包含預算資訊
-            budget = data["budget"]
-            budget_fields = ["bars_used", "bars_limit", "runs_used"]
-            for field in budget_fields:
-                self.assertIn(field, budget, f"budget 缺少必需欄位: {field}")
+        self.assertEqual(response.status_code, 200, response.text[:300])
+        data = response.json()
 
-    # ── 5.7 warnings 揭露測試 ──
-    
+        for field in ("runs", "best_by", "truncated", "budget", "best"):
+            self.assertIn(field, data, f"缺少必需欄位: {field}")
+
+        self.assertIsInstance(data["runs"], list)
+        self.assertIsInstance(data["truncated"], bool)
+
+        # budget 欄位與 core.services.dca.backtest.sweep.SweepBudget 一對一對齊。
+        # 稽核 7.4 的「已完成 N/M 組」直接讀 runs_completed / runs_total。
+        budget = data["budget"]
+        for field in ("bars_used", "bars_limit", "runs_completed", "runs_total", "runs_limit"):
+            self.assertIn(field, budget, f"budget 缺少必需欄位: {field}")
+        self.assertLessEqual(
+            budget["runs_completed"], budget["runs_total"],
+            "已完成組數不得超過總組數",
+        )
+
+        # 每個 run 的形狀（前端 DcaSweepTable 直讀）
+        for run in data["runs"]:
+            for field in ("params", "metrics", "error"):
+                self.assertIn(field, run, f"run 缺少欄位: {field}")
+
+        # best 可能所有指標皆 null 而無法比較，此時 value/params 為 None（G-5）。
+        best = data["best"]
+        if best is not None:
+            for field in ("metric", "value", "params"):
+                self.assertIn(field, best, f"best 缺少欄位: {field}")
+
+    # ── 5.7 warnings 揭露 ──
+
     def test_5_7_backtest_warnings_disclosure(self):
-        """5.7 P0: 回測回應 warnings 必含 §A-6 三條"""
-        token = self._get_token()
+        """5.7 P0: 回測回應 warnings 必含 §A-6 三條簡化事項。"""
         response = self.test_client.post(
             "/api/v1/dca/backtest",
-            headers={"Authorization": f"Bearer {token}"},
-            json={
-                "bot_id": "test-dca-backtest",
-                "bars": 50,
-                "timeframe": "15m",
-            }
+            headers=_auth_headers(),
+            json={"bot_id": self.bot_id, "bars": 50, "timeframe": "15m"},
         )
-        
-        if response.status_code == 200:
-            data = response.json()
-            warnings = data["result"].get("warnings", [])
-            required_warnings = [
-                "回測不模擬部分成交",
-                "未套用交易所最小名目限制",
-                "歷史績效不代表未來",
-            ]
-            for req_warning in required_warnings:
-                self.assertIn(req_warning, warnings, f"缺少必需警告: {req_warning}")
+        self.assertEqual(response.status_code, 200, response.text[:300])
+        warnings = response.json()["result"]["warnings"]
+
+        for required in ("回測不模擬部分成交",
+                         "未套用交易所最小名目限制",
+                         "歷史績效不代表未來"):
+            self.assertIn(required, warnings, f"缺少必需警告: {required}")
+
+    def test_5_7_warnings_have_no_duplicates(self):
+        """5.7: warnings 不得有重複條目（前端全量渲染，重複即是可見瑕疵）。"""
+        response = self.test_client.post(
+            "/api/v1/dca/backtest",
+            headers=_auth_headers(),
+            json={"bot_id": self.bot_id, "bars": 50, "timeframe": "15m"},
+        )
+        self.assertEqual(response.status_code, 200, response.text[:300])
+        warnings = response.json()["result"]["warnings"]
+        self.assertEqual(
+            len(warnings), len(set(warnings)),
+            f"warnings 含重複條目: {warnings}",
+        )
 
     # ── 5.13 網格零回歸 ──
-    
+
     def test_5_13_grid_zero_regression(self):
-        """5.13 P0: 網格核心檔案零變更"""
-        # 檢查 git diff
-        import subprocess
-        result = subprocess.run(
-            ["git", "diff", "--stat", "core/services/grid/", "run_grid_trading.py"],
-            cwd=self.project_root,
-            capture_output=True,
-            text=True
-        )
+        """5.13 P0: 網格核心檔案零變更（工作區 + 已提交，皆對照基準分支）。"""
+        base = os.environ.get("GRID_REGRESSION_BASE", "").strip()
+        cmd = ["git", "diff", "--stat"]
+        if base:
+            cmd.append(base)
+        cmd += ["--", "core/services/grid/", "run_grid_trading.py"]
+        result = subprocess.run(cmd, cwd=self.project_root, capture_output=True, text=True)
         self.assertEqual(result.stdout.strip(), "", "網格核心檔案應該零變更")
 
 
 class TestDcaBacktestStaticChecks(unittest.TestCase):
-    """靜態檢查測試。"""
+    """靜態檢查（檔案級 grep 契約）。"""
+
+    #: 前端不得自行重算的階梯/指標欄位（G-4）
+    BANNED_TOKENS = ("required_capital", "price_deviation", "take_profit_price")
+
+    #: 受管制的前端檔案：C6 圖表 + C7 回測工作台
+    GUARDED_FILES = (
+        "web_ui/frontend/src/components/DcaChart.tsx",
+        "web_ui/frontend/src/utils/dcaChart.ts",
+        "web_ui/frontend/src/components/DcaBacktestPanel.tsx",
+        "web_ui/frontend/src/components/DcaBacktestResult.tsx",
+        "web_ui/frontend/src/components/DcaSweepTable.tsx",
+    )
+
+    @staticmethod
+    def _read_code(rel_path):
+        """讀檔並剝除註解，避免說明文字誤觸 grep 契約。
+
+        必須依語言選擇註解語法：`.py` 用 `#`，`.ts`/`.tsx` 用 `//` 與 `/* */`。
+        （曾因對 Python 檔套用 JS 規則，把描述地雷的 `#` 註解誤判為真實違規。）
+        """
+        with open(os.path.join(_project_root, rel_path), "r", encoding="utf-8") as f:
+            src = f.read()
+        if rel_path.endswith(".py"):
+            return re.sub(r"#.*$", "", src, flags=re.MULTILINE)
+        src = re.sub(r"/\*[\s\S]*?\*/", "", src)
+        src = re.sub(r"(^|[^:])//.*$", r"\1", src, flags=re.MULTILINE)
+        return src
 
     def test_5_9_frontend_zero_calculation_grep(self):
-        """5.9 P1: 前端零計算契约（grep 契約）"""
-        import subprocess
-        result = subprocess.run(
-            ["grep", "-rn", "required_capital\\|price_deviation\\|take_profit_price",
-             "web_ui/frontend/src/components/DcaChart.tsx",
-             "web_ui/frontend/src/utils/dcaChart.ts"],
-            cwd=_project_root,
-            capture_output=True,
-            text=True
-        )
-        # 應該 0 命中
-        self.assertEqual(result.returncode, 1, "前端檔案不應該包含階梯/指標數學")
+        """5.9 P0 / 7.1: 前端圖表與回測元件零金融計算。"""
+        for rel_path in self.GUARDED_FILES:
+            self.assertTrue(
+                os.path.exists(os.path.join(_project_root, rel_path)),
+                f"受管制檔案不存在（是否被改名？）: {rel_path}",
+            )
+            code = self._read_code(rel_path)
+            for token in self.BANNED_TOKENS:
+                self.assertNotIn(token, code, f"{rel_path} 不應包含階梯/指標數學: {token}")
+
+    def test_5_9_frontend_uses_same_origin_urls(self):
+        """5.9: 前端 API 層不得寫死 localhost / 127.0.0.1（預覽環境會壞）。"""
+        code = self._read_code("web_ui/frontend/src/services/api.ts")
+        for token in ("localhost", "127.0.0.1"):
+            self.assertNotIn(token, code, f"api.ts 不得寫死 {token}")
 
     def test_5_11_non_blocking_grep(self):
-        """5.11 P1: 回測以 threadpool 執行（grep 證據）"""
-        import subprocess
-        result = subprocess.run(
-            ["grep", "-n", "asyncio.wait_for", "web_ui/backend/routes/dca.py"],
-            cwd=_project_root,
-            capture_output=True,
-            text=True
+        """5.11 P1: 回測以 threadpool + 逾時守衛執行，不阻塞事件迴圈。"""
+        code = self._read_code("web_ui/backend/routes/dca.py")
+        self.assertIn("asyncio.wait_for", code, "應使用 asyncio.wait_for 逾時守衛")
+
+    def test_backend_routes_use_absolute_imports(self):
+        """回歸防護：routes/dca.py 不得用 `from schemas import`。
+
+        同層匯入會建立與 response_model 不同的 pydantic 類別物件，
+        導致驗證失敗、端點 100% 500。C6/C7 已三度踩到此地雷。
+        """
+        code = self._read_code("web_ui/backend/routes/dca.py")
+        self.assertNotIn(
+            "from schemas import", code,
+            "必須使用 `from web_ui.backend.schemas import`（絕對匯入）",
         )
-        # 應該至少命中一次（回測和掃描端點）
-        self.assertGreaterEqual(len(result.stdout.strip().split('\n')), 1, "應該使用 asyncio.wait_for 來避免阻塞")
 
 
 if __name__ == "__main__":
