@@ -84,19 +84,37 @@ class DcaHttpContractTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         os.makedirs(os.path.join(self.temp_dir.name, "config", "dca"))
         database_path = os.path.join(self.temp_dir.name, "runtime.sqlite3")
-        RuntimeSnapshotRepository._instance = RuntimeSnapshotRepository(database_path)
-        GridCommandRepository._instance = GridCommandRepository(database_path)
-        GridStateStore._instance = None
-        AuditLogger._instance = AuditLogger(self.temp_dir.name)
-        auth._API_TOKEN = "contract-token"
+
+        # 這些都是**模組級全域**。C7 的工作紀錄已指出本檔從不還原它們，
+        # 污染會外溢到後續測試模組（回測契約檔因此一律 404）。
+        # 現在一律以 addCleanup 還原，讓本檔不再影響任何其他模組。
+        self._stash_global(RuntimeSnapshotRepository, "_instance", RuntimeSnapshotRepository(database_path))
+        self._stash_global(GridCommandRepository, "_instance", GridCommandRepository(database_path))
+        self._stash_global(GridStateStore, "_instance", None)
+        self._stash_global(AuditLogger, "_instance", AuditLogger(self.temp_dir.name))
+        self._stash_global(auth, "_API_TOKEN", "contract-token")
         self.dca_route = dca_route
         self.market_route = market_route
-        dca_route._get_project_root = lambda: self.temp_dir.name
-        dca_route.SafetyGuard = PaperDcaGuard
+        self._stash_global(dca_route, "_get_project_root", lambda: self.temp_dir.name)
+        self._stash_global(dca_route, "SafetyGuard", PaperDcaGuard)
 
         import main
         self.client = TestClient(main.app)
         self.repository = GridCommandRepository.instance()
+
+    def _stash_global(self, target, attribute, new_value):
+        """設定模組/類別級全域，並登記測試結束後自動還原。"""
+        sentinel = object()
+        previous = getattr(target, attribute, sentinel)
+
+        def _restore():
+            if previous is sentinel:
+                delattr(target, attribute)
+            else:
+                setattr(target, attribute, previous)
+
+        self.addCleanup(_restore)
+        setattr(target, attribute, new_value)
 
     def tearDown(self):
         self.temp_dir.cleanup()

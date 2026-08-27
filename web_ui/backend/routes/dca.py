@@ -1332,9 +1332,12 @@ async def get_dca_chart(
         for c in kline_result.candles
     ]
     
-    # 處理 warnings
+    # 處理 warnings。
+    # KlineService 在 PAPER 路徑已經放入「使用合成 K 線，非真實歷史」，
+    # 這裡若無條件再 append 就會出現重複條目；前端是全量渲染 warnings，
+    # 重複會直接顯示成兩行（C8 live 驗證實際觀察到）。因此改為去重後附加。
     warnings = list(kline_result.warnings)
-    if kline_result.data_status == "paper":
+    if kline_result.data_status == "paper" and "使用合成 K 線，非真實歷史" not in warnings:
         warnings.append("使用合成 K 線，非真實歷史")
     
     return DcaChartResponse(

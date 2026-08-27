@@ -4,7 +4,20 @@
 
 ## [Unreleased] — 2026-08-27
 
+### Fixed
+
+- **後端模組被載入兩次導致模組級單例分岔（P0，`web_ui/backend/__init__.py` 新增）**: `web_ui/backend` 既在 `sys.path` 上、又可作為套件匯入，`main.py` 與 grid 路由用 `from auth import …`、DCA/market 路由用 `from web_ui.backend.auth import …`，Python 因而**把同一個檔案執行兩次**，產生兩份 `auth._API_TOKEN`、兩份 `RuntimeSnapshotRepository` / `GridCommandRepository` SQLite 連線、兩份 `GridStateStore` 記憶體快取與兩個 `AuditLogger`。後果：CI 有 **17 條測試紅燈**（15 條 `401 Invalid or missing API token`、`test_dashboard_snapshot` 讀到真實 runtime 資料庫而回報 `live` 而非 `degraded`、2 條連鎖 ERROR），正式環境則是一顆計時炸彈（同一份狀態存在兩份）。修法為 meta-path 匯入別名：兩種拼法映射到同一模組物件，且**只在對應模組已載入且 `__file__` 指向 backend 目錄下同一檔案時**才建立別名，第三方套件與專案他處的同名模組不受影響。**後端需重啟才會生效**。
+- **`GET /api/v1/dca/{bot_id}/chart` 的 `warnings` 出現重複條目**: `KlineService` 在 PAPER 路徑已放入「使用合成 K 線，非真實歷史」，端點又無條件再附加一次；前端是全量渲染 `warnings`，畫面直接顯示成兩行（C8 live 驗證實際觀察到）。改為去重後附加，並以 E2E 斷言把關。
+- **`tests/test_dca_http_contract.py` 覆寫模組級全域後從不還原**: `_get_project_root` / `SafetyGuard` / `auth._API_TOKEN` / 三個 repository 單例的污染會外溢到後續測試模組，使結果與執行順序相關（C7 工作紀錄列為待清理項）。改用 `addCleanup` 自動還原全部 7 個全域。
+
 ### Added
+
+- **DCA 即時圖表與回測子系統 Phase C8 — 端到端驗收、文件與最終稽核**:
+  - **E2E 測試（`tests/test_dca_chart_backtest_e2e.py`，13 項）**: 走完整鏈路「建立 PAPER 機器人 → `/market/klines` → `/dca/{bot}/chart` → `/dca/backtest` → `/dca/backtest/sweep` → `DELETE`」，全部硬斷言 200 與欄位齊備（稽核 8.1）。**BP-2 反證**：以 `patch.object(PaperExchangeAdapter, "create_order"/"cancel_order")` 斷言回測期間真實下單方法呼叫次數為 0，並比對 `config/active_dca.json` 位元組不變（G-11/G-12）。另含 8.3 網格零回歸（可用 `GRID_REGRESSION_BASE` 指定基準 commit）、8.4 LIVE 維持關閉（`account_mode=live` → 403）、8.5 憑證掃描、8.6 單例一致性回歸防護。**全程離線**：`KlineService.fetch_fn` 換成會 raise 的 stub，任何真實交易所抓取立即變紅燈而非變慢。
+  - **回測結果標記契約**: 斷言回測 `marks` 只含成交類標記且**不得**出現 `order_placed`（計畫 §4.7：該標記「僅即時圖」），並新增「同一請求連跑兩次結果逐欄位相同（`bars_per_second` 除外）」的確定性測試。
+  - **文件**: 新增 `docs/dca_chart_backtest_user_guide_zh-TW.md`（標記語意表、三種角標、六條撮合簡化事項、**alpha 怎麼讀**、掃描的過度擬合警告、錯誤碼對照、curl 範例）與 `docs/dca_chart_backtest_audit_report_zh-TW.md`（五段式最終稽核，含突變測試與例外接受）；`README.md`、`config/dca/README.md`、`docs/dca_bot_user_guide_zh-TW.md` 同步補上圖表/回測章節與新端點。
+  - **CI 雙登記**: `scripts/ci.sh` 與 `docs/github-actions-ci.yml` 同步登錄 `tests.test_dca_chart_backtest_e2e`。Python **333 tests OK**（C8 前為 320 tests / 15 failures / 2 errors）；前端 **90/90**、lint 0 error、build 成功，`lightweight-charts` 維持在獨立 chunk（gzip 57.93 kB，首屏不載）。
+  - **實機驗證**: 重啟後端後對執行中實例逐一 curl 四個端點並記錄回應（見稽核報告第三段）。
 
 - **DCA 即時圖表與回測子系統 Phase C6 — 前端圖表基礎（lightweight-charts 封裝 + DCA 詳情頁「圖表」分頁）**:
   - **新依賴 `lightweight-charts@^5.2.1`（決策 D-6，Apache-2.0）**: `package.json` 與 `package-lock.json` 一併提交（E-6.5）。選型理由見計畫 §3.2：recharts 3.8.1 無原生蠟燭圖、無 markers、無縮放平移，手刻成本高於引入專用函式庫。

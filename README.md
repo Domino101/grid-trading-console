@@ -30,11 +30,13 @@ gh auth login   # 必須是 Domino101，不是 Arena bot
 - 啟動後先進入 `armed`（監控中）：入場條件成立前**交易所端零掛單**；觸發後才下基礎單 + 安全單階梯。
 - 攤平後以單一止盈單一次了結，隨每張安全單成交自動重掛止盈。
 - 支援 RSI / MACD / Bollinger / Price Change 四種入場指標，四者皆有可調參數。
-- 詳情工作台六分頁：階梯 / 訂單 / 成交 / 事件 / 指標 / 設定。
+- 詳情工作台八分頁：階梯 / 訂單 / 成交 / 事件 / 指標 / 設定 / **圖表** / **回測**。
+- **即時圖表**：K 線（lightweight-charts）+ 本機器人實際下單、成交、止盈標記 + 均價/止盈/下一張安全單價格線。
+- **回測與參數掃描**：對既有設定或精靈中尚未送出的參數跑歷史回放，輸出總報酬、**買入持有對照與 alpha**、最大回撤、勝率等指標；回測**複用實盤的 `DcaCoordinator` 與 `DcaOrderExecutor`**（不存在第二套模擬器），且為唯讀功能——不下任何真單、不寫 `config/active_dca.json`。
 - 設定與網格隔離：`config/dca/*.yaml`、`config/active_dca.json`（皆與 `config/grid/` 對稱）。
 - 與網格共用同一監督者進程（`run_multiple_grids.py`）與 Adapter 池，不增加 WS 連線或 API 權重。
 
-操作手冊見 [`docs/dca_bot_user_guide_zh-TW.md`](docs/dca_bot_user_guide_zh-TW.md)。本版本**不開啟 LIVE**（`GRID_LIVE_TRADING_ENABLED` 維持關閉）。
+操作手冊見 [`docs/dca_bot_user_guide_zh-TW.md`](docs/dca_bot_user_guide_zh-TW.md)，圖表與回測見 [`docs/dca_chart_backtest_user_guide_zh-TW.md`](docs/dca_chart_backtest_user_guide_zh-TW.md)。本版本**不開啟 LIVE**（`GRID_LIVE_TRADING_ENABLED` 維持關閉）。
 
 ## 必要環境變數
 
@@ -121,4 +123,7 @@ cd web_ui/frontend && npm test && npm run lint && npm run build
 - DCA 機器人實作計畫：`docs/dca_bot_implementation_plan_zh-TW.md`
 - DCA 機器人使用手冊：`docs/dca_bot_user_guide_zh-TW.md`
 - DCA 機器人最終稽核報告：`docs/dca_bot_audit_report_zh-TW.md`
+- DCA 圖表與回測實作計畫：`docs/dca_chart_backtest_plan_zh-TW.md`
+- DCA 圖表與回測使用手冊：`docs/dca_chart_backtest_user_guide_zh-TW.md`
+- DCA 圖表與回測最終稽核報告：`docs/dca_chart_backtest_audit_report_zh-TW.md`
 - 變更紀錄：`CHANGELOG.md`

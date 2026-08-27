@@ -92,6 +92,15 @@ DCA 機器人，語意與 `active_grids.json` 對稱。該檔已被 `.gitignore`
 | `GET /api/v1/dca/{bot_id}/events` | 生命週期事件時間線（含 `tp_replaced` 等） |
 | `POST /api/v1/dca/{bot_id}/start` \| `/stop` | 啟動 / 停止（停止僅撤單不平倉） |
 | `DELETE /api/v1/dca/{bot_id}` | 刪除（YAML 歸檔、runtime 清除） |
+| `GET /api/v1/dca/{bot_id}/chart` | 即時圖表：K 線 + 下單/成交/止盈標記 + 價格線（純投影，引擎零變更） |
+| `POST /api/v1/dca/backtest` | 歷史回放（`bot_id` 既有設定或 `draft` 精靈參數）；唯讀，不下單、不寫 `active_dca.json` |
+| `POST /api/v1/dca/backtest/sweep` | 參數掃描（棒數/並行預算上限，超預算誠實回報 `truncated`） |
+| `GET /api/v1/market/klines/{symbol}` | K 線資料（SQLite 快取優先 → 缺棒回填 → PAPER 合成） |
 
 > `orders` / `fills` / `ladder` 在引擎尚未提供 runtime 心跳前回傳
 > `available: false`；此時 UI 顯示對應說明而非 `0`（G-5 未知即未知）。
+>
+> **回測與圖表**：`chart` / `backtest` / `sweep` 的 `warnings` 一律非空，
+> 用來揭露「合成 K 線」「不模擬部分成交」「未套用最小名目」「歷史績效不代表未來」
+> 等簡化事項，前端必須全量渲染。詳見
+> `docs/dca_chart_backtest_user_guide_zh-TW.md`。
