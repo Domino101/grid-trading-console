@@ -19,8 +19,8 @@ _project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-from auth import verify_token
-from schemas import (
+from web_ui.backend.auth import verify_token
+from web_ui.backend.schemas import (
     MarketInfoResponse,
     GridRecommendationResponse,
     MarketRankingsResponse,
@@ -28,8 +28,8 @@ from schemas import (
     KlineCandle,
     KlinesResponse,
 )
-from grid_recommendation import generate_recommendation_sync, get_market_rankings_sync
-from kline_service import KlineService
+from web_ui.backend.grid_recommendation import generate_recommendation_sync, get_market_rankings_sync
+from web_ui.backend.kline_service import KlineService
 from core.services.dca.indicators.bollinger import evaluate as evaluate_bollinger
 from core.services.dca.indicators.config import (
     BollingerConfig,

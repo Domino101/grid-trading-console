@@ -851,3 +851,177 @@ class KlinesResponse(BaseModel):
     oldest_ts: Optional[int] = Field(default=None, description="最早一根 K 棒 unix 秒")
 
 
+# ── Phase C5：DCA 圖表與回測 API 契約 ──
+
+class DcaChartLine(BaseModel):
+    """圖表上的價格線（§4.7 價格線語意）。"""
+    kind: str = Field(..., description="entry / average_cost / take_profit / next_safety / stop_loss")
+    price: Optional[float] = Field(default=None, description="價格；未知為 null（G-5，禁止 0）")
+
+
+class DcaChartMark(BaseModel):
+    """圖表上的交易標記（§4.7 標記語意）。"""
+    ts: int = Field(..., description="時間戳 unix 秒（棒時間）")
+    price: float = Field(..., description="成交/掛單價")
+    kind: str = Field(..., description="order_placed / base_filled / safety_filled / take_profit_filled / stop_loss_filled / skipped")
+    role: str = Field(..., description="base / safety / take_profit / stop_loss")
+    side: str = Field(..., description="buy / sell")
+    quantity: Optional[float] = Field(default=None, description="數量；未知為 null（G-5）")
+    notional: Optional[float] = Field(default=None, description="名目金額；未知為 null")
+    slot_index: Optional[int] = Field(default=None, description="階梯槽索引")
+    cycle_index: int = Field(..., description="第幾輪（1-based）")
+    realized_pct: Optional[float] = Field(default=None, description="本輪實現報酬%；僅 TP/SL 有值")
+
+
+class DcaChartResponse(BaseModel):
+    """GET /api/v1/dca/{bot_id}/chart 回應。"""
+    bot_id: str
+    candles: List[KlineCandle] = Field(default_factory=list, description="K 線資料")
+    marks: List[DcaChartMark] = Field(default_factory=list, description="交易標記")
+    lines: List[DcaChartLine] = Field(default_factory=list, description="價格線")
+    current_price: Optional[float] = Field(default=None, description="當前市價；未知為 null")
+    data_status: str = Field(default="unavailable", description="live / paper / stale / unavailable")
+    source: str = Field(default="engine_runtime", description="資料來源")
+    warnings: List[str] = Field(default_factory=list, description="警告訊息")
+
+
+class BacktestTradeMark(BaseModel):
+    """回測交易標記（§4.4 TradeMark）。"""
+    ts: int = Field(..., description="棒 unix 秒")
+    price: float = Field(..., description="成交/掛單價")
+    kind: str = Field(..., description="order_placed / base_filled / safety_filled / take_profit_filled / stop_loss_filled / skipped")
+    role: str = Field(..., description="base / safety / take_profit / stop_loss")
+    side: str = Field(..., description="buy / sell")
+    quantity: Optional[float] = Field(default=None, description="數量；未知為 null（G-5）")
+    notional: Optional[float] = Field(default=None, description="名目金額；未知為 null")
+    slot_index: Optional[int] = Field(default=None, description="階梯槽索引")
+    cycle_index: int = Field(..., description="第幾輪（1-based）")
+    realized_pct: Optional[float] = Field(default=None, description="本輪實現報酬%；僅 TP/SL 有值")
+
+
+class BacktestEquityPoint(BaseModel):
+    """回測權益點（§4.4 EquityPoint）。"""
+    ts: int = Field(..., description="棒 unix 秒")
+    equity: float = Field(..., description="initial_capital + realized + unrealized - fees")
+    position_quantity: float = Field(..., description="持倉數量")
+    average_cost: Optional[float] = Field(default=None, description="均價；無部位為 null（G-5）")
+    status: str = Field(..., description="該棒結束時的 DcaStatus.value")
+
+
+class BacktestCycleRecord(BaseModel):
+    """回測輪次紀錄（§4.4 CycleRecord）。"""
+    index: int = Field(..., description="輪次索引（1-based）")
+    direction: str = Field(..., description="long / short")
+    entry_ts: Optional[int] = Field(default=None, description="基礎單成交棒 unix 秒")
+    exit_ts: Optional[int] = Field(default=None, description="平倉棒 unix 秒")
+    entry_price: Optional[float] = Field(default=None, description="入場價")
+    average_cost: Optional[float] = Field(default=None, description="平倉時均價")
+    exit_price: Optional[float] = Field(default=None, description="平倉價")
+    safety_filled: int = Field(default=0, description="本輪成交之安全單數")
+    exit_reason: str = Field(default="running", description="take_profit / stop_loss / max_cycles / end_of_data / running")
+    realized_pnl: Optional[float] = Field(default=None, description="已實現損益")
+    realized_pct: Optional[float] = Field(default=None, description="已實現報酬%")
+    mfe_pct: Optional[float] = Field(default=None, description="最大有利偏移%")
+    mae_pct: Optional[float] = Field(default=None, description="最大不利偏移%")
+    bars: int = Field(default=0, description="本輪持倉棒數")
+
+
+class BacktestMetrics(BaseModel):
+    """回測績效指標（§4.5）。"""
+    initial_capital: Optional[float] = Field(default=None, description="初始資本")
+    final_equity: Optional[float] = Field(default=None, description="期末權益")
+    total_return_pct: Optional[float] = Field(default=None, description="總報酬%")
+    buy_hold_return_pct: Optional[float] = Field(default=None, description="買入持有報酬%")
+    alpha_pct: Optional[float] = Field(default=None, description="超額報酬%")
+    realized_pnl: Optional[float] = Field(default=None, description="已實現損益")
+    total_fees: Optional[float] = Field(default=None, description="總手續費")
+    cycles_completed: Optional[int] = Field(default=None, description="完成輪次數")
+    win_rate_pct: Optional[float] = Field(default=None, description="勝率%")
+    max_drawdown_pct: Optional[float] = Field(default=None, description="最大回撤%")
+    exposure_pct: Optional[float] = Field(default=None, description="持倉棒數占比%")
+    avg_cycle_bars: Optional[float] = Field(default=None, description="平均每輪棒數")
+    mfe_pct: Optional[float] = Field(default=None, description="平均最大有利偏移%")
+    mae_pct: Optional[float] = Field(default=None, description="平均最大不利偏移%")
+    profit_factor: Optional[float] = Field(default=None, description="獲利因子；分母 0 為 null（G-5）")
+
+
+class BacktestResult(BaseModel):
+    """回測結果（§4.4 BacktestResult）。"""
+    bars: int = Field(..., description="總棒數")
+    timeframe: str = Field(..., description="K 線時框")
+    first_ts: Optional[int] = Field(default=None, description="第一根棒 unix 秒")
+    last_ts: Optional[int] = Field(default=None, description="最後一根棒 unix 秒")
+    metrics: BacktestMetrics = Field(..., description="績效指標")
+    equity: List[BacktestEquityPoint] = Field(default_factory=list, description="權益曲線")
+    marks: List[BacktestTradeMark] = Field(default_factory=list, description="交易標記")
+    cycles: List[BacktestCycleRecord] = Field(default_factory=list, description="輪次紀錄")
+    data_status: str = Field(..., description="live / paper / stale / unavailable")
+    source: str = Field(..., description="cache / exchange / paper_synthetic")
+    warnings: List[str] = Field(..., description="簡化事項揭露（D-11），不得為空")
+    bars_per_second: float = Field(..., description="效能基準")
+
+
+class BacktestRequest(BaseModel):
+    """POST /api/v1/dca/backtest 請求體（§4.6 A-3）。
+    
+    支援兩種來源：bot_id（讀既有 YAML）或 draft（精靈 JSON）。
+    """
+    bot_id: Optional[str] = Field(default=None, description="既有 DCA bot_id；與 draft 互斥")
+    draft: Optional[Dict[str, Any]] = Field(default=None, description="精靈參數 JSON；與 bot_id 互斥")
+    timeframe: str = Field(default="15m", description="K 線時框 (1m/5m/15m/30m/1h/4h/1d)")
+    bars: int = Field(default=2000, ge=1, le=20000, description="回測棒數 (上限 20000)")
+    initial_capital: Optional[str] = Field(default=None, description="初始資本（字串，支持 Decimal 格式）")
+    exchange: Optional[str] = Field(default=None, description="交易所名稱")
+    symbol: Optional[str] = Field(default=None, description="交易對符號")
+
+
+class BacktestResponse(BaseModel):
+    """POST /api/v1/dca/backtest 回應。"""
+    result: BacktestResult = Field(..., description="回測結果")
+
+
+class SweepRunResult(BaseModel):
+    """單一參數掃描運行結果。"""
+    params: Dict[str, Any] = Field(..., description="本次掃描參數")
+    metrics: BacktestMetrics = Field(..., description="績效指標")
+    error: Optional[str] = Field(default=None, description="錯誤訊息；若有則 metrics 為空")
+
+
+class SweepBudget(BaseModel):
+    """掃描預算使用狀況。"""
+    bars_used: int = Field(..., description="已使用棒數")
+    bars_limit: int = Field(..., description="棒數上限")
+    runs_used: int = Field(..., description="已完成運行次數")
+    runs_limit: Optional[int] = Field(default=None, description="運行次數上限")
+
+
+class SweepResponse(BaseModel):
+    """POST /api/v1/dca/backtest/sweep 回應。"""
+    runs: List[SweepRunResult] = Field(default_factory=list, description="掃描運行結果")
+    best_by: str = Field(default="profit_factor", description="最優排序依據")
+    truncated: bool = Field(default=False, description="是否因預算限制而截斷")
+    budget: SweepBudget = Field(..., description="預算使用狀況")
+
+
+class SweepRequest(BaseModel):
+    """POST /api/v1/dca/backtest/sweep 請求體。"""
+    bot_id: Optional[str] = Field(default=None, description="既有 DCA bot_id；與 draft 互斥")
+    draft: Optional[Dict[str, Any]] = Field(default=None, description="精靈參數 JSON；與 bot_id 互斥")
+    timeframe: str = Field(default="15m", description="K 線時框")
+    bars: int = Field(default=2000, ge=1, le=20000, description="回測棒數")
+    initial_capital: Optional[str] = Field(default=None, description="初始資本")
+    
+    # 掃描參數範圍
+    base_order_amount_range: Optional[List[float]] = Field(default=None, description="基礎單金額範圍")
+    price_deviation_percent_range: Optional[List[float]] = Field(default=None, description="價格偏差百分比範圍")
+    take_profit_percent_range: Optional[List[float]] = Field(default=None, description="止盈百分比範圍")
+    max_safety_orders_range: Optional[List[int]] = Field(default=None, description="最大安全單數範圍")
+    
+    # 掃描控制
+    max_total_bars: int = Field(default=300000, ge=1, description="總棒數預算上限")
+    max_workers: int = Field(default=4, ge=1, le=8, description="並行工作數上限")
+    best_by: str = Field(default="profit_factor", description="最優排序依據")
+    exchange: Optional[str] = Field(default=None, description="交易所名稱")
+    symbol: Optional[str] = Field(default=None, description="交易對符號")
+
+

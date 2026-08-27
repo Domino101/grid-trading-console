@@ -10,7 +10,7 @@ import logging
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
-from lifecycle import connect_sqlite
+from web_ui.backend.lifecycle import connect_sqlite
 
 logger = logging.getLogger("GridAPI.Audit")
 
@@ -54,7 +54,7 @@ class AuditLogger:
                         id          INTEGER PRIMARY KEY AUTOINCREMENT,
                         timestamp   TEXT NOT NULL,
                         source      TEXT NOT NULL,        -- 'hermes' / 'dashboard' / 'manual'
-                        action      TEXT NOT NULL,        -- 'create_grid' / 'start' / 'stop' / 'delete'
+                        action      TEXT NOT NULL,        -- 'create_grid' / 'start' / 'stop' / 'delete' / 'run_dca_backtest' / 'run_dca_sweep'
                         grid_id     TEXT,
                         params_json TEXT,                 -- 完整請求參數
                         result      TEXT NOT NULL,        -- 'success' / 'rejected' / 'error'

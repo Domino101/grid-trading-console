@@ -8,8 +8,8 @@ import time
 import uuid
 from typing import Any, Optional
 
-from lifecycle import connect_sqlite
-from runtime_repository import RuntimeSnapshotRepository
+from web_ui.backend.lifecycle import connect_sqlite
+from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
 
 
 class GridCommandRepository:

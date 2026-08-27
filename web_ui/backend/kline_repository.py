@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from lifecycle import connect_sqlite
+from web_ui.backend.lifecycle import connect_sqlite
 
 TIMEFRAME_SECONDS: Dict[str, int] = {
     "1m": 60,

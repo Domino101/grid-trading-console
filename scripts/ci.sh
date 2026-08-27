@@ -31,7 +31,8 @@ python -m unittest \
   tests.test_dca_replay_exchange \
   tests.test_dca_replay_driver \
   tests.test_dca_backtest_metrics \
-  tests.test_dca_backtest_sweep
+  tests.test_dca_backtest_sweep \
+  tests.test_dca_backtest_http_contract
 
 if [[ "${SKIP_FRONTEND:-}" == "1" ]]; then
   exit 0
