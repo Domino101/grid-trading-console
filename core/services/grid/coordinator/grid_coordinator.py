@@ -149,6 +149,13 @@ class GridCoordinator:
             
             # 1. 检查账户余额与仓位
             await self.balance_monitor.update_balance()
+
+            # 1.5 初始化執行引擎（確保 engine.config 設定並建立連線與用戶資料流訂閱）
+            try:
+                await self.engine.initialize(self.config)
+                self.logger.info("執行引擎初始化完成 (設定配置與資料流)")
+            except Exception as e:
+                self.logger.warning(f"⚠️ 執行引擎初始化警告 (繼續運行): {e}")
             
             # 2. 检查未完结的旧网格订单
             await self.recover_old_orders()
@@ -471,7 +478,10 @@ class GridCoordinator:
     async def recover_old_orders(self):
         """恢復歷史網格狀態（重啟時從持久化存儲恢復累計成交與盈虧）"""
         try:
-            from runtime_repository import RuntimeSnapshotRepository
+            try:
+                from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
+            except ImportError:
+                from runtime_repository import RuntimeSnapshotRepository
             snapshots = RuntimeSnapshotRepository.instance().load_all()
             target_path = getattr(self, "config_path", None)
             matched = None

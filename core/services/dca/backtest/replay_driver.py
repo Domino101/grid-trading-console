@@ -427,6 +427,18 @@ class ReplayDriver:
         if self._source == "paper_synthetic" or self._data_status == "paper":
             warnings.append("使用合成 K 線，非真實歷史")
 
+        candles_dicts = [
+            {
+                "t": int(c.ts),
+                "o": float(c.open),
+                "h": float(c.high),
+                "l": float(c.low),
+                "c": float(c.close),
+                "v": float(c.volume),
+            }
+            for c in candles
+        ]
+
         return BacktestResult(
             bars=n_bars,
             timeframe=self._timeframe,
@@ -440,6 +452,7 @@ class ReplayDriver:
             source=self._source,
             warnings=warnings,
             bars_per_second=bars_per_sec,
+            candles=candles_dicts,
         )
 
     async def _assert_invariants(self, bar_idx: int, bar_ts: int) -> None:

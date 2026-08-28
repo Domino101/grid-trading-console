@@ -133,6 +133,7 @@ class BacktestResult:
     source: str  # cache | exchange | paper_synthetic
     warnings: List[str]  # 簡化事項揭露（D-11），不得為空
     bars_per_second: float  # 效能基準（掃描預算依據）
+    candles: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -148,4 +149,6 @@ class BacktestResult:
             "source": self.source,
             "warnings": list(self.warnings),
             "bars_per_second": self.bars_per_second,
+            "candles": list(self.candles),
         }
+

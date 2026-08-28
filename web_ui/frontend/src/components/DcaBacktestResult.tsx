@@ -144,7 +144,7 @@ const DcaBacktestResult: React.FC<DcaBacktestResultProps> = ({ result, candles, 
                     <h4 className="dca-backtest-subhead"><TrendingUp size={15} /> 回測交易標記與權益曲線</h4>
                     <Suspense fallback={<p className="muted" style={{ padding: '2rem 0', textAlign: 'center' }}>載入圖表中…</p>}>
                         <DcaChart
-                            candles={candles}
+                            candles={candles ?? result.candles}
                             marks={result.marks}
                             equity={result.equity}
                             direction={direction}

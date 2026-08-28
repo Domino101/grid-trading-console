@@ -824,6 +824,7 @@ export interface BacktestResult {
     equity: BacktestEquityPoint[];
     marks: BacktestTradeMark[];
     cycles: BacktestCycleRecord[];
+    candles?: KlineCandle[];
     data_status: DataStatus | (string & {});
     source: string;
     /** D-11 簡化事項揭露；後端保證非空，UI 必須全部渲染（稽核 7.2）。 */

@@ -289,13 +289,10 @@ class OKXAdapter(ExchangeAdapter):
     async def subscribe_user_data(self, callback: Callable[[Dict[str, Any]], None]) -> None:
         """订阅用户数据流"""
         try:
-            if self._websocket.is_private_connected:
-                await self._websocket.subscribe_user_data(callback)
-            else:
-                self.logger.warning("⚠️ 用户数据流未连接，使用轮询模式")
-                asyncio.create_task(self._poll_user_data(callback))
+            await self._websocket.subscribe_user_data(callback)
         except Exception as e:
-            self.logger.error(f"❌ 订阅用户数据失败: {e}")
+            self.logger.error(f"❌ 订阅用户数据流失败，退回轮询模式: {e}")
+            asyncio.create_task(self._poll_user_data(callback))
 
     async def unsubscribe(self, symbol: Optional[str] = None) -> None:
         """取消订阅"""
