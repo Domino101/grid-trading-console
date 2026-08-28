@@ -241,8 +241,10 @@ const DcaDetail: React.FC<DcaDetailProps> = ({ bot, onBack, onUnauthorized }) =>
             );
             setBtResult(response.result);
 
-            // K 線與回測用同一組參數；失敗不影響指標與輪次表的呈現。
-            if (bot.symbol && bot.exchange) {
+            // 優先使用回測返回的 K 線（保證時空標記一致），無附帶時才降級查詢
+            if (response.result.candles && response.result.candles.length > 0) {
+                setBtCandles(response.result.candles);
+            } else if (bot.symbol && bot.exchange) {
                 try {
                     const klines = await api.getKlines(
                         bot.symbol, bot.exchange, btTimeframe, btBars, controller.signal,

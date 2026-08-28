@@ -1136,7 +1136,6 @@ async def get_dca_chart(
         symbol=symbol,
         timeframe=timeframe,
         limit=limit,
-        account_mode=account_mode,
     )
     
     # 取得 runtime 快照資料
@@ -1534,13 +1533,18 @@ async def run_dca_backtest(
         )
     
     # 取得 K 線資料
+    account_mode = (
+        dca_account_mode_from_yaml(yaml_data)
+        if yaml_data
+        else (draft_params.get("account_mode") if isinstance(draft_params, dict) else "paper")
+    )
     kline_service = KlineService.instance()
     kline_result = await kline_service.get_candles(
         exchange=exchange,
         symbol=symbol,
         timeframe=payload.timeframe,
         limit=payload.bars,
-        account_mode="paper",  # 回測用 PAPER 合成資料
+        account_mode=account_mode,
     )
     
     if not kline_result.candles:
@@ -1736,13 +1740,18 @@ async def run_dca_sweep(
         )
     
     # 取得 K 線資料
+    account_mode = (
+        dca_account_mode_from_yaml(yaml_data)
+        if yaml_data
+        else (draft_params.get("account_mode") if isinstance(draft_params, dict) else "paper")
+    )
     kline_service = KlineService.instance()
     kline_result = await kline_service.get_candles(
         exchange=exchange,
         symbol=symbol,
         timeframe=payload.timeframe,
         limit=payload.bars,
-        account_mode="paper",
+        account_mode=account_mode,
     )
     
     if not kline_result.candles:

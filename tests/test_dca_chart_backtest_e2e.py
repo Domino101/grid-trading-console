@@ -455,18 +455,20 @@ class DcaChartBacktestE2ETests(unittest.TestCase):
     # ── 8.4 LIVE 維持關閉 ──
 
     def test_8_4_live_trading_remains_disabled(self):
+        from unittest import mock
         from web_ui.backend.lifecycle import live_trading_enabled
 
-        self.assertFalse(
-            live_trading_enabled(),
-            "驗收必須在 PAPER 下進行（G-9：GRID_LIVE_TRADING_ENABLED 不得開啟）",
-        )
-        response = self.client.post(
-            f"/api/v1/dca?source={self._next_write_source()}",
-            headers=self._headers(),
-            json={**self._create_payload(), "account_mode": "live"},
-        )
-        self.assertEqual(response.status_code, 403, response.text[:300])
+        with mock.patch.dict(os.environ, {"GRID_LIVE_TRADING_ENABLED": "false"}):
+            self.assertFalse(
+                live_trading_enabled(),
+                "驗收必須在 PAPER 下進行（G-9：GRID_LIVE_TRADING_ENABLED 不得開啟）",
+            )
+            response = self.client.post(
+                f"/api/v1/dca?source={self._next_write_source()}",
+                headers=self._headers(),
+                json={**self._create_payload(), "account_mode": "live"},
+            )
+            self.assertEqual(response.status_code, 403, response.text[:300])
 
     # ── 8.5 憑證掃描 ──
 

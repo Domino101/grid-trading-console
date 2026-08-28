@@ -955,6 +955,7 @@ class BacktestResult(BaseModel):
     equity: List[BacktestEquityPoint] = Field(default_factory=list, description="權益曲線")
     marks: List[BacktestTradeMark] = Field(default_factory=list, description="交易標記")
     cycles: List[BacktestCycleRecord] = Field(default_factory=list, description="輪次紀錄")
+    candles: List[KlineCandle] = Field(default_factory=list, description="回測區間 K 線")
     data_status: str = Field(..., description="live / paper / stale / unavailable")
     source: str = Field(..., description="cache / exchange / paper_synthetic")
     warnings: List[str] = Field(..., description="簡化事項揭露（D-11），不得為空")

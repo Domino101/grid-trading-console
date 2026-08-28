@@ -271,13 +271,17 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                 controller.signal,
             );
             setWizardBtResult(response.result);
-            try {
-                const klines = await api.getKlines(
-                    form.symbol, form.exchange, wizardBtTimeframe, wizardBtBars, controller.signal,
-                );
-                setWizardBtCandles(klines.candles);
-            } catch {
-                setWizardBtCandles(null);
+            if (response.result.candles && response.result.candles.length > 0) {
+                setWizardBtCandles(response.result.candles);
+            } else {
+                try {
+                    const klines = await api.getKlines(
+                        form.symbol, form.exchange, wizardBtTimeframe, wizardBtBars, controller.signal,
+                    );
+                    setWizardBtCandles(klines.candles);
+                } catch {
+                    setWizardBtCandles(null);
+                }
             }
         } catch (e) {
             if (controller.signal.aborted) return;

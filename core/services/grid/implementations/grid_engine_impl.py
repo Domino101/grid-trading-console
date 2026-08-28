@@ -920,11 +920,26 @@ class GridEngineImpl(IGridEngine):
                 if res is not None:
                     order = orders[idx]
                     order.status = GridOrderStatus.PENDING
-                    if hasattr(res, 'order_id'):
-                        order.exchange_order_id = res.order_id
+                    if hasattr(res, 'order_id') and res.order_id:
+                        order.exchange_order_id = str(res.order_id)
+                        order.order_id = str(res.order_id)
+                    elif hasattr(res, 'id') and res.id:
+                        order.exchange_order_id = str(res.id)
+                        order.order_id = str(res.id)
                     if hasattr(res, 'client_id') and res.client_id:
-                        order.client_id = res.client_id
-                        self._pending_orders_by_client_id[res.client_id] = order
+                        order.client_id = str(res.client_id)
+                        self._pending_orders_by_client_id[order.client_id] = order
+
+                    if order.order_id and order.order_id != "pending":
+                        self._pending_orders[order.order_id] = order
+                    elif order.client_id:
+                        self._pending_orders[order.client_id] = order
+                    else:
+                        temp_id = f"grid_{order.grid_id}_{int(order.price)}_{int(order.amount*1000000)}"
+                        order.order_id = temp_id
+                        self._pending_orders[order.order_id] = order
+
+                    await self._increment_symbol_open_cache()
                     results.append(order)
                 else:
                     results.append(Exception(f"批量下單失敗: grid_id={orders[idx].grid_id}"))
@@ -2067,16 +2082,20 @@ class GridEngineImpl(IGridEngine):
                 self.logger.debug(f"订单更新缺少订单ID: {update_data}")
                 return
 
-            if order_id not in self._pending_orders:
+            grid_order = None
+            if order_id in self._pending_orders:
+                grid_order = self._pending_orders[order_id]
+            else:
                 client_id = str(data.get('c', ''))
                 if client_id and client_id in self._pending_orders_by_client_id:
                     grid_order = self._pending_orders_by_client_id[client_id]
-                    order_id = grid_order.order_id
+                    order_id = grid_order.order_id or order_id
                 else:
                     self.logger.debug(f"收到非监控订单的更新: {order_id} / {client_id}")
                     return
 
-            grid_order = self._pending_orders[order_id]
+            if not grid_order:
+                return
 
             self.logger.info(
                 f"📨 订单更新: ID={order_id}, "
@@ -2095,6 +2114,8 @@ class GridEngineImpl(IGridEngine):
                 grid_order.mark_filled(filled_price, filled_amount)
                 if order_id in self._pending_orders:
                     del self._pending_orders[order_id]
+                if grid_order.order_id and grid_order.order_id in self._pending_orders:
+                    del self._pending_orders[grid_order.order_id]
                 if grid_order.client_id and grid_order.client_id in self._pending_orders_by_client_id:
                     del self._pending_orders_by_client_id[grid_order.client_id]
 
@@ -2115,6 +2136,8 @@ class GridEngineImpl(IGridEngine):
             elif status in ['CANCELLED', 'CANCELED'] or event_type == 'orderCancelled':
                 if order_id in self._pending_orders:
                     del self._pending_orders[order_id]
+                if grid_order.order_id and grid_order.order_id in self._pending_orders:
+                    del self._pending_orders[grid_order.order_id]
                 if grid_order.client_id and grid_order.client_id in self._pending_orders_by_client_id:
                     del self._pending_orders_by_client_id[grid_order.client_id]
 

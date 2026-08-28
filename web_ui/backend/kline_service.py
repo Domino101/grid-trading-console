@@ -31,16 +31,31 @@ KLINE_RETENTION_DAYS_DEFAULT = 180
 
 def _normalize_symbol_for_ccxt(symbol: str, exchange_id: str) -> str:
     """Normalize trading pair symbol for CCXT."""
-    s = symbol.strip()
-    if exchange_id.lower() == "binance":
-        if ":" in s:
-            return s
-        if "/" not in s:
-            if s.endswith("USDT"):
-                return f"{s[:-4]}/USDT"
-            elif s.endswith("USDC"):
-                return f"{s[:-4]}/USDC"
-    return s
+    s = symbol.strip().replace("_", "-")
+    ex = exchange_id.lower()
+
+    if "/" in s:
+        parts = s.split("/")
+        base = parts[0]
+        quote_part = parts[1]
+        quote = quote_part.split(":")[0]
+    elif "-" in s:
+        parts = s.replace("-SWAP", "").split("-")
+        base = parts[0]
+        quote = parts[1] if len(parts) > 1 else "USDT"
+    elif s.endswith("USDT"):
+        base, quote = s[:-4], "USDT"
+    elif s.endswith("USDC"):
+        base, quote = s[:-4], "USDC"
+    elif s.endswith("USD"):
+        base, quote = s[:-3], "USD"
+    else:
+        return s
+
+    if ex in ("binance", "okx", "hyperliquid", "lighter", "edgex", "backpack", "o1exchange"):
+        return f"{base}/{quote}:{quote}"
+
+    return f"{base}/{quote}"
 
 
 def _default_fetch_ccxt_ohlcv(
@@ -53,7 +68,8 @@ def _default_fetch_ccxt_ohlcv(
     """Synchronous fetch from CCXT with contract fallback."""
     import ccxt
 
-    exchange_class = getattr(ccxt, exchange_id.lower(), None)
+    ex_lower = exchange_id.lower()
+    exchange_class = getattr(ccxt, ex_lower, None)
     if not exchange_class:
         exchange_class = ccxt.binance
 
@@ -178,12 +194,12 @@ class KlineService:
 
         limit = max(1, min(int(limit), 20000))
         ex = exchange.lower()
-        is_paper = (
-            account_mode == "paper"
-            or ex in ("paper", "paper_synthetic")
+        is_synthetic = (
+            ex in ("paper", "paper_synthetic", "synthetic")
+            or account_mode in ("paper", "synthetic", "paper_synthetic")
         )
 
-        if is_paper:
+        if is_synthetic:
             return self._handle_paper_mode(exchange, symbol, tf, limit, until)
 
         return self._handle_exchange_mode(exchange, symbol, tf, limit, until)
@@ -339,15 +355,23 @@ class KlineService:
         # S-5: Error handling with honesty
         if fetch_error is not None:
             if cached:
+                synth = cached[0].synthetic == 1
+                data_status = "paper" if synth else "stale"
+                source = "paper_synthetic" if synth else "cache"
+                warning_msg = (
+                    "使用合成 K 線，非真實歷史"
+                    if synth
+                    else f"交易所連線異常 ({type(fetch_error).__name__})，使用本地快取"
+                )
                 return KlineResult(
                     symbol=symbol,
                     exchange=exchange,
                     timeframe=timeframe,
                     candles=cached,
-                    source="cache",
-                    data_status="stale",
+                    source=source,
+                    data_status=data_status,
                     gaps=cached_gaps,
-                    warnings=[f"交易所連線異常 ({type(fetch_error).__name__})，使用本地快取"],
+                    warnings=[warning_msg],
                     oldest_ts=cached[0].ts if cached else None,
                 )
             return KlineResult(
