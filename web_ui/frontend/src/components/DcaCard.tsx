@@ -17,6 +17,7 @@ import {
     dcaRoiPercent,
     directionLabel,
     distanceText,
+    indicatorLiveInfo,
     isDcaArmed,
     isDcaRunningStatus,
     nextSafetyDistance,
@@ -100,7 +101,7 @@ const DcaCard: React.FC<DcaCardProps> = ({ bot, busy, now, onOpen, onStart, onSt
                 </div>
             )}
 
-            {/* 入場區塊：模式 + 指標 + 等待時長 */}
+            {/* 入場區塊：模式 + 指標即時值 + 等待時長 */}
             <dl className="strategy-metrics-matrix dca-entry-matrix">
                 <div className="metric-cell">
                     <dt>入場</dt>
@@ -112,11 +113,21 @@ const DcaCard: React.FC<DcaCardProps> = ({ bot, busy, now, onOpen, onStart, onSt
                         {(bot.entry_indicators ?? []).length === 0 && (
                             <span className="text-muted">—</span>
                         )}
-                        {(bot.entry_indicators ?? []).map((indicator, index) => (
-                            <span key={index} className="dca-indicator-chip">
-                                {indicator.type?.toUpperCase()}
-                            </span>
-                        ))}
+                        {(bot.entry_indicators ?? []).map((indicator, index) => {
+                            const info = indicatorLiveInfo(indicator);
+                            return (
+                                <span
+                                    key={index}
+                                    className={`dca-indicator-chip ${info.chipClass}`}
+                                    title={info.tooltip}
+                                >
+                                    <span className="dca-indicator-name">{info.name}</span>
+                                    {info.valueText && (
+                                        <span className="dca-indicator-val">{info.valueText}</span>
+                                    )}
+                                </span>
+                            );
+                        })}
                     </dd>
                 </div>
             </dl>

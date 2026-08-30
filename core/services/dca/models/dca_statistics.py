@@ -50,6 +50,9 @@ class DcaStatistics:
     total_fees: Decimal = Decimal("0")
     unrealized_profit: Optional[Decimal] = None
 
+    # 執行期指標快照（Phase 5 卡片與指標面板即時數值）
+    indicator_results: Optional[list] = None
+
     def to_display_dict(self) -> Dict:
         return {
             "bot_id": self.bot_id,
@@ -76,4 +79,5 @@ class DcaStatistics:
                 "unrealized": _to_float(self.unrealized_profit),
                 "fees": float(self.total_fees),
             },
+            "indicator_results": self.indicator_results if self.indicator_results is not None else [],
         }

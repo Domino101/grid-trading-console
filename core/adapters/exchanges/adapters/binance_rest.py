@@ -651,11 +651,14 @@ class BinanceRest(BinanceBase):
             # 准备订单参数
             order_params = params or {}
             
+            side_str = side.value.lower() if hasattr(side, "value") else str(side).lower()
+            order_type_str = self.ORDER_TYPE_MAPPING.get(order_type, getattr(order_type, "value", str(order_type)).upper())
+
             order_data = await self._execute_with_retry(
                 self.exchange.create_order,
                 mapped_symbol,
-                self.ORDER_TYPE_MAPPING.get(order_type, 'LIMIT'),
-                side.value.lower(),
+                order_type_str,
+                side_str,
                 float(amount),
                 float(price) if price else None,
                 order_params
@@ -745,15 +748,20 @@ class BinanceRest(BinanceBase):
 
         return results
 
-    async def cancel_order(self, order_id: str, symbol: str) -> OrderData:
-        """取消订单"""
+    async def cancel_order(self, order_id: str, symbol: str, params: Optional[Dict[str, Any]] = None) -> OrderData:
+        """取消订单（支援 numeric order_id 與 client_order_id）"""
         try:
             mapped_symbol = self.map_symbol_to_binance(symbol)
+            order_params = dict(params) if params else {}
+            str_id = str(order_id)
+            if not str_id.isdigit() and "origClientOrderId" not in order_params and "clientOrderId" not in order_params:
+                order_params["origClientOrderId"] = str_id
             
             order_data = await self._execute_with_retry(
                 self.exchange.cancel_order,
                 order_id,
-                mapped_symbol
+                mapped_symbol,
+                params=order_params
             )
             
             return self.parse_order(order_data, symbol)
@@ -799,15 +807,20 @@ class BinanceRest(BinanceBase):
                 self.logger.error(f"取消所有订单失败: {str(e)}")
             raise
     
-    async def get_order(self, order_id: str, symbol: str) -> OrderData:
-        """获取订单信息"""
+    async def get_order(self, order_id: str, symbol: str, params: Optional[Dict[str, Any]] = None) -> OrderData:
+        """获取订单信息（支援交易所 numeric order_id 與 client_order_id 自動識別反查）"""
         try:
             mapped_symbol = self.map_symbol_to_binance(symbol)
+            order_params = dict(params) if params else {}
+            str_id = str(order_id)
+            if not str_id.isdigit() and "origClientOrderId" not in order_params and "clientOrderId" not in order_params:
+                order_params["origClientOrderId"] = str_id
             
             data = await self._execute_with_retry(
                 self.exchange.fetch_order,
                 order_id,
-                mapped_symbol
+                mapped_symbol,
+                params=order_params
             )
             if isinstance(data, list) and data:
                 data = data[0]

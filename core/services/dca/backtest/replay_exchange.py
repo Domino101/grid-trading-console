@@ -221,8 +221,10 @@ class ReplayExchange:
 
         amt = Decimal(str(amount))
         p = Decimal(str(price)) if price is not None else None
-        side_clean = str(side).lower()
-        type_clean = str(order_type).lower()
+        side_val = getattr(side, "value", str(side)).lower()
+        type_val = getattr(order_type, "value", str(order_type)).lower()
+        side_clean = "buy" if side_val in ("buy", "long") else "sell"
+        type_clean = "market" if type_val == "market" else "limit"
 
         self.calls.append(("create", client_id, side_clean, type_clean, amt, p))
         self._seq += 1

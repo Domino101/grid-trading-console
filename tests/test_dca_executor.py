@@ -183,6 +183,54 @@ class ExecutorCancelAndQueryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(latest.status, DcaOrderStatus.FILLED)
         self.assertEqual(latest.filled_quantity, D("0.008"))
 
+    async def test_fetch_order_passes_orig_client_order_id_and_parses_order_data(self):
+        from unittest.mock import AsyncMock
+        from core.adapters.exchanges.models import OrderData, OrderSide, OrderType, OrderStatus
+        from datetime import datetime
+
+        mock_exchange = AsyncMock()
+        mock_exchange.get_order.return_value = OrderData(
+            id="123456789",
+            client_id=None,
+            symbol=SYMBOL,
+            side=OrderSide.SELL,
+            type=OrderType.LIMIT,
+            amount=D("0.039"),
+            price=D("2520.80"),
+            filled=D("0.039"),
+            remaining=D("0"),
+            cost=D("98.3112"),
+            average=D("2520.80"),
+            status=OrderStatus.FILLED,
+            timestamp=datetime.now(),
+            updated=datetime.now(),
+            fee=None,
+            trades=[],
+            params={"origClientOrderId": "dca_7ebd0816_short_base"},
+            raw_data={},
+        )
+        mock_exchange.get_ticker.return_value = {"last": 2520.80}
+
+        ex = DcaOrderExecutor(_config(), BOT_ID, mock_exchange)
+        latest = await ex.fetch_order("dca_7ebd0816_short_base")
+
+        self.assertIsNotNone(latest)
+        self.assertEqual(latest.client_order_id, "dca_7ebd0816_short_base")
+        self.assertEqual(latest.order_id, "123456789")
+        self.assertEqual(latest.status, DcaOrderStatus.FILLED)
+        self.assertEqual(latest.filled_quantity, D("0.039"))
+        self.assertEqual(latest.average_fill_price, D("2520.80"))
+
+        mock_exchange.get_order.assert_called_once_with(
+            "dca_7ebd0816_short_base",
+            SYMBOL,
+            params={
+                "origClientOrderId": "dca_7ebd0816_short_base",
+                "clientOrderId": "dca_7ebd0816_short_base",
+                "clOrdId": "dca_7ebd0816_short_base",
+            },
+        )
+
     async def test_last_price_prefers_last_attribute(self):
         ex, fake = _executor()
         fake.set_last_price("2499.5")

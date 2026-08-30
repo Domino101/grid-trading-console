@@ -402,6 +402,15 @@ export interface DcaIndicatorView {
     long_threshold_percent?: number | null;
     short_threshold_percent?: number | null;
     condition?: string | null;
+    // 執行期即時值（快照讀模型附加）
+    current_value?: number | null;
+    triggered?: boolean | null;
+    triggered_long?: boolean | null;
+    triggered_short?: boolean | null;
+    insufficient_data?: boolean | null;
+    warmup_have?: number | null;
+    warmup_need?: number | null;
+    details?: Record<string, number | null> | null;
 }
 
 export interface DcaPosition {

@@ -8,20 +8,44 @@ import MarketRankings from './components/MarketRankings';
 import LoginPage from './components/LoginPage';
 import { api, type MarketRankingItem } from './services/api';
 import { clearStoredToken, getStoredToken, storeToken } from './utils/auth';
+import { parseHash, navigate, type RouteState } from './utils/router';
 
 const GridDetail = lazy(() => import('./components/GridDetail'));
 
-// 分頁型別集中定義（R-11：新增分頁需同步此處，tsc -b 為 gate）
-type AppTab = 'dashboard' | 'market' | 'configs' | 'detail' | 'dca' | 'dca-create';
-
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<AppTab>('dashboard');
-  const [selectedGridId, setSelectedGridId] = useState<string | null>(null);
+  const [route, setRoute] = useState<RouteState>(() => {
+    if (typeof window !== 'undefined' && window.location.hash) {
+      return parseHash(window.location.hash);
+    }
+    return { tab: 'dashboard', gridId: null, dcaBotId: null };
+  });
+
   const [prefilledGridConfig, setPrefilledGridConfig] = useState<InitialGridConfig | null>(null);
   const [hasToken, setHasToken] = useState(() => Boolean(getStoredToken()));
   const [authError, setAuthError] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [liveTradingEnabled, setLiveTradingEnabled] = useState<boolean | null>(null);
+
+  const activeTab = route.tab;
+  const selectedGridId = route.gridId;
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      const parsed = parseHash(window.location.hash);
+      setRoute(parsed);
+    };
+
+    if (typeof window !== 'undefined' && !window.location.hash) {
+      window.history.replaceState(null, '', '#/dashboard');
+    }
+
+    window.addEventListener('hashchange', handleHashChange);
+    window.addEventListener('popstate', handleHashChange);
+    return () => {
+      window.removeEventListener('hashchange', handleHashChange);
+      window.removeEventListener('popstate', handleHashChange);
+    };
+  }, []);
 
   useEffect(() => {
     if (!hasToken) return;
@@ -54,8 +78,17 @@ const App: React.FC = () => {
     if (tab !== 'configs') {
       setPrefilledGridConfig(null);
     }
-    setActiveTab(tab);
+    navigate({ tab, gridId: null, dcaBotId: null });
     setDrawerOpen(false);
+  };
+
+  const handleOpenGrid = (gridId: string) => {
+    navigate({ tab: 'detail', gridId, dcaBotId: null });
+    setDrawerOpen(false);
+  };
+
+  const handleSelectDcaBot = (botId: string | null) => {
+    navigate({ tab: 'dca', gridId: null, dcaBotId: botId });
   };
 
   const handleSelectMarketSymbol = (item: MarketRankingItem, period: string) => {
@@ -71,7 +104,7 @@ const App: React.FC = () => {
       initialPeriod: period === '30d' || period === '180d' ? period : '7d',
       estimatedApr: item.estimated_apr,
     });
-    setActiveTab('configs');
+    navigate({ tab: 'configs', gridId: null, dcaBotId: null });
     setDrawerOpen(false);
   };
 
@@ -208,10 +241,7 @@ const App: React.FC = () => {
           <Dashboard
             onUnauthorized={() => lock('Token 無效或已過期，請重新登入。')}
             onCreateNew={() => go('configs')}
-            onOpenGrid={(gridId) => {
-              setSelectedGridId(gridId);
-              setActiveTab('detail');
-            }}
+            onOpenGrid={handleOpenGrid}
           />
         )}
 
@@ -226,10 +256,7 @@ const App: React.FC = () => {
           <GridForm
             initialConfig={prefilledGridConfig}
             onClearInitialConfig={() => setPrefilledGridConfig(null)}
-            onOpenGrid={(gridId) => {
-              setSelectedGridId(gridId);
-              setActiveTab('detail');
-            }}
+            onOpenGrid={handleOpenGrid}
             onNavigateDashboard={() => go('dashboard')}
           />
         )}
@@ -245,7 +272,7 @@ const App: React.FC = () => {
           >
             <GridDetail
               gridId={selectedGridId}
-              onBack={() => setActiveTab('dashboard')}
+              onBack={() => go('dashboard')}
               onUnauthorized={() => lock('Token 無效或已過期，請重新登入。')}
             />
           </Suspense>
@@ -255,6 +282,8 @@ const App: React.FC = () => {
           <DcaDashboard
             onCreateNew={() => go('dca-create')}
             onUnauthorized={() => lock('Token 無效或已過期，請重新登入。')}
+            selectedBotId={route.dcaBotId}
+            onSelectBot={handleSelectDcaBot}
           />
         )}
 

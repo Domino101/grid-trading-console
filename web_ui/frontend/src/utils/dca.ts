@@ -183,6 +183,104 @@ export const indicatorChipText = (indicator: DcaIndicatorView): string => {
     }
 };
 
+export interface IndicatorLiveDisplay {
+    name: string;
+    valueText: string | null;
+    isTriggered: boolean;
+    isWarming: boolean;
+    targetText: string;
+    tooltip: string;
+    chipClass: string;
+}
+
+export const indicatorLiveInfo = (indicator: DcaIndicatorView): IndicatorLiveDisplay => {
+    const type = indicator.type ?? 'indicator';
+    let name = type.toUpperCase();
+    let targetText = '';
+
+    switch (type) {
+        case 'rsi': {
+            const period = indicator.period ?? 14;
+            const oversold = indicator.oversold ?? 30;
+            const overbought = indicator.overbought ?? 70;
+            name = `RSI(${period})`;
+            targetText = `≤${oversold} / ≥${overbought}`;
+            break;
+        }
+        case 'macd': {
+            const fast = indicator.fast ?? 12;
+            const slow = indicator.slow ?? 26;
+            const signal = indicator.signal ?? 9;
+            name = `MACD(${fast},${slow},${signal})`;
+            const cond = indicator.condition ?? 'cross';
+            targetText = MACD_CONDITION_LABELS[cond] ?? cond;
+            break;
+        }
+        case 'bollinger': {
+            const period = indicator.period ?? 20;
+            const stdDev = indicator.std_dev ?? 2.0;
+            name = `BB(${period},${stdDev})`;
+            const cond = indicator.condition ?? 'touch';
+            targetText = BOLLINGER_CONDITION_LABELS[cond] ?? cond;
+            break;
+        }
+        case 'price_change': {
+            const lookback = indicator.lookback_bars ?? 24;
+            const longTh = indicator.long_threshold_percent ?? -3;
+            const shortTh = indicator.short_threshold_percent ?? 3;
+            name = `PC(${lookback})`;
+            targetText = `≤${longTh}% / ≥${shortTh}%`;
+            break;
+        }
+    }
+
+    const isWarming = Boolean(indicator.insufficient_data);
+    const isTriggered = Boolean(
+        indicator.triggered || indicator.triggered_long || indicator.triggered_short
+    );
+
+    let valueText: string | null = null;
+    if (isWarming) {
+        valueText = `暖機 ${indicator.warmup_have ?? 0}/${indicator.warmup_need ?? '?'}`;
+    } else if (indicator.current_value != null) {
+        const val = indicator.current_value;
+        if (type === 'rsi') {
+            valueText = val.toFixed(1);
+        } else if (type === 'macd') {
+            valueText = `${val >= 0 ? '+' : ''}${val.toFixed(3)}`;
+        } else if (type === 'bollinger') {
+            valueText = `${val.toFixed(2)}`;
+        } else if (type === 'price_change') {
+            valueText = `${val >= 0 ? '+' : ''}${val.toFixed(2)}%`;
+        } else {
+            valueText = String(val);
+        }
+    }
+
+    let chipClass = '';
+    if (isTriggered) {
+        chipClass = 'is-triggered';
+    } else if (isWarming) {
+        chipClass = 'is-warming';
+    } else if (valueText != null) {
+        chipClass = 'is-live';
+    }
+
+    const statusDesc = isTriggered ? '已滿足入場條件' : isWarming ? 'K棒累積暖機中' : '監控比對中';
+    const valDesc = valueText != null ? ` | 即時值: ${valueText}` : '';
+    const tooltip = `${name} 目標: ${targetText}${valDesc} (${statusDesc})`;
+
+    return {
+        name,
+        valueText,
+        isTriggered,
+        isWarming,
+        targetText,
+        tooltip,
+        chipClass,
+    };
+};
+
 // 入場區塊文案：立即入場 / 指標入場（含 AND/OR 與各指標 chip）。
 export const dcaEntryText = (item: Pick<DcaSnapshotItem, 'entry_mode' | 'entry_logic' | 'entry_indicators'>): string => {
     if ((item.entry_mode ?? 'immediate') === 'immediate') return '立即入場';

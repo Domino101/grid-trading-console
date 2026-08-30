@@ -87,6 +87,40 @@ def _synthetic_base_timestamp(timeframe: str) -> int:
     return 1_700_000_000 // step * step
 
 
+def _fetch_ccxt_public_ohlcv(
+    symbol: str,
+    exchange_id: str = "binance",
+    timeframe: str = "15m",
+    since_ms: Optional[int] = None,
+    limit: int = 300,
+) -> List[List[Any]]:
+    """從 CCXT 抓取公開 K 線（無任何 API Key，純公開只讀）。"""
+    try:
+        import ccxt
+        ex_lower = (exchange_id or "binance").lower()
+        if ex_lower == "paper":
+            ex_lower = "binance"
+        exchange_class = getattr(ccxt, ex_lower, None)
+        if not exchange_class:
+            exchange_class = ccxt.binance
+
+        client = exchange_class({
+            "enableRateLimit": True,
+            "timeout": 8000,
+            "options": {"defaultType": "swap"},
+        })
+        s = symbol.strip()
+        norm_symbol = s
+        try:
+            ohlcv = client.fetch_ohlcv(norm_symbol, timeframe=timeframe, since=since_ms, limit=limit)
+        except Exception:
+            base_symbol = norm_symbol.split(":")[0]
+            ohlcv = client.fetch_ohlcv(base_symbol, timeframe=timeframe, since=since_ms, limit=limit)
+        return ohlcv or []
+    except Exception:
+        return []
+
+
 class PaperExchangeAdapter(ExchangeInterface):
     """Simulated venue used only when YAML account_mode is paper.
 
@@ -99,10 +133,12 @@ class PaperExchangeAdapter(ExchangeInterface):
         config: ExchangeConfig,
         ticker_provider: Optional[Callable[[str], Decimal]] = None,
         starting_equity: Optional[Decimal] = None,
+        ohlcv_provider: Optional[Callable] = None,
     ):
         super().__init__(config)
         self.exchange = None  # auto_fill_precision looks for ccxt; stay None
         self._ticker_provider = ticker_provider
+        self._ohlcv_provider = ohlcv_provider
         env_equity = os.getenv("PAPER_STARTING_EQUITY", "10000")
         self._starting_equity = _as_decimal(starting_equity if starting_equity is not None else env_equity, "10000")
         self._cash = self._starting_equity
@@ -246,17 +282,51 @@ class PaperExchangeAdapter(ExchangeInterface):
             nonce=None,
         )
 
-    async def get_ohlcv(self, symbol: str, timeframe: str, since=None, limit=None) -> List[OHLCVData]:
-        """PAPER 合成 K 線：以 symbol 字串穩定 hash 為 seed 的確定性隨機遊走。
+    async def _fetch_public_ohlcv(self, symbol: str, timeframe: str, since=None, limit=None) -> List[OHLCVData]:
+        """從真實交易所抓取公開市場 K 棒（無私有寫入/無 API Key）。"""
+        if os.getenv("PAPER_FORCE_SYNTHETIC_OHLCV", "").lower() in ("1", "true", "yes"):
+            return []
+        venue = (self.config.extra_params or {}).get("venue") or self.config.exchange_id or "binance"
+        if venue.lower() == "paper":
+            venue = "binance"
+        limit_val = int(limit or 300)
+        since_ms = int(since.timestamp() * 1000) if isinstance(since, datetime) else (int(since) if since else None)
 
-        同 symbol 兩次呼叫結果完全相同（稽核 3.10），資料標記
-        ``raw_data={'synthetic': True}``（稽核 3.11）。不依賴真實行情，
-        也絕不誤認為真實歷史。
-        """
+        loop = asyncio.get_running_loop()
+        raw = await loop.run_in_executor(
+            None,
+            lambda: _fetch_ccxt_public_ohlcv(symbol, venue, timeframe, since_ms, limit_val)
+        )
+        if not raw:
+            return []
+        out = []
+        for c in raw:
+            ts = datetime.fromtimestamp(c[0] / 1000.0, tz=timezone.utc)
+            open_p = Decimal(str(c[1]))
+            high_p = Decimal(str(c[2]))
+            low_p = Decimal(str(c[3]))
+            close_p = Decimal(str(c[4]))
+            vol = Decimal(str(c[5]))
+            out.append(OHLCVData(
+                symbol=symbol,
+                timeframe=str(timeframe),
+                timestamp=ts,
+                open=open_p,
+                high=high_p,
+                low=low_p,
+                close=close_p,
+                volume=vol,
+                quote_volume=vol * close_p,
+                trades_count=None,
+                raw_data={"synthetic": False, "source": "public_exchange", "venue": "paper"},
+            ))
+        return out
+
+    def _generate_synthetic_ohlcv(self, symbol: str, timeframe: str, since=None, limit=None) -> List[OHLCVData]:
+        """確定性合成 K 線（離線/測試 fallback）。"""
         count = int(limit or 300)
         seed = _stable_symbol_seed(symbol)
         rng = _random.Random(seed)
-        # 起始價由 seed 決定：50～600 之間的可重現起點
         price = Decimal(str(round(50.0 + (seed % 50000) / 100.0, 4)))
         base_ts = _synthetic_base_timestamp(timeframe)
         step_seconds = TIMEFRAME_SECONDS.get(str(timeframe).lower(), 900)
@@ -284,6 +354,29 @@ class PaperExchangeAdapter(ExchangeInterface):
             ))
             price = close_price
         return out
+
+    async def get_ohlcv(self, symbol: str, timeframe: str, since=None, limit=None) -> List[OHLCVData]:
+        """PAPER 模式取得 K 線：優先抓取真實市場公開 K 線，合成模式或失敗時 fallback 至確定性合成。"""
+        if self._ohlcv_provider is not None:
+            try:
+                res = await self._ohlcv_provider(symbol, timeframe, since, limit)
+                if res:
+                    return res
+            except Exception:
+                pass
+        force_synth = (
+            os.getenv("PAPER_FORCE_SYNTHETIC_OHLCV", "").lower() in ("1", "true", "yes")
+            or (self.config.extra_params or {}).get("synthetic_ohlcv") is True
+            or (self.config.extra_params or {}).get("venue") == "paper"
+        )
+        if not force_synth:
+            try:
+                real_candles = await self._fetch_public_ohlcv(symbol, timeframe, since=since, limit=limit)
+                if real_candles:
+                    return real_candles
+            except Exception:
+                pass
+        return self._generate_synthetic_ohlcv(symbol, timeframe, since=since, limit=limit)
 
     async def get_trades(self, symbol: str, since=None, limit=None) -> List[TradeData]:
         return []
@@ -345,13 +438,18 @@ class PaperExchangeAdapter(ExchangeInterface):
     async def create_order(
         self,
         symbol: str,
-        side: OrderSide,
-        order_type: OrderType,
+        side: Any,
+        order_type: Any,
         amount: Decimal,
         price: Optional[Decimal] = None,
         params: Optional[Dict[str, Any]] = None,
         **kwargs: Any,
     ) -> OrderData:
+        side_val = getattr(side, "value", str(side)).lower()
+        type_val = getattr(order_type, "value", str(order_type)).lower()
+        side_enum = OrderSide.BUY if side_val in ("buy", "long") else OrderSide.SELL
+        type_enum = OrderType.MARKET if type_val == "market" else OrderType.LIMIT
+
         async with self._lock:
             if symbol not in self._last:
                 self._last[symbol] = self._resolve_price(symbol)
@@ -368,8 +466,8 @@ class PaperExchangeAdapter(ExchangeInterface):
                 id=order_id,
                 client_id=str(client_id) if client_id else order_id,
                 symbol=symbol,
-                side=side,
-                type=order_type,
+                side=side_enum,
+                type=type_enum,
                 amount=qty,
                 price=limit,
                 filled=Decimal("0"),
@@ -387,7 +485,7 @@ class PaperExchangeAdapter(ExchangeInterface):
             self._all_orders[order_id] = order
             if order.client_id and order.client_id != order_id:
                 self._all_orders[order.client_id] = order
-            if order_type == OrderType.MARKET:
+            if type_enum == OrderType.MARKET:
                 self._fill(order, self._last[symbol])
             else:
                 self._orders[order_id] = order
@@ -560,17 +658,18 @@ class PaperExchangeAdapter(ExchangeInterface):
                 await asyncio.sleep(2)
 
 
-def create_paper_adapter(config_data: dict, ticker_provider=None) -> PaperExchangeAdapter:
+def create_paper_adapter(config_data: dict, ticker_provider=None, ohlcv_provider=None) -> PaperExchangeAdapter:
     grid = (config_data or {}).get("grid_system") or {}
     venue = str(grid.get("exchange") or "binance").lower()
     symbol = str(grid.get("symbol") or "")
     market_type = ExchangeType.SPOT if ":SPOT" in symbol.upper() else ExchangeType.PERPETUAL
+    synth = bool(grid.get("synthetic_ohlcv", False))
     config = ExchangeConfig(
         exchange_id="paper",
         name=f"Paper/{venue}",
         exchange_type=market_type,
         api_key="",
         api_secret="",
-        extra_params={"venue": venue, "paper": True},
+        extra_params={"venue": venue, "paper": True, "synthetic_ohlcv": synth},
     )
-    return PaperExchangeAdapter(config, ticker_provider=ticker_provider)
+    return PaperExchangeAdapter(config, ticker_provider=ticker_provider, ohlcv_provider=ohlcv_provider)

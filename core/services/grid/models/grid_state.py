@@ -88,9 +88,9 @@ class GridLevel:
         """添加已实现盈亏"""
         self.realized_profit += profit
 
-        # 如果是一买一卖配对，增加完成循环次数
-        if self.buy_count > 0 and self.sell_count > 0:
-            self.completed_cycles = min(self.buy_count, self.sell_count)
+        # 仅当价差盈利时增加完成循环次数
+        if profit > Decimal('0'):
+            self.completed_cycles += 1
 
     def is_pending(self) -> bool:
         """是否有挂单"""
@@ -215,10 +215,6 @@ class GridState:
             self.pending_sell_orders = max(0, self.pending_sell_orders - 1)
             # 更新持仓
             self.current_position -= filled_amount
-
-        # 更新完成循环次数
-        self.completed_cycles = min(
-            self.filled_buy_count, self.filled_sell_count)
 
         # 🔥 从活跃订单中移除（已成交订单不再是活跃订单）
         del self.active_orders[order_id]

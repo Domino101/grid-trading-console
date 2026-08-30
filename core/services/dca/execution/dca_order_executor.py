@@ -32,6 +32,7 @@ from ..models.dca_order import (
     DcaOrderStatus,
     build_client_order_id,
 )
+from core.adapters.exchanges.models import OrderSide, OrderType
 from core.logging import get_logger
 
 from decimal import Decimal
@@ -43,6 +44,22 @@ _ROLE_SLOT = {
     DcaOrderRole.TAKE_PROFIT: "tp",
     DcaOrderRole.STOP_LOSS: "sl",
 }
+
+
+def _to_order_side(side: Any) -> OrderSide:
+    """確保 side 為 OrderSide 列舉，相容字串與 Enum。"""
+    if isinstance(side, OrderSide):
+        return side
+    s = str(getattr(side, "value", side)).lower()
+    return OrderSide.BUY if s in ("buy", "long") else OrderSide.SELL
+
+
+def _to_order_type(order_type: Any) -> OrderType:
+    """確保 order_type 為 OrderType 列舉，相容字串與 Enum。"""
+    if isinstance(order_type, OrderType):
+        return order_type
+    s = str(getattr(order_type, "value", order_type)).lower()
+    return OrderType.MARKET if s == "market" else OrderType.LIMIT
 
 
 def _status_from_exchange(value: Any) -> DcaOrderStatus:
@@ -177,8 +194,10 @@ class DcaOrderExecutor(IDcaOrderExecutor):
             role=role, price=q_price, quantity=q_qty, slot_index=slot_index,
         )
         try:
+            order_side = _to_order_side(side)
+            order_type = OrderType.LIMIT
             raw = await self._exchange.create_order(
-                self._symbol, side, "limit", q_qty, q_price,
+                self._symbol, order_side, order_type, q_qty, q_price,
                 params={"client_order_id": client_id},
             )
             order.order_id = str(getattr(raw, "id", getattr(raw, "order_id", "")) or "")
@@ -230,8 +249,10 @@ class DcaOrderExecutor(IDcaOrderExecutor):
             role=role, price=mark, quantity=q_qty, slot_index=slot_index,
         )
         try:
+            order_side = _to_order_side(side)
+            order_type = OrderType.MARKET
             raw = await self._exchange.create_order(
-                self._symbol, side, "market", q_qty, None,
+                self._symbol, order_side, order_type, q_qty, None,
                 params={"client_order_id": client_id},
             )
             order.order_id = str(getattr(raw, "id", getattr(raw, "order_id", "")) or "")
@@ -302,7 +323,20 @@ class DcaOrderExecutor(IDcaOrderExecutor):
     async def fetch_order(self, client_order_id: str) -> Optional[DcaOrder]:
         """以 exchange get_order 依 client id 反查；無法找到時回傳 None。"""
         try:
-            raw = await self._exchange.get_order(client_order_id, self._symbol)
+            raw = await self._exchange.get_order(
+                client_order_id,
+                self._symbol,
+                params={
+                    "origClientOrderId": client_order_id,
+                    "clientOrderId": client_order_id,
+                    "clOrdId": client_order_id,
+                },
+            )
+        except TypeError:
+            try:
+                raw = await self._exchange.get_order(client_order_id, self._symbol)
+            except Exception:
+                return None
         except Exception:
             return None
         if raw is None:
@@ -312,6 +346,17 @@ class DcaOrderExecutor(IDcaOrderExecutor):
     def _map_raw_order(self, raw) -> DcaOrder:
         client_id = getattr(raw, "client_id", None) or getattr(
             raw, "client_order_id", "") or ""
+        params = getattr(raw, "params", {}) or {}
+        raw_data = getattr(raw, "raw_data", {}) or {}
+        if not client_id:
+            client_id = (
+                params.get("origClientOrderId")
+                or params.get("clientOrderId")
+                or raw_data.get("origClientOrderId")
+                or raw_data.get("clientOrderId")
+                or raw_data.get("client_order_id")
+                or ""
+            )
         order = DcaOrder(
             client_order_id=str(client_id),
             symbol=self._symbol,

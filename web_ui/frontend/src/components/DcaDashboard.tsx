@@ -34,11 +34,13 @@ type FilterMode = 'all' | 'running' | 'live' | 'paper' | 'stale';
 interface DcaDashboardProps {
     onCreateNew?: () => void;
     onUnauthorized: () => void;
+    selectedBotId?: string | null;
+    onSelectBot?: (botId: string | null) => void;
 }
 
 // DCA 分頁（Phase 5）：與網格分頁完全隔離——只呼叫 /api/v1/dca/* 與 /api/v1/system/health
 // （稽核 5.2）；總覽資料一律來自單次 snapshot（稽核 5.4）。
-const DcaDashboard: React.FC<DcaDashboardProps> = ({ onCreateNew, onUnauthorized }) => {
+const DcaDashboard: React.FC<DcaDashboardProps> = ({ onCreateNew, onUnauthorized, selectedBotId, onSelectBot }) => {
     const [snapshot, setSnapshot] = useState<DcaSnapshotResponse | null>(null);
     const [health, setHealth] = useState<SystemHealth | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -136,7 +138,10 @@ const DcaDashboard: React.FC<DcaDashboardProps> = ({ onCreateNew, onUnauthorized
                     }
                 }
                 await api.deleteDca(bot.bot_id, 'dashboard', true);
-                if (detailBot?.bot_id === bot.bot_id) setDetailBot(null);
+                if (detailBot?.bot_id === bot.bot_id || selectedBotId === bot.bot_id) {
+                    setDetailBot(null);
+                    onSelectBot?.(null);
+                }
             }
             await fetchSnapshot();
         } catch (caught) {
@@ -177,16 +182,70 @@ const DcaDashboard: React.FC<DcaDashboardProps> = ({ onCreateNew, onUnauthorized
         [snapshot],
     );
 
-    const detailCurrent = detailBot
-        ? (snapshot?.bots ?? []).find((b) => b.bot_id === detailBot.bot_id) ?? detailBot
-        : null;
+    const activeTargetId = selectedBotId !== undefined ? selectedBotId : detailBot?.bot_id;
+
+    const detailCurrent = useMemo(() => {
+        if (!activeTargetId) return null;
+        return (snapshot?.bots ?? []).find((b) => b.bot_id === activeTargetId) ?? (detailBot?.bot_id === activeTargetId ? detailBot : null);
+    }, [activeTargetId, detailBot, snapshot]);
+
+    const handleOpenBot = (bot: DcaSnapshotItem) => {
+        setDetailBot(bot);
+        if (onSelectBot) {
+            onSelectBot(bot.bot_id);
+        }
+    };
+
+    const handleCloseDetail = () => {
+        setDetailBot(null);
+        if (onSelectBot) {
+            onSelectBot(null);
+        }
+    };
+
+    // 若路由指定了 selectedBotId 且快照正在載入，顯示載入中
+    if (activeTargetId && loading && !detailCurrent) {
+        return (
+            <div className="glass-panel" style={{ padding: '3rem 1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                <Activity size={24} className="spin" style={{ margin: '0 auto 0.75rem' }} />
+                <p>載入 DCA 機器人工作台…</p>
+            </div>
+        );
+    }
+
+    // 若路由指定了 selectedBotId 但快照載入後找不到該機器人
+    if (activeTargetId && !loading && !detailCurrent) {
+        return (
+            <main className="dashboard dca-dashboard" aria-busy={loading}>
+                <TopBar
+                  title="DCA 機器人"
+                  dataStatus={snapshot?.data_status}
+                  enginePid={health?.engine.pid ?? null}
+                  engineRunning={health?.engine.process_running}
+                  circuitOpen={health?.circuit_breaker.is_open}
+                  lastSync={snapshot?.generated_at ?? null}
+                  accountMode={snapshot?.account_mode}
+                  onRefresh={() => void fetchSnapshot()}
+                  loading={loading}
+                />
+                <div className="glass-panel" style={{ padding: '2.5rem 1.5rem', textAlign: 'center', marginTop: '1.5rem' }}>
+                    <p className="notice notice-warning" style={{ marginBottom: '1.25rem' }}>
+                        找不到指定的 DCA 機器人「{activeTargetId}」（可能已刪除或設定檔不存在）
+                    </p>
+                    <button className="btn btn-primary" type="button" onClick={handleCloseDetail}>
+                        返回 DCA 總覽
+                    </button>
+                </div>
+            </main>
+        );
+    }
 
     // Phase 7：選取機器人後切換為完整詳情工作台（六分頁）
     if (detailCurrent) {
         return (
             <DcaDetail
               bot={detailCurrent}
-              onBack={() => setDetailBot(null)}
+              onBack={handleCloseDetail}
               onUnauthorized={onUnauthorized}
             />
         );
@@ -397,7 +456,7 @@ const DcaDashboard: React.FC<DcaDashboardProps> = ({ onCreateNew, onUnauthorized
                           bot={bot}
                           busy={actionBotId === bot.bot_id}
                           now={now}
-                          onOpen={() => setDetailBot(bot)}
+                          onOpen={() => handleOpenBot(bot)}
                           onStart={() => void runAction(bot, 'start')}
                           onStop={() => setConfirm({ bot, action: 'stop' })}
                           onDelete={() => setConfirm({ bot, action: 'delete' })}
@@ -411,7 +470,7 @@ const DcaDashboard: React.FC<DcaDashboardProps> = ({ onCreateNew, onUnauthorized
                       actionBotId={actionBotId}
                       onOpen={(botId) => {
                           const target = (snapshot?.bots ?? []).find((b) => b.bot_id === botId);
-                          if (target) setDetailBot(target);
+                          if (target) handleOpenBot(target);
                       }}
                       onStart={(bot) => void runAction(bot, 'start')}
                       onStop={(bot) => setConfirm({ bot, action: 'stop' })}

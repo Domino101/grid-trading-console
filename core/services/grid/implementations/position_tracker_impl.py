@@ -67,6 +67,7 @@ class PositionTrackerImpl(IPositionTracker):
         self.buy_count = 0
         self.sell_count = 0
         self.completed_cycles = 0
+        self.loss_cycles = 0
 
         # 资金信息（需要从交易所获取）
         self.available_balance = Decimal('0')
@@ -140,7 +141,10 @@ class PositionTrackerImpl(IPositionTracker):
                 matched_profit += lot_profit
                 self.grid_profit += lot_profit
                 self.realized_pnl = self.grid_profit
-                self.completed_cycles += 1
+                if lot_profit > Decimal('0'):
+                    self.completed_cycles += 1
+                else:
+                    self.loss_cycles += 1
                 matched_any = True
 
                 sell_lot['amount'] -= match_qty
@@ -164,7 +168,10 @@ class PositionTrackerImpl(IPositionTracker):
                 matched_profit += lot_profit
                 self.grid_profit += lot_profit
                 self.realized_pnl = self.grid_profit
-                self.completed_cycles += 1
+                if lot_profit > Decimal('0'):
+                    self.completed_cycles += 1
+                else:
+                    self.loss_cycles += 1
                 matched_any = True
 
                 buy_lot['amount'] -= match_qty
@@ -318,13 +325,6 @@ class PositionTrackerImpl(IPositionTracker):
         # 获取当前价格
         current_price = self.state.current_price or self.config.get_first_order_price()
 
-        # 防禦性檢查：若有完成循環但尚未計算毛利，自動補算
-        if self.grid_profit == 0 and self.completed_cycles > 0:
-            grid_int = getattr(self.config, 'grid_interval', Decimal('0')) or Decimal('0')
-            order_amt = getattr(self.config, 'order_amount', Decimal('0')) or Decimal('0')
-            self.grid_profit = Decimal(str(self.completed_cycles)) * grid_int * order_amt
-            self.realized_pnl = self.grid_profit
-
         # 若當前交易對為 0 手續費率（如幣安 USDC 合約），確保手續費為 0
         if self.resolve_fee_rate() == Decimal('0'):
             self.total_fees = Decimal('0')
@@ -409,12 +409,14 @@ class PositionTrackerImpl(IPositionTracker):
 
         # 交易统计
         metrics.total_trades = self.buy_count + self.sell_count
-        metrics.win_trades = self.completed_cycles  # 完整循环都算盈利
-        metrics.loss_trades = 0  # 网格交易通常不会亏损（除非单边行情）
+        metrics.win_trades = self.completed_cycles
+        metrics.loss_trades = self.loss_cycles
 
-        if metrics.total_trades > 0:
-            metrics.win_rate = (metrics.win_trades /
-                                (metrics.total_trades / 2)) * 100  # 一买一卖算一次
+        total_matched = self.completed_cycles + self.loss_cycles
+        if total_matched > 0:
+            metrics.win_rate = (Decimal(str(metrics.win_trades)) / Decimal(str(total_matched))) * Decimal('100')
+        elif metrics.total_trades > 0:
+            metrics.win_rate = Decimal('0')
 
         # 手续费
         metrics.total_fees = self.total_fees
@@ -429,7 +431,10 @@ class PositionTrackerImpl(IPositionTracker):
                 Decimal(str(metrics.running_days))
 
         # 计算平均每笔收益
-        if self.completed_cycles > 0:
+        if total_matched > 0:
+            metrics.avg_profit_per_trade = self.realized_pnl / \
+                Decimal(str(total_matched))
+        elif self.completed_cycles > 0:
             metrics.avg_profit_per_trade = self.realized_pnl / \
                 Decimal(str(self.completed_cycles))
 
@@ -480,6 +485,7 @@ class PositionTrackerImpl(IPositionTracker):
         self.buy_count = 0
         self.sell_count = 0
         self.completed_cycles = 0
+        self.loss_cycles = 0
         self.start_time = datetime.now()
         self.last_trade_time = datetime.now()
 
