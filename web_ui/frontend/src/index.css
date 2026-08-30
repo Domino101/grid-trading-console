@@ -67,6 +67,14 @@
   padding: 0;
 }
 
+button {
+  background: transparent;
+  border: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
 body {
   font-family: var(--font-ui);
   background-color: var(--bg-root);
@@ -146,6 +154,8 @@ body {
   font-family: var(--font-ui);
   cursor: pointer;
   border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-primary);
   transition: all var(--transition-fast);
   white-space: nowrap;
   user-select: none;

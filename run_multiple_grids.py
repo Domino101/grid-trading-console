@@ -553,13 +553,19 @@ async def run_single_dca_task(config_path: str, adapter_pool, logger,
             ),
         )
 
+        # 啟動前嘗試從持久化快照恢復歷史狀態與在世訂單（重啟恢復）
+        try:
+            await coordinator.recover_state_from_snapshot(config_path)
+        except Exception as recover_err:
+            logger.warning(f"⚠️ [DCA {symbol}] 啟動快照恢復異常 (繼續運行): {recover_err}")
+
         running_dca_ref[config_path] = {
             "coordinator": coordinator,
             "task": asyncio.current_task(),
         }
         coordinator.start()
         _emit_dca_lifecycle(config_path, "running", symbol=symbol)
-        logger.info(f"✨ [DCA {symbol}] 已進入 armed（監控中，交易所零掛單）")
+        logger.info(f"✨ [DCA {symbol}] 協調器已就緒，當前狀態: {coordinator.state.status.value}")
 
         interval = max(int(config.monitoring_interval), 5)
         while True:
@@ -581,11 +587,12 @@ async def run_single_dca_task(config_path: str, adapter_pool, logger,
             stats_dict["exchange"] = exchange
             stats_dict["source"] = "dca_engine_runtime"
             stats_dict["synthetic"] = (getattr(adapter, "exchange", None) is None)
-            # Phase 7 詳情工作台：掛單 / 成交 / 階梯槽位快照（導出失敗不阻斷心跳）
+            # Phase 7 詳情工作台：掛單 / 成交 / 階梯槽位 / 指標快照（導出失敗不阻斷心跳）
             try:
                 stats_dict["open_orders"] = coordinator.open_orders_snapshot()
                 stats_dict["fills"] = coordinator.fills_snapshot()
                 stats_dict["ladder_slots"] = coordinator.ladder_slots_snapshot()
+                stats_dict["indicator_results"] = coordinator.indicator_results_snapshot()
             except Exception as detail_err:
                 logger.warning(f"⚠️ [DCA {symbol}] 詳情快照建構失敗: {detail_err}")
             try:

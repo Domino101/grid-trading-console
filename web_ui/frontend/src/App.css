@@ -67,25 +67,53 @@
 }
 
 .app-nav .btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
   justify-content: flex-start;
-  padding: 0.7rem 0.85rem;
+  padding: 0.65rem 0.85rem;
   border-radius: var(--radius-sm);
   font-size: 0.88rem;
   font-weight: 500;
   border: 1px solid transparent;
+  background: transparent;
   color: var(--text-secondary);
+  transition: all var(--transition-fast);
+  cursor: pointer;
+}
+
+.app-nav .btn svg {
+  color: var(--text-muted);
+  transition: color var(--transition-fast);
+  flex-shrink: 0;
 }
 
 .app-nav .btn:hover {
   background: var(--bg-surface-hover);
+  border-color: var(--border-subtle);
   color: var(--text-primary);
 }
 
+.app-nav .btn:hover svg {
+  color: var(--accent-primary);
+}
+
 .app-nav .btn.active {
-  background: linear-gradient(90deg, rgba(99, 102, 241, 0.18) 0%, rgba(99, 102, 241, 0.05) 100%);
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.16) 0%, rgba(99, 102, 241, 0.04) 100%);
   border: 1px solid rgba(99, 102, 241, 0.35);
   color: #ffffff;
-  box-shadow: inset 2px 0 0 var(--accent-primary);
+  font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--accent-primary), 0 2px 8px rgba(99, 102, 241, 0.12);
+}
+
+.app-nav .btn.active svg {
+  color: var(--accent-primary);
+}
+
+.app-nav .btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 1px;
 }
 
 .sidebar-footer {
@@ -1861,18 +1889,59 @@
 .dca-indicator-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.3rem;
+  gap: 0.35rem;
 }
 
 .dca-indicator-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
   font-family: var(--font-mono);
-  font-size: 0.68rem;
+  font-size: 0.7rem;
   letter-spacing: 0.02em;
-  padding: 0.12rem 0.5rem;
+  padding: 0.15rem 0.5rem;
   border-radius: var(--radius-full);
   background: var(--bg-input);
   border: 1px solid var(--border-subtle);
   color: var(--text-secondary);
+  transition: all 0.2s ease;
+}
+
+.dca-indicator-chip.is-live {
+  border-color: rgba(59, 130, 246, 0.4);
+  background: rgba(59, 130, 246, 0.06);
+  color: var(--text-primary);
+}
+
+.dca-indicator-chip.is-triggered {
+  border-color: rgba(16, 185, 129, 0.5);
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  font-weight: 600;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.2);
+}
+
+.dca-indicator-chip.is-warming {
+  border-color: rgba(245, 158, 11, 0.4);
+  background: rgba(245, 158, 11, 0.08);
+  color: #f59e0b;
+}
+
+.dca-indicator-name {
+  font-weight: 500;
+}
+
+.dca-indicator-val {
+  font-weight: 600;
+  color: var(--accent-primary, #3b82f6);
+}
+
+.dca-indicator-chip.is-triggered .dca-indicator-val {
+  color: #10b981;
+}
+
+.dca-indicator-chip.is-warming .dca-indicator-val {
+  color: #f59e0b;
 }
 
 /* ── 安全單進度條 ── */

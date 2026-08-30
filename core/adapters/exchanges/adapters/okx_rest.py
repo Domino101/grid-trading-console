@@ -325,11 +325,14 @@ class OKXRest(OKXBase):
             if 'instType' not in order_params:
                 order_params['instType'] = self.get_inst_type_for_symbol(mapped_symbol)
             
+            side_str = side.value.lower() if hasattr(side, "value") else str(side).lower()
+            order_type_str = self.ORDER_TYPE_MAPPING.get(order_type, getattr(order_type, "value", str(order_type)).lower())
+
             order_data = await self._execute_with_retry(
                 self.exchange.create_order,
                 mapped_symbol,
-                self.ORDER_TYPE_MAPPING.get(order_type, 'limit'),
-                side.value.lower(),
+                order_type_str,
+                side_str,
                 float(amount),
                 float(price) if price else None,
                 order_params

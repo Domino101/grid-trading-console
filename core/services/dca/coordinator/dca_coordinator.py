@@ -99,6 +99,122 @@ class DcaCoordinator:
 
     # ══════════════════ 公用 API ══════════════════
 
+    async def recover_state_from_snapshot(self, config_path: Optional[str] = None) -> bool:
+        """
+        從持久化快照恢復歷史累計數據與持倉狀態（重啟持久化）
+        """
+        try:
+            try:
+                from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
+            except ImportError:
+                from runtime_repository import RuntimeSnapshotRepository
+            
+            snapshots = RuntimeSnapshotRepository.instance().load_all()
+            matched = None
+            if config_path and config_path in snapshots:
+                matched, _ = snapshots[config_path]
+            else:
+                for path, (payload, _) in snapshots.items():
+                    if payload.get("bot_id") == self._bot_id or path.endswith(f"{self._bot_id}.yaml"):
+                        matched = payload
+                        break
+            
+            if matched:
+                # 1. 恢復輪數與歷史盈虧
+                self.state.cycle_count = int(matched.get("cycles", matched.get("cycle_count", 0)) or 0)
+                profit = matched.get("profit") or {}
+                self._realized_profit = Decimal(str(profit.get("realized", matched.get("realized_profit", 0)) or 0))
+                self._total_fees = Decimal(str(profit.get("fees", matched.get("total_fees", 0)) or 0))
+                
+                # 2. 恢復成交歷史 (fills)
+                fills = matched.get("fills") or []
+                if isinstance(fills, list):
+                    self._fills = list(fills)
+                
+                # 3. 恢復持倉與方向
+                pos_data = matched.get("position") or {}
+                pos_qty = Decimal(str(pos_data.get("quantity", 0) or 0))
+                total_cost = Decimal(str(pos_data.get("total_cost", 0) or 0))
+                entry_px = Decimal(str(matched.get("entry_price", 0) or 0)) if matched.get("entry_price") else None
+                direction = matched.get("active_direction")
+                status_val = matched.get("status")
+                
+                if pos_qty > 0 and direction in ("long", "short"):
+                    self.state.position_quantity = pos_qty
+                    self.state.total_cost = total_cost
+                    self.state.entry_price = entry_px
+                    self.state.active_direction = direction
+                    if status_val in ("triggering", "averaging", "degraded"):
+                        self.state.status = DcaStatus(status_val)
+                    else:
+                        self.state.status = DcaStatus.AVERAGING
+                    self._lock.active = direction
+                
+                logger.info(
+                    f"🔄 [DCA {self._config.symbol}] 已從快照恢復歷史數據: 輪數={self.state.cycle_count}, "
+                    f"已實現盈虧={self._realized_profit}, 手續費={self._total_fees}, "
+                    f"持倉={self.state.position_quantity}, 狀態={self.state.status.value}",
+                    extra={"symbol": self._config.symbol, "bot_id": self._bot_id, "action": "recover_snapshot"}
+                )
+
+                # 4. 接管在世掛單
+                await self.reconcile_startup_orders()
+                return True
+        except Exception as e:
+            logger.warning(
+                f"⚠️ [DCA {self._config.symbol}] 快照恢復略過或失敗: {e}",
+                extra={"symbol": self._config.symbol, "bot_id": self._bot_id, "action": "recover_snapshot_failed"},
+                exc_info=True
+            )
+        return False
+
+    async def reconcile_startup_orders(self) -> int:
+        """
+        啟動時掃描交易所未成交掛單並接管屬於本 bot 命名空間的訂單
+        """
+        try:
+            open_orders = await self._executor.fetch_open_orders()
+            if not open_orders:
+                return 0
+            
+            taken_count = 0
+            for order in open_orders:
+                cid = order.client_order_id
+                parts = cid.split("_")
+                slot = parts[3] if len(parts) >= 4 else ""
+                
+                if slot == "base":
+                    order.role = DcaOrderRole.BASE
+                    self._base_order = order
+                elif slot == "tp":
+                    order.role = DcaOrderRole.TAKE_PROFIT
+                    self._tp_client_id = cid
+                elif slot.startswith("so"):
+                    order.role = DcaOrderRole.SAFETY
+                    try:
+                        order.slot_index = int(slot[2:])
+                    except ValueError:
+                        pass
+                elif slot == "sl":
+                    order.role = DcaOrderRole.STOP_LOSS
+                
+                self._active[cid] = order
+                taken_count += 1
+
+            logger.info(
+                f"🔄 [DCA {self._config.symbol}] 成功接管 {taken_count} 筆在世掛單: "
+                f"{list(self._active.keys())}",
+                extra={"symbol": self._config.symbol, "bot_id": self._bot_id, "action": "reconcile_startup_orders"}
+            )
+            return taken_count
+        except Exception as e:
+            logger.warning(
+                f"⚠️ [DCA {self._config.symbol}] 啟動訂單接管失敗: {e}",
+                extra={"symbol": self._config.symbol, "bot_id": self._bot_id, "action": "reconcile_startup_orders_failed"},
+                exc_info=True
+            )
+            return 0
+
     def begin(self) -> None:
         """DRAFT → ARMED（不建背景迴圈；供逐步測試或外部驅動）。"""
         if self.state.status is DcaStatus.DRAFT:
@@ -646,11 +762,11 @@ class DcaCoordinator:
             if client_id in open_ids:
                 continue
             latest = await self._executor.fetch_order(client_id)
-            if latest is not None and latest.status is DcaOrderStatus.FILLED:
+            if latest is not None and latest.status in (DcaOrderStatus.FILLED, DcaOrderStatus.PARTIAL):
                 price = latest.average_fill_price or latest.price
                 qty = latest.filled_quantity or latest.quantity
                 await self._fill_funnel(client_id, price, qty)
-            elif latest is None or latest.status in (
+            elif latest is not None and latest.status in (
                 DcaOrderStatus.CANCELLED, DcaOrderStatus.REJECTED
             ):
                 # 外部撤單/拒單：移出追蹤（TP 被外部撤單屬 P0 風險 → degraded 重掛）
@@ -665,6 +781,13 @@ class DcaCoordinator:
                         and self.state.status in (DcaStatus.AVERAGING, DcaStatus.DEGRADED):
                     self._tp_client_id = None
                     self._pending_tp_replace = True
+            elif latest is None:
+                logger.warning(
+                    "反查訂單暫無回應（保留追蹤待下輪重試）",
+                    extra={"symbol": self._config.symbol, "bot_id": self._bot_id,
+                           "action": "reconcile_fetch_retry",
+                           "client_order_id": client_id},
+                )
 
     # ══════════════════ 收輪 / 停止 ══════════════════
 
@@ -748,6 +871,57 @@ class DcaCoordinator:
             return None
         return max(pending) if state.active_direction == "long" else min(pending)
 
+    def indicator_results_snapshot(self) -> List[dict]:
+        """當前入場指標的執行期評估快照。"""
+        if not hasattr(self, "_entry_monitor") or self._entry_monitor is None:
+            return []
+
+        target_direction = self.state.active_direction
+        if target_direction not in ("long", "short"):
+            cfg_dir = self._config.direction
+            target_direction = cfg_dir if cfg_dir in ("long", "short") else "long"
+
+        results_for_dir = self._entry_monitor.last_indicator_results.get(target_direction)
+        if not results_for_dir and self._entry_monitor.last_indicator_results:
+            first_dir = next(iter(self._entry_monitor.last_indicator_results))
+            results_for_dir = self._entry_monitor.last_indicator_results.get(first_dir)
+
+        indicators_cfg = getattr(self._config.entry, "indicators", ())
+        if not results_for_dir:
+            return []
+
+        snapshots = []
+        for i, res in enumerate(results_for_dir):
+            cfg = indicators_cfg[i] if i < len(indicators_cfg) else None
+            ind_type = getattr(cfg, "type", None)
+            if ind_type is None and cfg is not None:
+                from ..indicators import _indicator_type
+                try:
+                    ind_type = _indicator_type(cfg).value
+                except Exception:
+                    ind_type = type(cfg).__name__.lower().replace("config", "")
+            elif hasattr(ind_type, "value"):
+                ind_type = ind_type.value
+
+            long_res = (self._entry_monitor.last_indicator_results.get("long") or [])
+            short_res = (self._entry_monitor.last_indicator_results.get("short") or [])
+            trig_long = long_res[i].triggered if i < len(long_res) else None
+            trig_short = short_res[i].triggered if i < len(short_res) else None
+
+            snapshots.append({
+                "type": str(ind_type) if ind_type else None,
+                "value": res.value,
+                "triggered": res.triggered,
+                "triggered_long": trig_long,
+                "triggered_short": trig_short,
+                "insufficient_data": res.insufficient_data,
+                "warmup_have": res.warmup_have,
+                "warmup_need": res.warmup_need,
+                "as_of": res.as_of,
+                "details": res.details if isinstance(res.details, dict) else {},
+            })
+        return snapshots
+
     def build_statistics(self, last_price: Optional[Decimal] = None) -> DcaStatistics:
         state = self.state
         active_tp = sum(
@@ -772,6 +946,7 @@ class DcaCoordinator:
             cycle_count=state.cycle_count,
             realized_profit=self._realized_profit,
             total_fees=self._total_fees,
+            indicator_results=self.indicator_results_snapshot(),
         )
         if last_price is not None and state.position_quantity > 0 and state.average_cost:
             spread = (last_price - state.average_cost) * state.position_quantity

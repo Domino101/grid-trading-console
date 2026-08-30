@@ -489,10 +489,16 @@ class GridCoordinator:
                 matched, _ = snapshots[target_path]
             else:
                 sym = getattr(self.config, "symbol", None)
-                for path, (payload, _) in snapshots.items():
-                    if payload.get("symbol") == sym:
-                        matched = payload
-                        break
+                candidate_matches = [
+                    (p, payload) for p, (payload, _) in snapshots.items()
+                    if payload.get("symbol") == sym
+                ]
+                prod_matches = [(p, payload) for p, payload in candidate_matches if not p.startswith("config/grid/test-")]
+                if prod_matches:
+                    matched = prod_matches[0][1]
+                elif candidate_matches:
+                    matched = candidate_matches[0][1]
+
             if matched:
                 filled = matched.get("filled_orders") or {}
                 profit = matched.get("profit") or {}
@@ -500,12 +506,9 @@ class GridCoordinator:
                 sell_c = int(filled.get("sell", 0) or 0)
                 cycles = int(filled.get("cycles", 0) or 0)
                 
-                # 計算網格套利利潤
-                grid_int = getattr(self.config, 'grid_interval', Decimal('0')) or Decimal('0')
-                order_amt = getattr(self.config, 'order_amount', Decimal('0')) or Decimal('0')
+                # 讀取網格真實套利毛利（忠實使用快照記錄，不進行理論乘法估算）
                 grid_profit = Decimal(str(profit.get("grid_profit", profit.get("realized", 0)) or 0))
-                if grid_profit == 0 and cycles > 0 and grid_int > 0 and order_amt > 0:
-                    grid_profit = Decimal(str(cycles)) * grid_int * order_amt
+                order_amt = getattr(self.config, 'order_amount', Decimal('0')) or Decimal('0')
 
                 # 判斷手續費率 (優先檢測配置與交易對規則，避免恢復歷史錯誤手續費)
                 fee_rate = getattr(self.config, 'fee_rate', None)
@@ -548,7 +551,7 @@ class GridCoordinator:
                     f"套利循環={cycles}格, 套利毛利={grid_profit}, 網格持倉={saved_pos}, 手續費={fees}"
                 )
         except Exception as e:
-            self.logger.debug(f"恢復歷史網格數據略過或失敗: {e}")
+            self.logger.warning(f"恢復歷史網格數據略過或失敗: {e}", exc_info=True)
 
     async def pause(self, reason: str = ""):
         """暫停網格交易"""

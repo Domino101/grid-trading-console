@@ -138,6 +138,57 @@ class DcaSnapshotTests(unittest.TestCase):
         self.assertEqual(snapshot.aggregate_paper.realized_pnl, 99.0)
         self.assertEqual(snapshot.aggregate_live.realized_pnl, 10.0)
 
+    def test_snapshot_merges_runtime_indicator_results(self):
+        yaml_content = """dca:
+  exchange: binance
+  symbol: BTC/USDT
+  direction: long
+  account_mode: paper
+  base_order_amount: "100"
+  max_safety_orders: 10
+  price_deviation_percent: "1.0"
+  take_profit_percent: "1.5"
+  entry:
+    mode: indicator
+    timeframe: 15m
+    indicators:
+      - type: rsi
+        period: 14
+        oversold: 30.0
+        overbought: 70.0
+        condition: level
+"""
+        bot_path = self._write_yaml("dca-rsi.yaml", yaml_content)
+        self.store.update(bot_path, {
+            "status": "armed",
+            "current_price": 60000.0,
+            "indicator_results": [
+                {
+                    "type": "rsi",
+                    "value": 27.8,
+                    "triggered": True,
+                    "triggered_long": True,
+                    "triggered_short": False,
+                    "insufficient_data": False,
+                    "warmup_have": 300,
+                    "warmup_need": 15,
+                    "details": {"oversold": 30.0, "overbought": 70.0},
+                }
+            ],
+        })
+        snapshot = self._snapshot({bot_path: True})
+        self.assertEqual(len(snapshot.bots), 1)
+        item = snapshot.bots[0]
+        self.assertEqual(len(item.entry_indicators), 1)
+        ind = item.entry_indicators[0]
+        self.assertEqual(ind.type, "rsi")
+        self.assertEqual(ind.period, 14)
+        self.assertEqual(ind.current_value, 27.8)
+        self.assertTrue(ind.triggered)
+        self.assertFalse(ind.insufficient_data)
+        self.assertEqual(ind.warmup_have, 300)
+        self.assertEqual(ind.warmup_need, 15)
+
 
 if __name__ == "__main__":
     unittest.main()

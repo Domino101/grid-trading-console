@@ -284,7 +284,7 @@ class GridStatsFilledOrders(BaseModel):
 
 
 class GridStatsProfit(BaseModel):
-    grid_profit: Optional[float] = Field(default=None, description="網格套利利潤（理論毛利）")
+    grid_profit: Optional[float] = Field(default=None, description="網格套利利潤（真實配對毛利）")
     realized: Optional[float] = Field(default=None, description="已實現盈虧")
     unrealized: Optional[float] = Field(default=None, description="未實現盈虧")
     total: Optional[float] = Field(default=None, description="總盈虧")
@@ -485,7 +485,7 @@ class AuditLogListResponse(BaseModel):
 # ── Phase 4：DCA 機器人契約 ──
 
 class DcaIndicatorConfig(BaseModel):
-    """單一指標設定（僅啟用時需填具該用途欄位）。"""
+    """單一指標設定（含靜態參數與執行期快照即時值）。"""
     type: str
     period: Optional[int] = None
     oversold: Optional[float] = None
@@ -498,6 +498,15 @@ class DcaIndicatorConfig(BaseModel):
     long_threshold_percent: Optional[float] = None
     short_threshold_percent: Optional[float] = None
     condition: Optional[str] = None
+    # 執行期即時值（快照讀模型附加）
+    current_value: Optional[float] = None
+    triggered: Optional[bool] = None
+    triggered_long: Optional[bool] = None
+    triggered_short: Optional[bool] = None
+    insufficient_data: Optional[bool] = None
+    warmup_have: Optional[int] = None
+    warmup_need: Optional[int] = None
+    details: Optional[Dict[str, Optional[float]]] = None
 
 
 class DcaEntryConfig(BaseModel):

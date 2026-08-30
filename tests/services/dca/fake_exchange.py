@@ -80,7 +80,8 @@ class FakeExchange:
         self.orders[oid] = rec
         self.by_client_id[client_id] = rec
 
-        if order_type == "market":
+        type_val = getattr(order_type, "value", str(order_type)).lower()
+        if type_val == "market":
             self._do_fill(rec, self._last_price)
         else:
             self._maybe_fill(rec)
@@ -124,11 +125,13 @@ class FakeExchange:
     # ── 內部 ──
 
     def _maybe_fill(self, rec) -> None:
-        if rec.type != "limit" or rec.price is None:
+        type_val = getattr(rec.type, "value", str(rec.type)).lower()
+        side_val = getattr(rec.side, "value", str(rec.side)).lower()
+        if type_val != "limit" or rec.price is None:
             return
         fillable = (
-            (rec.side == "buy" and self._last_price <= rec.price)
-            or (rec.side == "sell" and self._last_price >= rec.price)
+            (side_val in ("buy", "long") and self._last_price <= rec.price)
+            or (side_val in ("sell", "short") and self._last_price >= rec.price)
         )
         if fillable:
             self._do_fill(rec, rec.price)

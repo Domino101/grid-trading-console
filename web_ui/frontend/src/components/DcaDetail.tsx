@@ -37,6 +37,7 @@ import {
     dcaRoiPercent,
     dcaSideLabel,
     directionLabel,
+    indicatorLiveInfo,
     isDcaArmed,
 } from '../utils/dca';
 import DcaStatusBadge from './DcaStatusBadge';
@@ -846,36 +847,63 @@ const DcaDetail: React.FC<DcaDetailProps> = ({ bot, onBack, onUnauthorized }) =>
                                     <tr>
                                         <th>指標</th>
                                         <th>參數</th>
-                                        <th>條件</th>
+                                        <th>條件門檻</th>
+                                        <th>當前即時值</th>
+                                        <th>狀態</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {bot.entry_indicators.map((ind, i) => (
-                                        <tr key={`${ind.type}-${i}`}>
-                                            <td className="font-mono">{(ind.type ?? '').toUpperCase()}</td>
-                                            <td className="font-mono" style={{ fontSize: '0.76rem' }}>
-                                                {[
-                                                    ind.period != null ? `period=${ind.period}` : null,
-                                                    ind.fast != null ? `fast=${ind.fast}` : null,
-                                                    ind.slow != null ? `slow=${ind.slow}` : null,
-                                                    ind.signal != null ? `signal=${ind.signal}` : null,
-                                                    ind.oversold != null ? `oversold=${ind.oversold}` : null,
-                                                    ind.overbought != null ? `overbought=${ind.overbought}` : null,
-                                                    ind.std_dev != null ? `std=${ind.std_dev}` : null,
-                                                    ind.lookback_bars != null ? `lookback=${ind.lookback_bars}` : null,
-                                                    ind.long_threshold_percent != null ? `long≤${ind.long_threshold_percent}%` : null,
-                                                    ind.short_threshold_percent != null ? `short≥${ind.short_threshold_percent}%` : null,
-                                                ].filter(Boolean).join(' · ') || '—'}
-                                            </td>
-                                            <td>{ind.condition ?? '—'}</td>
-                                        </tr>
-                                    ))}
+                                    {bot.entry_indicators.map((ind, i) => {
+                                        const live = indicatorLiveInfo(ind);
+                                        return (
+                                            <tr key={`${ind.type}-${i}`}>
+                                                <td className="font-mono"><strong>{live.name}</strong></td>
+                                                <td className="font-mono" style={{ fontSize: '0.76rem' }}>
+                                                    {[
+                                                        ind.period != null ? `period=${ind.period}` : null,
+                                                        ind.fast != null ? `fast=${ind.fast}` : null,
+                                                        ind.slow != null ? `slow=${ind.slow}` : null,
+                                                        ind.signal != null ? `signal=${ind.signal}` : null,
+                                                        ind.oversold != null ? `oversold=${ind.oversold}` : null,
+                                                        ind.overbought != null ? `overbought=${ind.overbought}` : null,
+                                                        ind.std_dev != null ? `std=${ind.std_dev}` : null,
+                                                        ind.lookback_bars != null ? `lookback=${ind.lookback_bars}` : null,
+                                                        ind.long_threshold_percent != null ? `long≤${ind.long_threshold_percent}%` : null,
+                                                        ind.short_threshold_percent != null ? `short≥${ind.short_threshold_percent}%` : null,
+                                                    ].filter(Boolean).join(' · ') || '—'}
+                                                </td>
+                                                <td className="font-mono" style={{ fontSize: '0.82rem' }}>
+                                                    {live.targetText || ind.condition || '—'}
+                                                </td>
+                                                <td className="font-mono" style={{ fontSize: '0.88rem' }}>
+                                                    {live.valueText != null ? (
+                                                        <span className={live.isTriggered ? 'positive' : live.isWarming ? 'text-muted' : ''} style={{ fontWeight: 600 }}>
+                                                            {live.valueText}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-muted">—</span>
+                                                    )}
+                                                </td>
+                                                <td>
+                                                    {live.isTriggered ? (
+                                                        <span className="badge badge-dca-triggering">條件成立</span>
+                                                    ) : live.isWarming ? (
+                                                        <span className="badge badge-dca-armed">暖機中</span>
+                                                    ) : live.valueText != null ? (
+                                                        <span className="badge badge-neutral">監控中</span>
+                                                    ) : (
+                                                        <span className="text-muted">—</span>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>
                     )}
                     <p className="muted" style={{ fontSize: '0.74rem', marginTop: '0.75rem' }}>
-                        指標於時框 {bot.entry_timeframe ?? '—'} 上共用同一 K 線管線評估；即時值可於「建立 DCA」精靈的指標面板查看。
+                        指標於時框 {bot.entry_timeframe ?? '—'} 上共用同一 K 線管線評估；數值隨引擎快照自動即時同步。
                     </p>
                 </section>
             )}

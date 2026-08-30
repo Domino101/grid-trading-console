@@ -241,6 +241,21 @@ def _build_dca_read_model(
                 continue
             entry_indicators.append({k: item[k] for k in allowed if k in item})
 
+    # 合併執行期快照指標即時值（Phase 5+ 卡片與詳情頁動態呈現）
+    runtime_ind_results = (runtime or {}).get("indicator_results") or []
+    for idx, ind_dict in enumerate(entry_indicators):
+        if idx < len(runtime_ind_results):
+            rt_res = runtime_ind_results[idx]
+            if isinstance(rt_res, Mapping):
+                ind_dict["current_value"] = _number(rt_res.get("value"))
+                ind_dict["triggered"] = bool(rt_res.get("triggered")) if rt_res.get("triggered") is not None else None
+                ind_dict["triggered_long"] = bool(rt_res.get("triggered_long")) if rt_res.get("triggered_long") is not None else None
+                ind_dict["triggered_short"] = bool(rt_res.get("triggered_short")) if rt_res.get("triggered_short") is not None else None
+                ind_dict["insufficient_data"] = bool(rt_res.get("insufficient_data")) if rt_res.get("insufficient_data") is not None else None
+                ind_dict["warmup_have"] = _int(rt_res.get("warmup_have"))
+                ind_dict["warmup_need"] = _int(rt_res.get("warmup_need"))
+                ind_dict["details"] = dict(rt_res.get("details")) if isinstance(rt_res.get("details"), Mapping) else None
+
     # 方向解析：執行期鎖定方向優先；設定為單向時以設定值補位；both 且未鎖定 → None（G-5）
     yaml_direction = section.get("direction")
     effective_direction = (runtime or {}).get("active_direction")
@@ -1136,6 +1151,7 @@ async def get_dca_chart(
         symbol=symbol,
         timeframe=timeframe,
         limit=limit,
+        account_mode=account_mode,
     )
     
     # 取得 runtime 快照資料

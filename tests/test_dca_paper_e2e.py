@@ -60,7 +60,7 @@ class PaperOhlcvTests(unittest.IsolatedAsyncioTestCase):
         """稽核 3.10/3.11：同 seed 兩次呼叫相同，且含 synthetic 標記。"""
         paper = create_paper_adapter(
             {"grid_system": {"exchange": "binance", "symbol": SYMBOL,
-                             "account_mode": "paper"}},
+                             "account_mode": "paper", "synthetic_ohlcv": True}},
             ticker_provider=lambda _s: D("2500"),
         )
         await paper.connect()

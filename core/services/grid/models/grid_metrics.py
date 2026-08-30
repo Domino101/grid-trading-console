@@ -133,7 +133,7 @@ class GridStatistics:
     # 包含字段与cycle_apr_formula_data相同
 
     # 🆕 三柱收益與虛擬持倉隔離指標
-    grid_profit: Decimal = Decimal('0')        # 網格套利利潤（理論毛利：completed_cycles * grid_interval * order_amount）
+    grid_profit: Decimal = Decimal('0')        # 網格套利利潤（真實配對已實現毛利）
     grid_position: Decimal = Decimal('0')      # 網格自身虛擬持倉（排除手動干預）
     grid_average_cost: Decimal = Decimal('0')  # 網格自身持倉均價
     account_position: Optional[Decimal] = None # 交易所全帳戶持倉（含手動干預）

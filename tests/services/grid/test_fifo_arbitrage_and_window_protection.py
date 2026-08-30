@@ -367,3 +367,87 @@ async def test_short_grid_active_window_symmetry():
     assert len(buys) == 2
     assert all(o.price < Decimal("94800") for o in buys)
 
+
+def test_negative_profit_sell_below_cost_does_not_increment_completed_cycles():
+    """驗證持倉下方賣單（虧損賣出）時，completed_cycles 不會被錯誤遞增，且真實記錄虧損與 loss_cycles。"""
+    config = GridConfig(
+        exchange="binance",
+        symbol="BTC/USDC:USDC",
+        grid_type=GridType.NEUTRAL,
+        lower_price=Decimal("90000"),
+        upper_price=Decimal("100000"),
+        grid_interval=Decimal("1000"),
+        order_amount=Decimal("0.01"),
+        fee_rate=Decimal("0.0")
+    )
+    state = GridState()
+    tracker = PositionTrackerImpl(config, state)
+    now = datetime.now()
+
+    # 1. 買入 @100000 數量 0.01
+    buy = GridOrder(
+        order_id="buy_high",
+        grid_id=10,
+        side=GridOrderSide.BUY,
+        price=Decimal("100000"),
+        amount=Decimal("0.01"),
+        filled_price=Decimal("100000"),
+        filled_amount=Decimal("0.01"),
+        status=GridOrderStatus.FILLED,
+        created_at=now,
+        filled_at=now
+    )
+    tracker.record_filled_order(buy)
+
+    # 2. 在持倉下方賣出 @95000 數量 0.01 (虧損 50 USDC)
+    sell_low = GridOrder(
+        order_id="sell_low",
+        grid_id=5,
+        side=GridOrderSide.SELL,
+        price=Decimal("95000"),
+        amount=Decimal("0.01"),
+        filled_price=Decimal("95000"),
+        filled_amount=Decimal("0.01"),
+        status=GridOrderStatus.FILLED,
+        created_at=now,
+        filled_at=now
+    )
+    tracker.record_filled_order(sell_low)
+
+    # 驗證：虧損賣出不增加 completed_cycles，但增加 loss_cycles
+    assert tracker.completed_cycles == 0
+    assert tracker.loss_cycles == 1
+    assert tracker.grid_profit == Decimal("-50.0")
+    assert tracker.realized_pnl == Decimal("-50.0")
+
+    metrics = tracker.get_metrics()
+    assert metrics.win_trades == 0
+    assert metrics.loss_trades == 1
+    assert metrics.win_rate == Decimal("0")
+
+
+def test_fallback_profit_inflation_is_eliminated():
+    """驗證移除粗暴理論估算公式後，get_statistics 不會因 cycles 虛構正利潤。"""
+    config = GridConfig(
+        exchange="binance",
+        symbol="BTC/USDC:USDC",
+        grid_type=GridType.NEUTRAL,
+        lower_price=Decimal("90000"),
+        upper_price=Decimal("100000"),
+        grid_interval=Decimal("1000"),
+        order_amount=Decimal("0.01"),
+        fee_rate=Decimal("0.0")
+    )
+    state = GridState()
+    tracker = PositionTrackerImpl(config, state)
+
+    # 人為設定 completed_cycles = 10，但真實 grid_profit = 0
+    tracker.completed_cycles = 10
+    tracker.grid_profit = Decimal("0")
+
+    stats = tracker.get_statistics()
+    # 絕不自動捏造 10 * 1000 * 0.01 = 100.0 的虛擬正利潤
+    assert stats.realized_profit == Decimal("0")
+    assert stats.grid_profit == Decimal("0")
+
+

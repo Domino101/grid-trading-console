@@ -226,7 +226,7 @@ class KlineService:
             exchange_type=ExchangeType.PERPETUAL,
             api_key="",
             api_secret="",
-            extra_params={"venue": exchange, "paper": True},
+            extra_params={"venue": exchange, "paper": True, "synthetic_ohlcv": True},
         )
         adapter = PaperExchangeAdapter(config)
         
