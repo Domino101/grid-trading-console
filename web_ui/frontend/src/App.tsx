@@ -218,7 +218,7 @@ const App: React.FC = () => {
           <div className="sidebar-version">
             <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
               <Terminal size={12} />
-              <span>v2.4.0-pro</span>
+              <span>v0.1.0-beta</span>
             </span>
             <span className="positive">● CONNECTED</span>
           </div>

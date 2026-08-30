@@ -54,7 +54,7 @@ app = FastAPI(
     lifespan=lifespan,
     title="grid-trading-console API",
     description="Grid trading engine control API",
-    version="1.0.0",
+    version="0.1.0-beta",
 )
 
 _cors_origins, _cors_credentials = cors_settings(os.getenv("GRID_CORS_ORIGINS"))
