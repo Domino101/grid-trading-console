@@ -462,6 +462,10 @@ async def run_single_grid_task(config_path: str, adapter_pool, logger, running_g
                         ]
                     except Exception:
                         pass
+                    # P1-4: 合法重置後豁免單調防護（一次性旗標，用後即清）
+                    if getattr(coordinator, "_monotonic_bypass_next", False):
+                        stats_dict["_monotonic_bypass"] = True
+                        coordinator._monotonic_bypass_next = False
                     print(f"[STATS_JSON][{grid_config.symbol}] {json.dumps(stats_dict, cls=JSONEncoder)}")
                     try:
                         publish_runtime(config_path, stats_dict)

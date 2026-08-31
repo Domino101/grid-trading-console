@@ -106,6 +106,8 @@ class GridCoordinator:
         self._paused_reason = ""
         self._last_error: Optional[Exception] = None
         self._resetting = False  # 标志当前是否正在执行重置流程（止盈/保護重置/手動重置）
+        # P1-4: 合法重置後，下一筆 heartbeat 快照需豁免單調防護
+        self._monotonic_bypass_next = False
 
         # 延迟处理队列：重置期间产生的立即成交订单
         self._pending_immediate_fills: List[GridOrder] = []  # 🔥 重置期间缓存的立即成交订单

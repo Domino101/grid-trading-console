@@ -13,7 +13,69 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from core.infrastructure.database.guard import EnvironmentGuard
 from core.infrastructure.database.models import BotPosition, BotRecord, BotSnapshot, TradeFill
+from core.logging import get_logger
 from web_ui.backend.lifecycle import connect_sqlite
+
+logger = get_logger(__name__)
+
+
+def _num(value: Any) -> Optional[float]:
+    """Coerce a value to float for monotonic comparison; non-numeric/None/bool → None."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _monotonic_metrics(payload: dict) -> Dict[str, Optional[float]]:
+    """Extract strictly-nondecreasing cumulative counters from a snapshot payload.
+
+    只挑選「嚴格單調遞增」的計數器；已實現盈虧會因虧損循環/停損合法下降，
+    故刻意排除，避免誤判。
+    """
+    filled = payload.get("filled_orders")
+    profit = payload.get("profit")
+    if not isinstance(filled, dict):
+        filled = {}
+    if not isinstance(profit, dict):
+        profit = {}
+
+    def first(*keys: str) -> Optional[float]:
+        for key in keys:
+            value = _num(payload.get(key))
+            if value is not None:
+                return value
+        return None
+
+    cycles = first("cycles", "cycle_count", "completed_cycles")
+    if cycles is None:
+        cycles = _num(filled.get("cycles"))
+    buy = _num(filled.get("buy"))
+    if buy is None:
+        buy = _num(payload.get("filled_buy_count"))
+    sell = _num(filled.get("sell"))
+    if sell is None:
+        sell = _num(payload.get("filled_sell_count"))
+    fees = _num(profit.get("fees"))
+    if fees is None:
+        fees = _num(payload.get("total_fees"))
+    return {"cycles": cycles, "buy": buy, "sell": sell, "fees": fees}
+
+
+def _monotonic_regression(old: dict, new: dict) -> List[str]:
+    """Return the counter keys that regressed (new < old); empty list = no regression."""
+    old_m = _monotonic_metrics(old)
+    new_m = _monotonic_metrics(new)
+    regressed: List[str] = []
+    for key, old_value in old_m.items():
+        new_value = new_m.get(key)
+        if old_value is None or new_value is None:
+            continue
+        if new_value < old_value - 1e-9:
+            regressed.append(key)
+    return regressed
 
 
 class LedgerRepository:
@@ -21,6 +83,9 @@ class LedgerRepository:
 
     _instance: Optional["LedgerRepository"] = None
     _instance_lock = threading.Lock()
+
+    # P1-4: 單調防護開關（可於測試/除錯時暫時關閉）
+    MONOTONIC_GUARD_ENABLED = True
 
     def __init__(self, database_path: Optional[str] = None):
         self.database_path = EnvironmentGuard.get_safe_database_path(database_path)
@@ -375,8 +440,31 @@ class LedgerRepository:
 
     def save_snapshot(self, bot_id: str, config_path: str, stats: dict, timestamp: Optional[float] = None) -> float:
         ts = timestamp if timestamp is not None else time.time()
-        payload_str = json.dumps(stats, ensure_ascii=False, separators=(",", ":"), default=str)
+        # P1-4: 剝除內部控制旗標（不得進入持久化 payload）
+        clean_stats = {k: v for k, v in stats.items() if k != "_monotonic_bypass"}
+        payload_str = json.dumps(clean_stats, ensure_ascii=False, separators=(",", ":"), default=str)
         with self._lock, self._connect() as conn:
+            # ── P1-4 單調防護：防止「恢復失敗的新引擎」以 0 值覆寫累積計數 ──
+            if self.MONOTONIC_GUARD_ENABLED:
+                existing = conn.execute(
+                    "SELECT payload FROM bot_snapshots WHERE bot_id = ?", (bot_id,)
+                ).fetchone()
+                if existing:
+                    try:
+                        old_payload = json.loads(existing["payload"])
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        old_payload = None
+                    if isinstance(old_payload, dict):
+                        bypass = bool(stats.get("_monotonic_bypass")) or bool(stats.get("reset_id"))
+                        regressed = _monotonic_regression(old_payload, stats)
+                        if regressed and not bypass:
+                            logger.warning(
+                                f"⚠️ [MonotonicGuard] 拒絕覆寫快照（累計計數倒退）: "
+                                f"bot_id={bot_id} keys={','.join(regressed)} "
+                                f"（若為合法重置，須帶 _monotonic_bypass/reset_id 標記）"
+                            )
+                            return ts
+
             # 1. Update bot_snapshots
             conn.execute(
                 """
