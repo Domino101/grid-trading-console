@@ -7,6 +7,8 @@
 #   print(c.symbol, c.direction, c.max_safety_orders, c.account_mode)"
 # =============================================================================
 
+metadata:
+  bot_id: example-dca-paper-eth
 dca:
   exchange: "binance"
   symbol: "ETH/USDC:USDC"

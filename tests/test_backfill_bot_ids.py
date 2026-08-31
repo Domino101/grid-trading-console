@@ -58,6 +58,29 @@ class TestBackfillBotIds(unittest.TestCase):
         data = yaml.safe_load((self.root / "config/grid/keep.yaml").read_text(encoding="utf-8"))
         self.assertEqual(data["metadata"]["bot_id"], "keep-me")
 
+    def test_backfill_preserves_comments_and_format(self):
+        """最小侵入：插入 metadata 區塊但保留既有註解與格式。"""
+        content = (
+            "# ===== 使用說明 =====\n"
+            "# 此處為重要註解，不得遺失\n"
+            "grid_system:\n"
+            "  symbol: SOL/USDC:USDC\n"
+            "  grid_interval: 0.5  # 每格間距\n"
+        )
+        self._write("config/grid/commented.yaml", content)
+
+        self.mod._apply_backfill(self.root / "config/grid/commented.yaml")
+        out = (self.root / "config/grid/commented.yaml").read_text(encoding="utf-8")
+
+        self.assertIn("# ===== 使用說明 =====", out)
+        self.assertIn("# 此處為重要註解，不得遺失", out)
+        self.assertIn("grid_interval: 0.5  # 每格間距", out)
+        data = yaml.safe_load(out)
+        self.assertEqual(data["metadata"]["bot_id"], "commented")
+        self.assertEqual(data["grid_system"]["symbol"], "SOL/USDC:USDC")
+        # metadata 區塊置於 strategy 區塊之前
+        self.assertLess(out.index("metadata:"), out.index("grid_system:"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,6 +2,8 @@
 # O1Exchange SOL/USDC 现货做多网格
 # ====================================
 
+metadata:
+  bot_id: o1exchange-long-spot-sol-usdc
 grid_system:
   exchange: o1exchange
   symbol: SOL/USDC

@@ -1,3 +1,5 @@
+metadata:
+  bot_id: binance-neutral-perp-uni-usdc-usdc-4-12
 grid_system:
   exchange: binance
   symbol: UNI/USDC:USDC

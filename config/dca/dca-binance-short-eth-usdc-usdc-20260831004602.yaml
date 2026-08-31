@@ -1,3 +1,5 @@
+metadata:
+  bot_id: dca-binance-short-eth-usdc-usdc-20260831004602
 dca:
   exchange: binance
   symbol: ETH/USDC:USDC

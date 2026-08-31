@@ -1,3 +1,5 @@
+metadata:
+  bot_id: binance-neutral-perp-paxg-usdt
 grid_system:
   exchange: "binance"
   symbol: "PAXG/USDT:USDT"
