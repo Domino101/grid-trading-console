@@ -329,7 +329,7 @@ async def run_single_grid_task(config_path: str, adapter_pool, logger, running_g
         engine = GridEngineImpl(shared_adapter)
         
         grid_state = GridState()
-        tracker = PositionTrackerImpl(grid_config, grid_state)
+        tracker = PositionTrackerImpl(grid_config, grid_state, bot_id=grid_bot_id)
         
         # 處理現貨預留管理（如有）
         reserve_manager = None
