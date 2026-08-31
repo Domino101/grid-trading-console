@@ -101,9 +101,13 @@ class TestBotEventStream(unittest.TestCase):
         self.assertEqual(types, ["take_profit", "stop_loss", "reset"])
 
     def test_events_table_exists_on_raw_schema_path(self):
-        # schema.sql（原生 sqlite 路徑）也必須含 bot_events
+        # schema.sql（原生 sqlite 路徑）也必須含 bot_events（僅 SQLite 後端適用）
         import sqlite3
 
+        from core.infrastructure.database.ledger_store import SqliteLedgerStore
+
+        if not isinstance(self.repo.store, SqliteLedgerStore):
+            self.skipTest("raw schema.sql path is SQLite-only (PG mode uses SQLAlchemy DDL)")
         con = sqlite3.connect(self.db_path)
         tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         self.assertIn("bot_events", tables)
