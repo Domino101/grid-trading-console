@@ -7,15 +7,17 @@ FastAPI. Both processes share the same SQLite files under ``data/``.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Optional
 
-from core.infrastructure.identity import resolve_bot_id
 from web_ui.backend.command_repository import GridCommandRepository
 from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
 
 
 def _grid_id(config_path: str) -> str:
-    return resolve_bot_id(config_path)
+    # UI/命令層身份使用檔名 stem；帳本 key 由 RuntimeSnapshotRepository.save 內的
+    # resolve_bot_id（metadata.bot_id）負責。
+    return Path(config_path).stem
 
 
 def publish_runtime(config_path: str, stats: dict, updated_at: Optional[float] = None) -> None:

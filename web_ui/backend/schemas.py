@@ -38,6 +38,11 @@ class CreateGridRequest(BaseModel):
     leverage: int = Field(default=10, ge=1, le=125, description="槓桿倍數")
     margin_mode: str = Field(default="cross", description="保證金模式: cross / isolated")
     account_mode: str = Field(default="paper", pattern="^(paper|live)$", description="帳戶模式: paper / live")
+    bot_id: Optional[str] = Field(
+        default=None,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+        description="穩定機器人身份（編輯/重建既有網格時傳入以保留交易紀錄；未提供時自動產生）",
+    )
 
     # 速率保護（Binance 會自動填入安全預設值）
     limit_only: Optional[bool] = None
@@ -593,6 +598,11 @@ class CreateDcaRequest(BaseModel):
     exchange: str = Field(..., description="binance / lighter / backpack / hyperliquid")
     direction: str = Field(default="long", description="long / short / both")
     account_mode: str = Field(default="paper", description="paper / live")
+    bot_id: Optional[str] = Field(
+        default=None,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+        description="穩定機器人身份（編輯/重建既有 DCA 時傳入以保留交易紀錄；未提供時自動產生）",
+    )
     base_order_amount: float = Field(..., gt=0, description="基礎單金額")
     amount_unit: str = Field(default="quote", description="quote(USD) / base(幣)")
     dca_mode: str = Field(default="order", description="order / position")

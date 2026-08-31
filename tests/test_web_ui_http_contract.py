@@ -107,6 +107,21 @@ class WebUiHttpContractTests(unittest.TestCase):
         with open(os.path.join(self.temp_dir.name, payload["config_path"]), encoding="utf-8") as handle:
             self.assertIn("account_mode: paper", handle.read())
 
+    def test_create_grid_accepts_bot_id_passthrough(self):
+        """P1-1: 建立時可傳入既有 bot_id，寫入 YAML metadata.bot_id（供編輯/重建保留紀錄）。"""
+        headers = {"Authorization": "Bearer contract-token"}
+        created = self.client.post("/api/v1/grids", headers=headers, json={
+            "symbol": "DOGE/USDT", "exchange": "binance", "grid_type": "neutral",
+            "lower_price": 1, "upper_price": 2, "grid_interval": 0.1,
+            "order_amount": 1.0, "account_mode": "paper", "auto_start": False,
+            "bot_id": "stable-doge-id",
+        })
+        self.assertEqual(created.status_code, 201, created.text)
+        payload = created.json()
+        with open(os.path.join(self.temp_dir.name, payload["config_path"]), encoding="utf-8") as handle:
+            content = handle.read()
+        self.assertIn("bot_id: stable-doge-id", content)
+
     def test_command_lookup_and_event_timeline_contract(self):
         command = self.repository.create("paper-grid", "config/grid/paper-grid.yaml", "start", "dashboard")
         self.repository.update_status(command["command_id"], "running")
