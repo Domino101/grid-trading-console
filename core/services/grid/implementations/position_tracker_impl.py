@@ -4,7 +4,8 @@
 跟踪网格系统的持仓、盈亏、交易历史等
 """
 
-from typing import Dict, List, Deque
+import time
+from typing import Dict, List, Deque, Optional
 from decimal import Decimal
 from datetime import datetime, timedelta
 from collections import deque
@@ -28,17 +29,19 @@ class PositionTrackerImpl(IPositionTracker):
     4. 生成统计数据
     """
 
-    def __init__(self, config: GridConfig, grid_state: GridState):
+    def __init__(self, config: GridConfig, grid_state: GridState, bot_id: Optional[str] = None):
         """
         初始化持仓跟踪器
 
         Args:
             config: 网格配置
             grid_state: 网格状态
+            bot_id: 穩定機器人身份（P1-3）；提供時逐筆寫入不可變成交流水 trade_fills
         """
         self.logger = get_logger(__name__)
         self.config = config
         self.state = grid_state
+        self.bot_id = bot_id
 
         # 網格自身虛擬持倉（僅受網格自身掛單成交影響，隔離手動干預）
         self.virtual_position = Decimal('0')      # 網格自身持倉數量
@@ -191,6 +194,12 @@ class PositionTrackerImpl(IPositionTracker):
         profit_for_record = matched_profit if matched_any else None
         self._record_trade(order, filled_price, filled_amount, fee, profit_for_record)
 
+        # 5. P1-3: 逐筆寫入不可變成交流水（append-only，冪等；失敗不影響交易）
+        self._persist_fill_to_ledger(
+            order, filled_price, filled_amount, fee,
+            matched_profit if matched_any else Decimal('0'),
+        )
+
         # 更新最后交易时间
         self.last_trade_time = datetime.now()
 
@@ -199,6 +208,45 @@ class PositionTrackerImpl(IPositionTracker):
             f"套利配對: {matched_any} (本次獲利={matched_profit}), "
             f"累計套利={self.completed_cycles}格, 套利毛利={self.grid_profit}, 手續費={self.total_fees}"
         )
+
+    def _persist_fill_to_ledger(
+        self,
+        order: GridOrder,
+        price: Decimal,
+        amount: Decimal,
+        fee: Decimal,
+        realized_pnl: Decimal,
+    ) -> None:
+        """P1-3: 將單筆 grid 成交寫入不可變成交流水 trade_fills（冪等 append-only）。"""
+        if not self.bot_id:
+            return
+        try:
+            from core.infrastructure.database.ledger_repository import LedgerRepository
+            from core.infrastructure.database.models import TradeFill
+
+            executed_at = (
+                order.filled_at.timestamp()
+                if order.filled_at is not None
+                else time.time()
+            )
+            client_order_id = order.client_id or order.order_id
+            fill = TradeFill(
+                fill_id=order.client_id or order.order_id,
+                bot_id=self.bot_id,
+                exchange_order_id=order.order_id,
+                client_order_id=client_order_id,
+                side="buy" if order.is_buy_order() else "sell",
+                role="grid",
+                price=float(price),
+                quantity=float(amount),
+                fee=float(fee) if fee is not None else 0.0,
+                fee_currency=None,
+                realized_pnl=float(realized_pnl) if realized_pnl is not None else 0.0,
+                executed_at=executed_at,
+            )
+            LedgerRepository.instance().record_fill(fill)
+        except Exception as exc:  # 帳本失敗絕不阻斷交易
+            self.logger.warning(f"寫入不可變成交流水失敗 (略過，不影響交易): {exc}")
 
     def resolve_fee_rate(self) -> Decimal:
         """
