@@ -77,6 +77,11 @@
 
 ## 2. 實機 PAPER 驗證 — Phase 2（PostgreSQL + Redis）
 
+> **既有系統導入請先讀**：若本機是舊版（v0.9.x，JSON 快照 schema）在線上運行，
+> 先依 `docs/live_upgrade_playbook_zh-TW.md` 執行近零停機導入（備份→回填→DatabaseMigrator→驗證閘→回滾），
+> 再回到本清單做 PAPER/LIVE 驗證。**既有 SQLite 庫禁止 `alembic upgrade head`**（0001 會與既有 legacy 表衝突）；
+> 本節 §2.1 的 Alembic 僅適用於全新 PostgreSQL 庫。
+
 ### 2.1 部署（依 `docs/phase2_production_ops_zh-TW.md` §3）
 
 - [ ] `CREATE ROLE grid LOGIN PASSWORD '...'; CREATE DATABASE grid OWNER grid;`（密碼用強密碼，勿照抄文件範例）。

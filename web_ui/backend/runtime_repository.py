@@ -99,6 +99,10 @@ class RuntimeSnapshotRepository:
         # 3. Update Position & Metrics
         pos_data = stats.get("position") or {}
         profit_data = stats.get("profit") or {}
+        # grid heartbeat 的 cycles 位於 filled_orders.cycles（無 top-level cycles）；
+        # DCA 為 top-level cycles。與 migrator/重啟恢復邏輯一致。
+        filled_orders = stats.get("filled_orders") or {}
+        cycles_raw = stats.get("cycles", stats.get("completed_cycles", filled_orders.get("cycles", 0)))
         pos = BotPosition(
             bot_id=bot_id,
             active_direction=stats.get("active_direction"),
@@ -106,7 +110,7 @@ class RuntimeSnapshotRepository:
             average_cost=float(pos_data.get("average_cost", 0.0)) if pos_data.get("average_cost") else None,
             total_cost=float(pos_data.get("total_cost", 0.0) or 0.0),
             entry_price=float(stats.get("entry_price", 0.0)) if stats.get("entry_price") else None,
-            completed_cycles=int(stats.get("cycles", stats.get("completed_cycles", 0)) or 0),
+            completed_cycles=int(cycles_raw or 0),
             realized_profit=float(profit_data.get("realized", profit_data.get("grid_profit", 0.0)) or 0.0),
             total_fees=float(profit_data.get("fees", 0.0) or 0.0),
             updated_at=timestamp,

@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+### Fixed
+- **線上既有庫平滑導入修正（2026-08-31，`docs/live_upgrade_playbook_zh-TW.md` 診斷沙箱實證）**：
+  - `DatabaseMigrator` 遷移後補寫 `bot_snapshots`（原只回補 bots/trade_fills/bot_positions，P1-2 穩定 bot_id 恢復主路徑在遷移後首次重啟會落空、被迫走 legacy 啟發式）；僅在無既有快照時寫入，重跑冪等。
+  - `DatabaseMigrator` 與 `RuntimeSnapshotRepository.save()` 的 `completed_cycles` 回補新增 `filled_orders.cycles` 來源（舊版 grid 快照無 top-level `cycles`，原實作遷移後 grid 持倉投影恆為 0）。
+  - 實證：既有 SQLite 庫**禁止**跑 `alembic upgrade head`（0001 會重複建立既有的 `grid_runtime_snapshots` 等 legacy 表而失敗）；既有庫由應用 `create_all`（checkfirst）只補缺表，Alembic 僅用於全新 PostgreSQL/SQLite。
+
 ### Added
 - **Phase 3 事件溯源 + 交易所三路對帳（P3-1～P3-4）**：
   - `bot_events` append-only 事件流（per-bot 單調 seq + dedupe_key 冪等；Alembic `0002_bot_events`）：事件型別涵蓋 bot_created/bot_renamed/order_placed/order_cancelled/fill/take_profit/stop_loss/reset/state_transition/reconcile。
