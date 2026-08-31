@@ -92,6 +92,15 @@ class LedgerStore(typing.Protocol):
     def get_all_bots(self) -> List[BotRecord]: ...
     def record_fill(self, fill: TradeFill) -> None: ...
     def get_fills(self, bot_id: str, limit: int = 500, since: float = 0.0) -> List[TradeFill]: ...
+    def append_event(
+        self,
+        bot_id: str,
+        event_type: str,
+        payload: Optional[dict] = None,
+        created_at: Optional[float] = None,
+        dedupe_key: Optional[str] = None,
+    ) -> int: ...
+    def get_events(self, bot_id: str, since_seq: int = 0, limit: int = 100000) -> List["BotEvent"]: ...
     def get_position(self, bot_id: str) -> Optional[BotPosition]: ...
     def update_position_occ(self, bot_id: str, position: BotPosition, expected_version: int) -> bool: ...
     def rehydrate_position_from_fills(self, bot_id: str) -> BotPosition: ...
@@ -185,6 +194,19 @@ bot_identity_events = Table(
     Column("recorded_at", Float, nullable=False),
 )
 
+# Phase 3 (P3-1): append-only event stream (event-sourcing canonical facts).
+bot_events = Table(
+    "bot_events",
+    meta,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("bot_id", String(255), nullable=False),
+    Column("seq", Integer, nullable=False),
+    Column("event_type", String(32), nullable=False),
+    Column("dedupe_key", String(512), nullable=True),
+    Column("payload", Text, nullable=False),
+    Column("created_at", Float, nullable=False),
+)
+
 grid_runtime_snapshots = Table(
     "grid_runtime_snapshots",
     meta,
@@ -209,6 +231,16 @@ Index("idx_snapshot_history_bot_time", bot_snapshot_history.c.bot_id, bot_snapsh
 Index("idx_snapshot_history_path_time", bot_snapshot_history.c.config_path, bot_snapshot_history.c.recorded_at.desc())
 Index("idx_identity_events_bot_time", bot_identity_events.c.bot_id, bot_identity_events.c.recorded_at.desc())
 Index("idx_legacy_runtime_history", grid_runtime_history.c.config_path, grid_runtime_history.c.recorded_at.desc())
+Index("idx_bot_events_bot_seq", bot_events.c.bot_id, bot_events.c.seq, unique=True)
+Index("idx_bot_events_bot_time", bot_events.c.bot_id, bot_events.c.created_at.desc())
+Index(
+    "idx_bot_events_dedupe",
+    bot_events.c.bot_id,
+    bot_events.c.dedupe_key,
+    unique=True,
+    sqlite_where=bot_events.c.dedupe_key.isnot(None),
+    postgresql_where=bot_events.c.dedupe_key.isnot(None),
+)
 
 
 # ── Monotonic guard helpers (P1-4) ─────────────────────────────────────────────
@@ -428,6 +460,35 @@ class SQLAlchemyLedgerStore:
                 recorded_at=ts,
             )
         )
+        # P3-1: bridge identity lifecycle into the canonical event stream so a
+        # replay from bot_events alone covers bot creation/renaming as well.
+        bridge_type = {"created": "bot_created", "config_linked": "bot_renamed", "renamed": "bot_renamed"}.get(event_type)
+        if bridge_type:
+            seq_row = conn.execute(
+                select(func.max(bot_events.c.seq)).where(bot_events.c.bot_id == bot_id)
+            ).fetchone()
+            seq = int(seq_row[0] or 0) + 1
+            payload = json.dumps(
+                {
+                    "config_path": config_path,
+                    "old_bot_id": old_bot_id,
+                    "new_bot_id": new_bot_id,
+                    "identity_event": event_type,
+                },
+                ensure_ascii=False,
+                separators=(",", ":"),
+                default=str,
+            )
+            conn.execute(
+                bot_events.insert().values(
+                    bot_id=bot_id,
+                    seq=seq,
+                    event_type=bridge_type,
+                    dedupe_key=f"identity:{event_type}:{config_path}:{ts}",
+                    payload=payload,
+                    created_at=ts,
+                )
+            )
 
     def record_identity_event(
         self,
@@ -462,6 +523,85 @@ class SQLAlchemyLedgerStore:
             )
             for r in rows
         ]
+
+    # ── P3-1: append-only event stream ──────────────────────────────────────
+    def append_event(
+        self,
+        bot_id: str,
+        event_type: str,
+        payload: Optional[dict] = None,
+        created_at: Optional[float] = None,
+        dedupe_key: Optional[str] = None,
+    ) -> int:
+        """Append one event to the per-bot stream; returns its assigned seq.
+
+        Idempotent when ``dedupe_key`` is provided (re-sends are no-ops that
+        return the original seq).  Seq collisions across processes resolve by
+        bounded retry (unique index on (bot_id, seq)).
+        """
+        ts = created_at if created_at is not None else time.time()
+        payload_str = json.dumps(payload or {}, ensure_ascii=False, separators=(",", ":"), default=str)
+        last_error: Optional[Exception] = None
+        for _ in range(3):
+            with self._lock, self._begin() as conn:
+                if dedupe_key:
+                    existing = conn.execute(
+                        select(bot_events.c.seq).where(
+                            bot_events.c.bot_id == bot_id, bot_events.c.dedupe_key == dedupe_key
+                        )
+                    ).fetchone()
+                    if existing:
+                        return int(existing.seq)
+                seq_row = conn.execute(
+                    select(func.max(bot_events.c.seq)).where(bot_events.c.bot_id == bot_id)
+                ).fetchone()
+                seq = int(seq_row[0] or 0) + 1
+                try:
+                    conn.execute(
+                        bot_events.insert().values(
+                            bot_id=bot_id,
+                            seq=seq,
+                            event_type=event_type,
+                            dedupe_key=dedupe_key,
+                            payload=payload_str,
+                            created_at=ts,
+                        )
+                    )
+                    return seq
+                except Exception as exc:  # seq race: retry with fresh max(seq)
+                    last_error = exc
+        raise LedgerStoreError(f"append_event failed after retries for {bot_id}/{event_type}: {last_error}")
+
+    def get_events(self, bot_id: str, since_seq: int = 0, limit: int = 100000) -> List["BotEvent"]:
+        """Read the event stream in seq order (event-sourcing replay source)."""
+        from core.infrastructure.database.models import BotEvent
+
+        with self._lock, self._ro() as conn:
+            rows = conn.execute(
+                select(bot_events)
+                .where(bot_events.c.bot_id == bot_id, bot_events.c.seq > since_seq)
+                .order_by(bot_events.c.seq.asc())
+                .limit(limit)
+            ).all()
+        events: List[BotEvent] = []
+        for r in rows:
+            try:
+                payload = json.loads(r.payload)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                payload = {}
+            if not isinstance(payload, dict):
+                payload = {}
+            events.append(
+                BotEvent(
+                    bot_id=r.bot_id,
+                    seq=int(r.seq),
+                    event_type=r.event_type,
+                    payload=payload,
+                    created_at=float(r.created_at),
+                    dedupe_key=r.dedupe_key,
+                )
+            )
+        return events
 
     def get_bot(self, bot_id: str) -> Optional[BotRecord]:
         with self._lock, self._ro() as conn:

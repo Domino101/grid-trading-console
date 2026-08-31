@@ -127,13 +127,152 @@ class ExchangeReconciler:
 
     @classmethod
     async def reconcile_grid(cls, coordinator: Any) -> Dict[str, Any]:
-        """Perform exchange-as-truth reconciliation for Grid bot."""
-        bot_id = getattr(coordinator, "grid_id", getattr(coordinator.config, "symbol", "unknown"))
+        """Perform exchange-as-truth three-way reconciliation for Grid bot (P3-2).
+
+        比對：本地 facts（虛擬持倉/掛單）↔ 交易所 positions ↔ 交易所 open orders。
+        自癒情境（計畫 §6 P3-2 驗收）：
+        * A「本地持倉=0、交易所持倉>0」→ 以交易所真值回補本地虛擬持倉並記審計。
+        * B「本地有掛單/TP、交易所無」→ 將本地殘單標記取消並記審計，
+          既有健康檢查/補單機制後續重建格位掛單。
+        每一項修復都寫入 ``reconcile`` 事件（bot_events 審計軌跡）。
+        """
+        bot_id = getattr(coordinator, "bot_id", None) or getattr(coordinator, "grid_id", None) \
+            or str(getattr(coordinator.config, "symbol", "unknown"))
         symbol = str(getattr(coordinator.config, "symbol", ""))
-        result = {"bot_id": bot_id, "symbol": symbol, "status": "success"}
+        result: Dict[str, Any] = {
+            "bot_id": bot_id,
+            "symbol": symbol,
+            "status": "success",
+            "rehydrated": False,
+            "stale_local_orders": 0,
+            "exchange_only_orders": 0,
+            "audits": 0,
+        }
+
+        def _audit(action: str, detail: Dict[str, Any]) -> None:
+            try:
+                from core.infrastructure.database.bot_events import emit_bot_event
+
+                emit_bot_event(
+                    str(bot_id),
+                    "reconcile",
+                    payload={"action": action, "symbol": symbol, **detail},
+                    dedupe_key=f"reconcile:{action}:{symbol}:{detail.get('order_id') or int(__import__('time').time())}",
+                )
+                result["audits"] += 1
+            except Exception:
+                pass  # 審計失敗不影響對帳修復
 
         try:
-            # Reconcile orders and restore metrics
+            engine = getattr(coordinator, "engine", None)
+            tracker = getattr(coordinator, "tracker", None)
+            exchange = getattr(engine, "exchange", None)
+            if exchange is None or tracker is None:
+                result["status"] = "skipped"
+                result["reason"] = "no_exchange_or_tracker"
+                return result
+
+            # ── 1. 持倉三路比對（交易所為真相源，ADR-4）─────────────────
+            exchange_qty: Optional[Decimal] = None
+            exchange_entry: Optional[Decimal] = None
+            try:
+                positions = await exchange.get_positions([symbol])
+                norm_symbol = symbol.replace("/", "").replace(":", "")
+                for p in positions or []:
+                    psym = str(getattr(p, "symbol", ""))
+                    if psym == symbol or psym.replace("/", "").replace(":", "") == norm_symbol:
+                        raw = getattr(p, "size", getattr(p, "amount", 0))
+                        exchange_qty = abs(Decimal(str(raw or 0)))
+                        entry = getattr(p, "entry_price", None)
+                        exchange_entry = Decimal(str(entry)) if entry else None
+                        break
+            except Exception as exc:
+                logger.warning(f"⚠️ [Reconciler {symbol}] 查詢交易所持倉失敗（略過持倉比對）: {exc}")
+
+            if exchange_qty is not None:
+                local_qty = Decimal(str(getattr(tracker, "virtual_position", 0) or 0))
+                if exchange_qty > Decimal("0") and local_qty == Decimal("0"):
+                    # 情境 A：交易所持倉、本地為 0 → 回補並記審計
+                    entry = exchange_entry if exchange_entry and exchange_entry > 0 else None
+                    if entry is None:
+                        try:
+                            entry = await engine.get_current_price()
+                        except Exception:
+                            entry = Decimal("0")
+                    tracker.sync_recovered_position(exchange_qty, entry or Decimal("0"))
+                    state = getattr(coordinator, "state", None)
+                    if state is not None:
+                        state.current_position = exchange_qty
+                    result["rehydrated"] = True
+                    logger.warning(
+                        f"🚨 [Reconciler {symbol}] 本地持倉=0、交易所持倉={exchange_qty}，"
+                        f"已回補本地虛擬持倉（entry={entry}）",
+                        extra={"bot_id": str(bot_id), "symbol": symbol},
+                    )
+                    _audit("position_rehydrated", {
+                        "before_local": str(local_qty),
+                        "exchange_qty": str(exchange_qty),
+                        "entry_price": str(entry or 0),
+                    })
+                elif exchange_qty == Decimal("0") and local_qty > Decimal("0"):
+                    # 本地幽靈持倉（交易所已平/被手動平倉）→ 以交易所為準歸零並記審計
+                    tracker.sync_recovered_position(Decimal("0"), Decimal("0"))
+                    state = getattr(coordinator, "state", None)
+                    if state is not None:
+                        state.current_position = Decimal("0")
+                    result["rehydrated"] = True
+                    logger.warning(
+                        f"🚨 [Reconciler {symbol}] 本地虛擬持倉={local_qty} 但交易所為 0，已按交易所真值歸零",
+                        extra={"bot_id": str(bot_id), "symbol": symbol},
+                    )
+                    _audit("position_zeroed_to_exchange", {
+                        "before_local": str(local_qty),
+                        "exchange_qty": "0",
+                    })
+
+            # ── 2. 掛單三路比對（情境 B：本地有單、交易所無）─────────────
+            exchange_order_ids: Optional[set] = None
+            try:
+                open_orders = await exchange.get_open_orders(symbol)
+                exchange_order_ids = set()
+                for o in open_orders or []:
+                    for key in (getattr(o, "id", None), getattr(o, "client_id", None)):
+                        if key:
+                            exchange_order_ids.add(str(key))
+            except Exception as exc:
+                logger.warning(f"⚠️ [Reconciler {symbol}] 查詢交易所掛單失敗（略過掛單比對）: {exc}")
+
+            if exchange_order_ids is not None:
+                pending = []
+                try:
+                    pending = list(engine.get_pending_orders() or [])
+                except Exception:
+                    pending = []
+                local_ids = set()
+                for order in pending:
+                    for key in (getattr(order, "order_id", None), getattr(order, "client_id", None)):
+                        if key:
+                            local_ids.add(str(key))
+                for order in pending:
+                    oid = str(getattr(order, "order_id", "") or "")
+                    cid = str(getattr(order, "client_id", "") or "")
+                    on_exchange = (oid in exchange_order_ids) or (cid in exchange_order_ids)
+                    if not on_exchange and order.is_pending():
+                        # 情境 B：本地掛單（含 TP 相關單）交易所已無 → 本地標記取消 + 審計
+                        order.mark_cancelled()
+                        result["stale_local_orders"] += 1
+                        _audit("stale_local_order_cancelled", {
+                            "order_id": oid or cid,
+                            "side": str(getattr(getattr(order, "side", None), "value", "")),
+                            "price": str(getattr(order, "price", "")),
+                            "grid_id": getattr(order, "grid_id", None),
+                        })
+                exchange_only = len(exchange_order_ids - local_ids)
+                result["exchange_only_orders"] = exchange_only
+                if exchange_only:
+                    _audit("exchange_only_orders_observed", {"count": exchange_only})
+
+            # ── 3. 既有恢復路徑（計數/盈虧 facts 重建）──────────────────
             await coordinator.recover_old_orders()
             return result
         except Exception as e:

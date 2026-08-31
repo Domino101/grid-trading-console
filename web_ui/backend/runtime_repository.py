@@ -89,6 +89,12 @@ class RuntimeSnapshotRepository:
                     executed_at=float(f.get("executed_at", timestamp) or timestamp),
                 )
                 self._ledger.record_fill(fill)
+                # P3-1: 同步寫入 canonical 事件流（fill，以 fill_id 冪等）
+                try:
+                    from core.infrastructure.database.bot_events import emit_fill_event
+                    emit_fill_event(fill)
+                except Exception:
+                    pass  # 事件擷取不影響主路徑
 
         # 3. Update Position & Metrics
         pos_data = stats.get("position") or {}

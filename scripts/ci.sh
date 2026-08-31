@@ -45,6 +45,10 @@ TEST_MODULES=(
   tests.test_dca_backtest_http_contract
   tests.test_dca_chart_backtest_e2e
   tests.test_phase2_ledger_orchestration
+  tests.test_bot_event_stream
+  tests.test_event_fold
+  tests.test_grid_reconcile
+  tests.test_replay_rebuild_tools
   tests.test_backend_import_contract
 )
 

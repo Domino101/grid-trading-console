@@ -8,6 +8,15 @@
 ## [Unreleased]
 
 ### Added
+- **Phase 3 事件溯源 + 交易所三路對帳（P3-1～P3-4）**：
+  - `bot_events` append-only 事件流（per-bot 單調 seq + dedupe_key 冪等；Alembic `0002_bot_events`）：事件型別涵蓋 bot_created/bot_renamed/order_placed/order_cancelled/fill/take_profit/stop_loss/reset/state_transition/reconcile。
+  - 事件發射（best-effort，絕不阻斷交易）：grid/DCA 成交、grid 重置檢查點（止盈→take_profit、本金保護/止損→stop_loss、其他→reset）、引擎生命週期、身份審計橋接。
+  - `event_fold.py`：事件流摺疊重建投影（fill 數學與 rehydrate 一致；legacy 自動以 trade_fills 合成）；屬性測試證明 fold == 直寫（隨機序列 ×100）。
+  - grid 三路對帳（`ExchangeReconciler.reconcile_grid`）：本地 facts ↔ 交易所持倉 ↔ open orders；交易所持倉回補/幽靈持倉歸零/殘單標取消，全部記 `reconcile` 審計事件；接入 `GridCoordinator.start()`（失敗不阻斷啟動）。
+  - 稽核回放工具 `scripts/tools/replay_bot.py`（時間線 + 逐欄 diff + 退出碼）與災難恢復工具 `scripts/tools/rebuild_projections.py`（投影由 facts+事件 OCC 安全重建）。
+  - 災難恢復 SOP：`docs/phase3_disaster_recovery_zh-TW.md`（PG + SQLite 刪除投影→重建→回放一致，沙箱實證）。
+
+### Added
 - **Phase 2 生產化資料層（SQLAlchemy + PostgreSQL + Redis）與稽核修復**：
   - `LedgerStore` 抽象（Protocol）＋ SQLAlchemy Core 實作：`SqliteLedgerStore`（預設）與 `PostgresLedgerStore`（`DATABASE_URL` 切換）；Alembic 納管 schema（`migrations/versions/0001_initial_schema.sql` 語意）。
   - PostgreSQL 真相源：連線池（`GRID_PG_POOL_SIZE`/`GRID_PG_MAX_OVERFLOW`）、`pool_pre_ping`、金額欄 `NUMERIC(38,18)`；一次性遷移 `scripts/migration/sqlite_to_postgres.py`（facts 優先、冪等可重跑、保留 OCC version 與 identity 審計）。

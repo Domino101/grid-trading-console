@@ -53,6 +53,24 @@ def publish_lifecycle(config_path: str, status: str, detail: Optional[str] = Non
     grid_id = _grid_id(config_path)
     repository = GridCommandRepository.instance()
     repository.record_event(grid_id, "engine_lifecycle", status, detail)
+
+    # P3-1: 生命週期寫入 canonical 事件流（state_transition，冪等去重）
+    try:
+        from core.infrastructure.database.bot_events import emit_bot_event
+        import time as _time
+        emit_bot_event(
+            resolve_bot_id(config_path),
+            "state_transition",
+            payload={
+                "config_path": config_path,
+                "grid_id": grid_id,
+                "status": status,
+                "detail": detail or "",
+            },
+            dedupe_key=f"lifecycle:{grid_id}:{status}:{int(_time.time() // 1)}:{(detail or '')[:64]}",
+        )
+    except Exception:
+        pass  # 事件擷取不影響命令/生命週期主路徑
     command = repository.latest_for_grid(grid_id)
     if command is None:
         return

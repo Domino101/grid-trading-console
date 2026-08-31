@@ -94,6 +94,15 @@ class GridCoordinator:
         self.engine = engine
         self.tracker = tracker
         self.state = grid_state
+
+        # P3-1/P3-2: 穩定帳本身份（與 tracker/trade_fills、恢復路徑一致）
+        self.bot_id: Optional[str] = None
+        if config_path:
+            try:
+                from ....infrastructure.identity import resolve_bot_id
+                self.bot_id = resolve_bot_id(config_path)
+            except Exception:
+                self.bot_id = None
         
         # 將 symbol 中的檔名非法字元(/、: 等)替換為底線，
         # 避免 log 寫入時被當作路徑分隔符號造成 FileNotFoundError
@@ -161,7 +170,16 @@ class GridCoordinator:
             
             # 2. 检查未完结的旧网格订单
             await self.recover_old_orders()
-            
+
+            # 2.5 P3-2: 三路對帳（本地 facts ↔ 交易所持倉 ↔ 掛單），自癒並記審計。
+            #     失敗不阻斷啟動（對帳為增益，非前置條件）。
+            try:
+                from ....services.reconciler import ExchangeReconciler
+                reconcile_result = await ExchangeReconciler.reconcile_grid(self)
+                self.logger.info(f"🔍 三路對帳完成: {reconcile_result}")
+            except Exception as e:
+                self.logger.warning(f"⚠️ 三路對帳略過（不影響啟動）: {e}")
+
             # 3. 初始化首批网格订单
             if not self.state.active_orders:
                 await self.reset_manager.initialize_grid_orders()

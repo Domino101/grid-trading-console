@@ -594,6 +594,28 @@ class GridResetManager:
         # 所以这里只是记录，实际处理在 finally 块中进行
         # （已在 ScalpingOperations.handle_take_profit_filled 的 finally 中处理）
 
+        # P3-1: 重置檢查點寫入 canonical 事件流（take_profit/stop_loss/reset）
+        try:
+            tracker = getattr(self, "tracker", None)
+            coordinator = getattr(self, "coordinator", None)
+            bot_id = getattr(coordinator, "bot_id", None) if coordinator is not None else None
+            if bot_id and tracker is not None:
+                from core.infrastructure.database.bot_events import emit_reset_checkpoint
+                emit_reset_checkpoint(
+                    bot_id,
+                    reset_type=reset_type,
+                    checkpoint={
+                        "cycles": int(getattr(tracker, "completed_cycles", 0) or 0),
+                        "buy": int(getattr(tracker, "buy_count", 0) or 0),
+                        "sell": int(getattr(tracker, "sell_count", 0) or 0),
+                        "fees": float(getattr(tracker, "total_fees", 0) or 0),
+                        "realized": float(getattr(tracker, "realized_pnl", 0) or 0),
+                    },
+                    config_path=getattr(coordinator, "config_path", None),
+                )
+        except Exception:
+            pass  # 事件擷取不影響重置流程
+
         return new_capital
 
     async def _restart_grid_after_reset(self, new_capital: Optional[Decimal] = None):
