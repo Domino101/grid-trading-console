@@ -64,6 +64,7 @@ from run_grid_trading import create_grid_config, detect_market_type, create_exch
 
 from web_ui.backend.control_plane import publish_lifecycle, publish_runtime
 from web_ui.backend.lifecycle import account_mode_from_yaml, iter_hotplug_starts, live_trading_enabled, start_rejection
+from core.infrastructure.database.async_writer import AsyncDatabaseWriter
 from core.infrastructure.identity import resolve_bot_id
 
 # 優化的日誌系統
@@ -662,6 +663,9 @@ async def main():
     lock_file = acquire_multi_lock()
     adapter_pool = ExchangeAdapterPool()
 
+    # P1-5: 啟動非同步批量寫入器（heartbeat 快照走 queue + batch，降低 SQLite 寫放大）
+    await AsyncDatabaseWriter.instance().start()
+
     control_file = project_root / "config" / "active_grids.json"
     control_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -943,6 +947,12 @@ async def main():
                 dca_info["task"].cancel()
             except Exception as close_err:
                 logger.error(f"⚠️ 清理 DCA {path} 時出錯: {close_err}")
+
+        # P1-5: 停止資料庫寫入器並做最終 flush（確保最後一批快照落盤）
+        try:
+            await AsyncDatabaseWriter.instance().stop()
+        except Exception as writer_err:
+            logger.error(f"⚠️ 停止資料庫寫入器時出錯: {writer_err}")
 
         logger.info("🔌 正在斷開交易所適配器連接並清理鎖檔案...")
         try:

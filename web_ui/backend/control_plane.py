@@ -7,9 +7,12 @@ FastAPI. Both processes share the same SQLite files under ``data/``.
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 from typing import Optional
 
+from core.infrastructure.database.async_writer import AsyncDatabaseWriter, async_write_enabled
+from core.infrastructure.identity import resolve_bot_id
 from web_ui.backend.command_repository import GridCommandRepository
 from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
 
@@ -22,7 +25,15 @@ def _grid_id(config_path: str) -> str:
 
 def publish_runtime(config_path: str, stats: dict, updated_at: Optional[float] = None) -> None:
     """Persist an engine heartbeat and promote a pending start command."""
-    RuntimeSnapshotRepository.instance().save(config_path, stats, updated_at=updated_at)
+    ts = updated_at if updated_at is not None else time.time()
+    # P1-5: 引擎啟動 writer 後走批量非同步寫入；否則（測試/停用）同步寫入。
+    writer = AsyncDatabaseWriter.instance()
+    if async_write_enabled() and writer.is_running():
+        writer.enqueue_snapshot(resolve_bot_id(config_path), config_path, stats, ts)
+    else:
+        RuntimeSnapshotRepository.instance().save(config_path, stats, updated_at=ts)
+
+    # 命令 promotion 保持同步（生命週期關鍵）
     repository = GridCommandRepository.instance()
     command = repository.latest_for_grid(_grid_id(config_path))
     if command and command.get("action") == "start" and command.get("status") in {"pending_engine", "accepted", "timed_out"}:
