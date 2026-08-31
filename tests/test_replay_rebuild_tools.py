@@ -1,10 +1,11 @@
 """P3-3/P3-4: replay tool consistency + projection rebuild (DR drill core)."""
 
 import os
-import sqlite3
 import tempfile
 import time
 import unittest
+
+from sqlalchemy import text
 
 from core.infrastructure.database.event_fold import rebuild_position
 from core.infrastructure.database.ledger_repository import LedgerRepository
@@ -26,6 +27,11 @@ class TestReplayAndRebuild(unittest.TestCase):
 
     def _reset_singleton(self):
         LedgerRepository._instance = None
+
+    def _delete_projection_rows(self):
+        """方言無關地清空投影表（SQLite 檔案或 PostgreSQL schema 皆可）。"""
+        with self.repo.store._engine.begin() as conn:
+            conn.execute(text("DELETE FROM bot_positions"))
 
     def _seed(self):
         repo = self.repo
@@ -86,10 +92,7 @@ class TestReplayAndRebuild(unittest.TestCase):
         self._sync_projection_to_rebuild()
         expected = self.repo.store.get_position("tool-bot")
 
-        con = sqlite3.connect(self.db_path)
-        con.execute("DELETE FROM bot_positions")
-        con.commit()
-        con.close()
+        self._delete_projection_rows()
         self.assertIsNone(self.repo.store.get_position("tool-bot"))
 
         result = rebuild_bot(self.repo, "tool-bot", execute=True)
@@ -102,10 +105,7 @@ class TestReplayAndRebuild(unittest.TestCase):
         self.assertAlmostEqual(restored.total_fees, expected.total_fees, places=7)
 
     def test_rebuild_dry_run_does_not_write(self):
-        con = sqlite3.connect(self.db_path)
-        con.execute("DELETE FROM bot_positions")
-        con.commit()
-        con.close()
+        self._delete_projection_rows()
         result = rebuild_bot(self.repo, "tool-bot", execute=False)
         self.assertEqual(result["status"], "dry_run")
         self.assertIsNone(self.repo.store.get_position("tool-bot"))
