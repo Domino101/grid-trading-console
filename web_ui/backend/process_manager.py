@@ -12,6 +12,8 @@ import logging
 
 import json
 
+from core.infrastructure.identity import resolve_bot_id
+
 # Configure logging for the process manager itself
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ProcessManager")
@@ -212,9 +214,8 @@ class ProcessManager:
                         pass
             
             if "grid_id" not in stats:
-                # 從 config_path 推導 grid_id
-                base = os.path.basename(config_path)
-                stats["grid_id"] = os.path.splitext(base)[0]
+                # 從 config_path 解析穩定 grid_id（P1-1）
+                stats["grid_id"] = resolve_bot_id(config_path, self.project_root)
                 
             GridStateStore.instance().update(config_path, stats)
 
@@ -230,7 +231,7 @@ class ProcessManager:
             if not config_path or lifecycle_status not in {"running", "stopped", "failed"}:
                 return
             from web_ui.backend.command_repository import GridCommandRepository
-            grid_id = os.path.splitext(os.path.basename(config_path))[0]
+            grid_id = resolve_bot_id(config_path, self.project_root)
             repository = GridCommandRepository.instance()
             repository.record_event(grid_id, "engine_lifecycle", lifecycle_status, payload.get("detail"))
             command = repository.latest_for_grid(grid_id)

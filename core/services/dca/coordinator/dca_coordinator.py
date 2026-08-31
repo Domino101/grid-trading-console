@@ -108,14 +108,23 @@ class DcaCoordinator:
                 from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
             except ImportError:
                 from runtime_repository import RuntimeSnapshotRepository
-            
-            snapshots = RuntimeSnapshotRepository.instance().load_all()
+            from core.infrastructure.identity import resolve_bot_id
+
+            repository = RuntimeSnapshotRepository.instance()
+            snapshots = repository.load_all()
+            # P1-2 主路徑：以穩定 bot_id 查詢（bot_snapshots 表）
+            bot_id = resolve_bot_id(config_path) if config_path else self._bot_id
             matched = None
-            if config_path and config_path in snapshots:
+            by_id = repository.load_by_bot_id(bot_id)
+            if by_id:
+                matched, _ = by_id
+            # 向下相容：legacy config_path 查詢
+            if matched is None and config_path and config_path in snapshots:
                 matched, _ = snapshots[config_path]
-            else:
+            # 最後手段：legacy bot_id/path 啟發式
+            if matched is None:
                 for path, (payload, _) in snapshots.items():
-                    if payload.get("bot_id") == self._bot_id or path.endswith(f"{self._bot_id}.yaml"):
+                    if payload.get("bot_id") == bot_id or path.endswith(f"{bot_id}.yaml"):
                         matched = payload
                         break
             

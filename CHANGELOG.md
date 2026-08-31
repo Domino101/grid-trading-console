@@ -5,6 +5,19 @@
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- **穩定機器人身份，根除「小改動/重開即歸零」(P1-1 / P1-2)**：
+  - 新增 `core/infrastructure/identity.py`：`bot_id` 由 YAML `metadata.bot_id`（UUID hex）提供，與檔名解耦；缺漏時退回檔名 stem（legacy 完全向後相容）。
+  - `GridYAMLGenerator.generate()` 與 `DcaYAMLGenerator.generate()` 寫入 `metadata.bot_id`，並支援 `existing_bot_id` 供編輯流程保留既有身份（改價格區間/重建不再漂移）。
+  - 帳本寫入（`RuntimeSnapshotRepository.save`）、引擎 heartbeat（`run_multiple_grids.py`）、命令平面（`control_plane`）、狀態快取（`grid_state_store`）、行程管理（`process_manager`）與讀模型（`routes/dca`）統一改用穩定身份解析。
+  - `LedgerRepository` 新增 `load_snapshot_by_bot_id()` / `load_all_snapshots_by_bot_id()`；grid 與 DCA 重啟恢復改以 **bot_id 為 key** 查詢 `bot_snapshots`（config_path/symbol 啟發式僅作 legacy fallback）。
+  - `path_from_grid_id()` / `path_from_bot_id()` 支援以 `metadata.bot_id` 反向掃描解析配置檔路徑。
+  - 新增 `tests/test_bot_identity_stability.py`（6 案例：身份產生/保留/解析/檔名漂移後快照不丟失）。
+
+---
+
 ## [0.2.0-beta] — 2026-08-31
 
 ### Security & Safety

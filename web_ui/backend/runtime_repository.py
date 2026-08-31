@@ -13,6 +13,7 @@ from typing import Optional
 from core.infrastructure.database.guard import EnvironmentGuard
 from core.infrastructure.database.ledger_repository import LedgerRepository
 from core.infrastructure.database.models import BotPosition, BotRecord, TradeFill
+from core.infrastructure.identity import resolve_bot_id
 from web_ui.backend.lifecycle import connect_sqlite
 
 
@@ -52,7 +53,8 @@ class RuntimeSnapshotRepository:
 
     def save(self, config_path: str, stats: dict, updated_at: Optional[float] = None) -> float:
         timestamp = updated_at if updated_at is not None else time.time()
-        bot_id = stats.get("bot_id") or os.path.splitext(os.path.basename(config_path))[0]
+        # P1-1: 帳本 key 使用穩定 bot_id（優先 stats.bot_id → YAML metadata.bot_id → 檔名 stem）
+        bot_id = stats.get("bot_id") or resolve_bot_id(config_path)
 
         # 1. Update bot registration
         bot_record = BotRecord(
@@ -113,6 +115,14 @@ class RuntimeSnapshotRepository:
 
     def load_all(self) -> dict[str, tuple[dict, float]]:
         return self._ledger.load_all_snapshots()
+
+    def load_by_bot_id(self, bot_id: str) -> Optional[tuple[dict, float]]:
+        """P1-2: 以穩定 bot_id 讀取最新快照（bot_snapshots 表，bot_id 為 key）。"""
+        return self._ledger.load_snapshot_by_bot_id(bot_id)
+
+    def load_all_by_bot_id(self) -> dict[str, tuple[dict, float]]:
+        """P1-2: 以 bot_id 為 key 讀取全部最新快照。"""
+        return self._ledger.load_all_snapshots_by_bot_id()
 
     def history(self, config_path: str, since: float, limit: int = 1000) -> list[tuple[dict, float]]:
         return self._ledger.load_snapshot_history(config_path, since, limit)
