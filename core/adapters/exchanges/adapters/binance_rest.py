@@ -8,6 +8,7 @@ Binance交易所REST API模块 - 重构版
 import asyncio
 import collections
 import ccxt
+import functools
 import hmac
 import hashlib
 import re
@@ -309,9 +310,13 @@ class BinanceRest(BinanceBase):
 
         for attempt in range(self.max_retries):
             try:
-                result = await asyncio.get_event_loop().run_in_executor(
-                    None, func, *args, **kwargs
-                )
+                if kwargs:
+                    call_fn = functools.partial(func, *args, **kwargs)
+                    result = await asyncio.get_event_loop().run_in_executor(None, call_fn)
+                else:
+                    result = await asyncio.get_event_loop().run_in_executor(
+                        None, func, *args
+                    )
                 return result
             except Exception as e:
                 last_error = e

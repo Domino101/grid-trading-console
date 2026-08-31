@@ -107,12 +107,16 @@ def cors_settings(env_value: Optional[str]) -> tuple[list[str], bool]:
 
 
 def connect_sqlite(path: str) -> sqlite3.Connection:
-    directory = os.path.dirname(path)
-    if directory:
+    from core.infrastructure.database.guard import EnvironmentGuard
+    safe_path = EnvironmentGuard.get_safe_database_path(path)
+
+    directory = os.path.dirname(safe_path)
+    if directory and safe_path != ":memory:":
         os.makedirs(directory, exist_ok=True)
-    connection = sqlite3.connect(path, timeout=5)
+    connection = sqlite3.connect(safe_path, timeout=5)
     connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA journal_mode=WAL")
+    if safe_path != ":memory:":
+        connection.execute("PRAGMA journal_mode=WAL")
     connection.execute("PRAGMA busy_timeout=5000")
     connection.execute("PRAGMA synchronous=NORMAL")
     return connection

@@ -492,12 +492,22 @@ class TestGridStateStore(unittest.TestCase):
 
     def setUp(self):
         import time
+        import tempfile
         from web_ui.backend.grid_state_store import GridStateStore
+        from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
+        self.temp_dir = tempfile.TemporaryDirectory()
+        db_path = os.path.join(self.temp_dir.name, "test_runtime.sqlite3")
+        self.repository = RuntimeSnapshotRepository(db_path)
+        RuntimeSnapshotRepository._instance = self.repository
+        GridStateStore._instance = None
         self.store = GridStateStore.instance()
-        # 清除快取，確保單元測試獨立性
-        with self.store._lock:
-            self.store._states.clear()
-            self.store._updated_at.clear()
+
+    def tearDown(self):
+        from web_ui.backend.grid_state_store import GridStateStore
+        from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
+        self.temp_dir.cleanup()
+        RuntimeSnapshotRepository.reset_instance()
+        GridStateStore.reset_instance()
 
     def test_basic_crud(self):
         """測試狀態更新、獲取與刪除"""
@@ -573,16 +583,17 @@ class TestProcessManagerParseStats(unittest.TestCase):
     def setUp(self):
         from web_ui.backend.process_manager import ProcessManager
         from web_ui.backend.grid_state_store import GridStateStore
-        self.pm = ProcessManager()
-        self.store = GridStateStore.instance()
+        from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
         
-        # 清空 store 快取
-        with self.store._lock:
-            self.store._states.clear()
-            self.store._updated_at.clear()
+        self.tmpdir = tempfile.mkdtemp()
+        db_path = os.path.join(self.tmpdir, "test_runtime.sqlite3")
+        self.repository = RuntimeSnapshotRepository(db_path)
+        RuntimeSnapshotRepository._instance = self.repository
+        GridStateStore._instance = None
+        self.store = GridStateStore.instance()
+        self.pm = ProcessManager()
 
         # 模擬建立 active_grids.json 以便解析時的 mapping
-        self.tmpdir = tempfile.mkdtemp()
         os.makedirs(os.path.join(self.tmpdir, "config", "grid"), exist_ok=True)
         self.original_project_root = self.pm.project_root
         self.pm.project_root = self.tmpdir
@@ -599,8 +610,12 @@ class TestProcessManagerParseStats(unittest.TestCase):
             yaml.dump({"grid_system": {"symbol": "SOL/USDC:USDC"}}, f)
 
     def tearDown(self):
+        from web_ui.backend.grid_state_store import GridStateStore
+        from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
         shutil.rmtree(self.tmpdir, ignore_errors=True)
         self.pm.project_root = self.original_project_root
+        RuntimeSnapshotRepository.reset_instance()
+        GridStateStore.reset_instance()
 
     def test_parse_stats_with_symbol_in_brackets(self):
         """測試 [STATS_JSON][SYMBOL] {...} 格式"""
@@ -643,22 +658,25 @@ class TestGridStatsEndpoints(unittest.TestCase):
     """測試 API /stats 與 /summary 端點"""
 
     def setUp(self):
-        # 設置 token
+        import tempfile
         from web_ui.backend import auth
+        from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
+        from web_ui.backend.grid_state_store import GridStateStore
+
         self.original_api_token = auth._API_TOKEN
         auth._API_TOKEN = "test-token"
-        
-        from fastapi.testclient import TestClient
-        from web_ui.backend.main import app
-        from web_ui.backend.grid_state_store import GridStateStore
-        self.client = TestClient(app)
-        self.headers = {"Authorization": "Bearer test-token"}
+
+        self.temp_dir = tempfile.TemporaryDirectory()
+        db_path = os.path.join(self.temp_dir.name, "test_runtime.sqlite3")
+        self.repository = RuntimeSnapshotRepository(db_path)
+        RuntimeSnapshotRepository._instance = self.repository
+        GridStateStore._instance = None
         self.store = GridStateStore.instance()
 
-        # 清空快取
-        with self.store._lock:
-            self.store._states.clear()
-            self.store._updated_at.clear()
+        from fastapi.testclient import TestClient
+        from web_ui.backend.main import app
+        self.client = TestClient(app)
+        self.headers = {"Authorization": "Bearer test-token"}
 
         # 模擬 active_grids 檔案讀寫
         self.original_read = app.dependency_overrides.get("read_active_grids")
@@ -672,12 +690,19 @@ class TestGridStatsEndpoints(unittest.TestCase):
 
     def tearDown(self):
         from web_ui.backend import auth
+        from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
+        from web_ui.backend.grid_state_store import GridStateStore
+
         auth._API_TOKEN = self.original_api_token
         
         from web_ui.backend.routes import grids as grids_route
         grids_route._read_active_grids = self.original_read_active
         grids_route._read_yaml_config = self.original_read_yaml
         os.environ.pop("GRID_API_TOKEN", None)
+
+        self.temp_dir.cleanup()
+        RuntimeSnapshotRepository.reset_instance()
+        GridStateStore.reset_instance()
 
     def test_stats_not_found(self):
         """測試查詢不存在的網格 → 404"""
@@ -688,13 +713,8 @@ class TestGridStatsEndpoints(unittest.TestCase):
         """測試查詢運行中但尚未有統計數據的網格 → 回傳 stale: True 預設結構"""
         # test-sol.yaml 是存在且運行的，但 store 裡無資料
         from web_ui.backend.routes import grids as grids_route
-        from web_ui.backend.grid_state_store import GridStateStore
-        from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
 
-        # 清除單例狀態與持久化快照
-        RuntimeSnapshotRepository.reset_instance()
-        GridStateStore.reset_instance()
-        self.store = GridStateStore.instance()
+        # 清除快取與暫存庫快照
         with self.store._lock:
             self.store._states.clear()
             self.store._updated_at.clear()

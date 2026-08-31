@@ -234,6 +234,20 @@ class GridEngineImpl(IGridEngine):
                 f"until={persisted.get('until_iso')}（所有引擎實例共享此熔斷狀態）"
             )
 
+    def _get_exchange_id(self) -> str:
+        """獲取底層交易所 ID（兼容實盤與 PAPER 模擬盤）"""
+        if self.config and getattr(self.config, 'exchange', None):
+            return str(self.config.exchange).lower()
+        if hasattr(self.exchange, 'config') and self.exchange.config:
+            extra = getattr(self.exchange.config, 'extra_params', {}) or {}
+            venue = extra.get('venue')
+            if venue:
+                return str(venue).lower()
+            ex_id = getattr(self.exchange.config, 'exchange_id', '')
+            if ex_id:
+                return str(ex_id).lower()
+        return ''
+
     @property
     def _api_circuit_until(self) -> float:
         return GridEngineImpl._shared_api_circuit_until
@@ -319,7 +333,7 @@ class GridEngineImpl(IGridEngine):
         """
         self.config = config
         try:
-            ex_id = str(getattr(self.exchange.config, 'exchange_id', '')).lower()
+            ex_id = self._get_exchange_id()
             ex_type = getattr(self.exchange.config, 'exchange_type', None)
             if ex_id == 'binance':
                 if ex_type in [ExchangeType.FUTURES, ExchangeType.PERPETUAL, ExchangeType.MARGIN, ExchangeType.OPTIONS]:
@@ -574,7 +588,7 @@ class GridEngineImpl(IGridEngine):
             raise
 
     async def place_batch_orders(self, orders: List[GridOrder], max_retries: int = 2, current_price: 'Optional[Decimal]' = None) -> List[GridOrder]:
-        ex_id = str(getattr(self.exchange.config, 'exchange_id', '')).lower()
+        ex_id = self._get_exchange_id()
         total_orders = len(orders)
 
         if current_price is None:
@@ -1067,8 +1081,9 @@ class GridEngineImpl(IGridEngine):
           'BTC/USDC'      -> ('BTC', 'USDC', False)
         """
         try:
-            is_perp = ':' in symbol
-            main = symbol.split(':')[0] if is_perp else symbol
+            ex_type = getattr(self.exchange.config, 'exchange_type', None) if hasattr(self.exchange, 'config') else None
+            is_perp = (':' in symbol) or (ex_type in [ExchangeType.FUTURES, ExchangeType.PERPETUAL]) or (self.config and int(getattr(self.config, 'leverage', 1) or 1) > 1)
+            main = symbol.split(':')[0] if ':' in symbol else symbol
             parts = main.split('/')
             if len(parts) == 2:
                 return parts[0], parts[1], is_perp
@@ -1215,7 +1230,7 @@ class GridEngineImpl(IGridEngine):
 
     async def _allowed_orders_for_symbol(self, planned: int) -> int:
         try:
-            ex_id = str(getattr(self.exchange.config, 'exchange_id', '')).lower()
+            ex_id = self._get_exchange_id()
             if ex_id != 'binance':
                 return planned
             if self._is_circuit_open():
@@ -1231,7 +1246,7 @@ class GridEngineImpl(IGridEngine):
 
     async def _guard_symbol_order_cap_before_single(self) -> None:
         try:
-            ex_id = str(getattr(self.exchange.config, 'exchange_id', '')).lower()
+            ex_id = self._get_exchange_id()
             if ex_id != 'binance':
                 return
             if self._is_circuit_open():
@@ -1256,7 +1271,7 @@ class GridEngineImpl(IGridEngine):
 
     async def _increment_symbol_open_cache(self) -> None:
         try:
-            ex_id = str(getattr(self.exchange.config, 'exchange_id', '')).lower()
+            ex_id = self._get_exchange_id()
             if ex_id != 'binance':
                 return
             async with self._symbol_open_orders_cache_lock:
@@ -2171,10 +2186,9 @@ class GridEngineImpl(IGridEngine):
             self.logger.warning(f"⚠️ 价格监控启动失败: {e}")
 
         try:
-            ex_id = str(getattr(self.exchange.config, 'exchange_id', '')).lower()
             refresh_interval = int(getattr(self.config, 'active_window_refresh_interval', 0) or 0)
             window_each_side = int(getattr(self.config, 'active_window_each_side', 0) or 0)
-            if ex_id == 'binance' and window_each_side > 0:
+            if window_each_side > 0:
                 asyncio.create_task(self._active_window_refresh_loop())
                 eff_interval = refresh_interval if refresh_interval > 0 else 90
                 self.logger.info(

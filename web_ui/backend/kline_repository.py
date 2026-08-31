@@ -62,9 +62,10 @@ class KlineRepository:
     _instance_lock = threading.Lock()
 
     def __init__(self, database_path: Optional[str] = None):
-        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-        self.database_path = database_path or os.path.join(root, "data", "web_ui_runtime.sqlite3")
-        os.makedirs(os.path.dirname(self.database_path), exist_ok=True)
+        from core.infrastructure.database.guard import EnvironmentGuard
+        self.database_path = EnvironmentGuard.get_safe_database_path(database_path)
+        if self.database_path != ":memory:":
+            os.makedirs(os.path.dirname(self.database_path), exist_ok=True)
         self._lock = threading.Lock()
         self._initialize()
 

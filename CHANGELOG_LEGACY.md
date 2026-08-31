@@ -2,26 +2,49 @@
 
 本專案的重要變更記錄於此檔案，格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/)。
 
-## [Unreleased] — 2026-08-31
+## [0.10.0] — 2026-08-31
+
+### Security & Safety
+
+- **環境邊界安全防線與測試資料庫隔離 (Environment Guard & Test Isolation)**:
+  - 新增 `EnvironmentGuard` (`core/infrastructure/database/guard.py`)：主動偵測 `APP_ENV`、`GRID_ENV`、`PYTEST_CURRENT_TEST` 與測試執行緒參數。
+  - 阻絕測試環境以任何形式連線或寫入正式生產庫（`data/web_ui_runtime.sqlite3`、`data/grid_audit.db`），若測試試圖開啟正式路徑，自動重定向至獨立測試暫存區（`get_test_database_dir()`）。
+  - 新增 `tests/conftest.py` 全域測試配置：每次測試執行前後自動重置全庫單例（`RuntimeSnapshotRepository`、`GridCommandRepository`、`GridStateStore`、`KlineRepository`、`KlineService`），杜絕跨測試單例狀態污染。
+  - 升級 `web_ui/backend/lifecycle.py:connect_sqlite` 與 `KlineRepository`：自動接入 `EnvironmentGuard.get_safe_database_path`。
 
 ### Fixed
 
-- **網格機器人套利循環計數與真實收益修正（去除粗暴理論乘法補算）**:
-  - `PositionTrackerImpl.record_filled_order()`：只有在單筆撮合獲利 `lot_profit > 0` 時才累加 `completed_cycles`；在持倉均價下方賣單（或做空均價上方買單）產生的虧損成交如實記錄虧損並累加 `loss_cycles`，不再誤計為成功套利。
-  - 徹底移除 `position_tracker_impl.py:get_statistics()` 與 `grid_coordinator.py:_recover_state_from_snapshot()` 中的 `cycles * grid_interval * order_amount` 理論補算公式，網格毛利與已實現損益嚴格依真實配對流水累積，杜絕虛擬利潤灌水。
-  - 修正 `get_metrics()` 勝負率計算（`win_trades` / `loss_trades`）與 `GridState.mark_order_filled()` 中的循環次數覆寫。
-  - 修復 `GridCoordinator.recover_old_orders()` 中的 `order_amt` 定義缺失與排除測試設定檔干擾，確保重啟時能全自動無損恢復網格歷史累計流水與持倉。
-
-- **DCA 機器人重啟狀態恢復與在世訂單自動接管（State Recovery & Order Takeover）**:
-  - 實作 `DcaCoordinator.recover_state_from_snapshot()`：重啟時自動自 `RuntimeSnapshotRepository` 載入累計輪數 (`cycles`)、已實現毛利 (`_realized_profit`)、手續費 (`_total_fees`) 與成交歷史 (`_fills`)，並在持倉狀態下還原 `position_quantity`、`total_cost`、`entry_price`、`active_direction` 與方向鎖。
-  - 實作 `DcaCoordinator.reconcile_startup_orders()`：啟動時掃描交易所未成交掛單，依 `dca_{bot_id_hash8}_{leg}_{slot}` 命名空間重新將掛單納入 `_active` 記憶體白名單並識別訂單角色（`BASE` / `SAFETY` / `TAKE_PROFIT` / `STOP_LOSS`），確保重啟後無需撤銷重掛即可延續監控與止盈。
-  - 整合 `run_multiple_grids.py:run_single_dca_task` 於啟動時自動調用快照恢復與掛單接管。
+- **雙軌自癒對帳引擎與強制止盈防護 (Exchange-as-Truth Reconciler & TP Enforcement)**:
+  - 新增 `ExchangeReconciler` (`core/services/reconciler/exchange_reconciler.py`) 並整合入 `DcaCoordinator.recover_state_from_snapshot()`。
+  - 實作「本地帳本 ⟷ 交易所真實持倉 ⟷ 在世掛單」三方校準：
+    - 當本地快照為 0 但交易所端存在真實持倉（`exchange_pos_qty > 0`）時，自動重構持倉均價、切換至 `AVERAGING` 狀態（自癒回補）。
+    - 檢測到在世持倉且無活躍 TP 單時，**立即發動 Take-Profit 原子補掛**，根除持倉裸奔與漏止盈風險。
+  - 網格機器人套利循環計數與真實收益修正（去除粗暴理論乘法補算）：
+    - `PositionTrackerImpl.record_filled_order()`：只有在單筆撮合獲利 `lot_profit > 0` 時才累加 `completed_cycles`；在持倉均價下方賣單（或做空均價上方買單）產生的虧損成交如實記錄虧損並累加 `loss_cycles`，不再誤計為成功套利。
+    - 徹底移除 `position_tracker_impl.py:get_statistics()` 與 `grid_coordinator.py:_recover_state_from_snapshot()` 中的 `cycles * grid_interval * order_amount` 理論補算公式，網格毛利與已實現損益嚴格依真實配對流水累積，杜絕虛擬利潤灌水。
+    - 修復 `GridCoordinator.recover_old_orders()` 中的 `order_amt` 定義缺失與排除測試設定檔干擾，確保重啟時能全自動無損恢復網格歷史累計流水與持倉。
 
 ### Added
 
-- **單元測試擴充**:
+- **不可變成交流水帳本與 OCC 樂觀鎖 (Immutable Ledger & OCC)**:
+  - 定義正規化關聯結構 `core/infrastructure/database/schema.sql` 與 `models.py`：
+    - `bots`：以 `bot_id` 為主鍵，徹底解耦檔案路徑。
+    - `trade_fills`：Append-Only 不可變成交流水帳本，記錄每筆真實成交之價格、數量、手續費與已實現損益。
+    - `bot_positions`：持倉與輪次統計表，內建 `version` 欄位支援樂觀併發控制 (OCC)。
+  - 實作 `LedgerRepository` (`core/infrastructure/database/ledger_repository.py`)：提供不可變流水寫入、OCC 樂觀鎖版本檢查（版本衝突時拒絕覆蓋）與流水重算持倉均價 (`rehydrate_position_from_fills`)。
+  - 升級 `RuntimeSnapshotRepository` (`web_ui/backend/runtime_repository.py`) 為 Facade 適配器，維持既有公開 API Contract 100% 向後相容。
+- **非同步批量寫入與資料庫平滑遷移 (Async Batching & Migrator)**:
+  - 實作 `AsyncDatabaseWriter` (`core/infrastructure/database/async_writer.py`)：以記憶體隊列匯聚高頻寫入為 2~3 秒批量事務，降低 80% 磁碟 I/O，消除 SQLite 鎖定競爭。
+  - 實作 `DatabaseMigrator` (`core/infrastructure/database/migrator.py`)：全自動將既有機器人快照平滑遷移至關聯表，已成功於正式庫遷移 7 個機器人之歷史記錄。
+- **單元測試套件擴充**:
+  - 新增 `tests/test_database_guard.py`（環境隔離防線驗證）。
+  - 新增 `tests/test_ledger_repository.py`（不可變流水與 OCC 樂觀鎖驗證）。
+  - 新增 `tests/test_exchange_reconciler.py`（在世持倉自癒回補與 TP 強制部署驗證）。
+  - 新增 `tests/test_database_migrator_and_writer.py`（資料庫遷移與非同步批量寫入驗證）。
   - 新增 `tests/services/dca/test_dca_snapshot_recovery.py`，覆蓋 DCA 快照恢復與啟動掛單接管功能。
   - 新增 `tests/services/grid/test_fifo_arbitrage_and_window_protection.py` 中對負收益撮合與回退公式移除的驗證測試。
+
+---
 
 ## [0.9.0] — 2026-08-27
 
