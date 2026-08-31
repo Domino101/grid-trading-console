@@ -42,6 +42,7 @@ class PositionTrackerImpl(IPositionTracker):
         self.config = config
         self.state = grid_state
         self.bot_id = bot_id
+        self._bot_registered = False  # P1-6: 首次寫入成交前先註冊 bot
 
         # 網格自身虛擬持倉（僅受網格自身掛單成交影響，隔離手動干預）
         self.virtual_position = Decimal('0')      # 網格自身持倉數量
@@ -222,7 +223,21 @@ class PositionTrackerImpl(IPositionTracker):
             return
         try:
             from core.infrastructure.database.ledger_repository import LedgerRepository
-            from core.infrastructure.database.models import TradeFill
+            from core.infrastructure.database.models import BotRecord, TradeFill
+
+            repo = LedgerRepository.instance()
+            # P1-6: 先註冊 bot 再寫成交，避免帳本完整性錯誤（不再依賴 unknown placeholder）
+            if not self._bot_registered:
+                repo.register_or_update_bot(BotRecord(
+                    bot_id=self.bot_id,
+                    strategy_type="grid",
+                    symbol=self.config.symbol,
+                    exchange=self.config.exchange,
+                    account_mode=getattr(self.config, "account_mode", "paper") or "paper",
+                    status="running",
+                    created_at=time.time(),
+                ))
+                self._bot_registered = True
 
             executed_at = (
                 order.filled_at.timestamp()
@@ -244,7 +259,7 @@ class PositionTrackerImpl(IPositionTracker):
                 realized_pnl=float(realized_pnl) if realized_pnl is not None else 0.0,
                 executed_at=executed_at,
             )
-            LedgerRepository.instance().record_fill(fill)
+            repo.record_fill(fill)
         except Exception as exc:  # 帳本失敗絕不阻斷交易
             self.logger.warning(f"寫入不可變成交流水失敗 (略過，不影響交易): {exc}")
 
