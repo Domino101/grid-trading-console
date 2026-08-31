@@ -5,6 +5,8 @@
 # 特点：MEV 保护、Permit2 签名、多网络支持
 # ====================================
 
+metadata:
+  bot_id: o1exchange-neutral-spot-eth-usdc
 grid_system:
   # 交易所配置
   exchange: o1exchange

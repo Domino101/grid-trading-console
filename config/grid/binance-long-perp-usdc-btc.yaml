@@ -1,3 +1,5 @@
+metadata:
+  bot_id: binance-long-perp-usdc-btc
 grid_system:
   exchange: "binance"
   symbol: "ZEC/USDC:USDC"

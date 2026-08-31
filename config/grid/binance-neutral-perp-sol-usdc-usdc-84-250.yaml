@@ -1,3 +1,5 @@
+metadata:
+  bot_id: binance-neutral-perp-sol-usdc-usdc-84-250
 grid_system:
   exchange: binance
   symbol: SOL/USDC:USDC

@@ -1,3 +1,5 @@
+metadata:
+  bot_id: binance-neutral-perp-eth-usdc-usdc-1845-3300
 grid_system:
   exchange: binance
   symbol: ETH/USDC:USDC

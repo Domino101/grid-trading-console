@@ -1,3 +1,5 @@
+metadata:
+  bot_id: binance-neutral-perp-prom-usdt-usdt-2-8
 grid_system:
   exchange: binance
   symbol: PROM/USDT:USDT

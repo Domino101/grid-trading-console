@@ -1,3 +1,5 @@
+metadata:
+  bot_id: binance-neutral-perp-sui-usdc-usdc-0-0
 grid_system:
   exchange: binance
   symbol: SUI/USDC:USDC

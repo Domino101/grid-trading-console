@@ -1,3 +1,5 @@
+metadata:
+  bot_id: binance-long-perp-doge-usdc
 grid_system:
   exchange: "binance"
   symbol: "DOGE/USDC:USDC"

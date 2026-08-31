@@ -1,3 +1,5 @@
+metadata:
+  bot_id: binance-long-perp-sol-usdc
 grid_system:
   exchange: "binance"
   symbol: "SOL/USDC:USDC"

@@ -1,3 +1,5 @@
+metadata:
+  bot_id: dca-binance-both-pnut-usdc-usdc-20260831003634
 dca:
   exchange: binance
   symbol: PNUT/USDC:USDC
