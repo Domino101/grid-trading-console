@@ -39,7 +39,14 @@
 | P1-4 | 快照單調防護 | ✅ 完成（commit `d1d6861`） |
 | P1-6 | 移除 unknown placeholder + 身份 remap 審計 | ✅ 完成（commit `166788d`） |
 | P1-5 | 接上 AsyncDatabaseWriter 批量寫入 | ✅ 完成（commit `d22fc68`） |
-| Phase 1 Gate | 完整回歸 + 手工重現腳本 | 🔄 進行中（回歸 379/379 綠；legacy backfill 33 檔已實跑；自動化重現 `tests/test_phase1_gate_repro.py` 就緒；本機手動演練見 `docs/phase1_gate_manual_repro_zh-TW.md`） |
+| Phase 1 Gate | 完整回歸 + 手工重現腳本 | ✅ 完成（回歸 379/379 綠，含新增 Phase 2 測試後為 384/384；legacy backfill 33 檔已實跑；自動化重現 `tests/test_phase1_gate_repro.py` 就緒；本機手動演練見 `docs/phase1_gate_manual_repro_zh-TW.md`） |
+| P2-1 | SQLAlchemy Core + Alembic + LedgerStore 抽象 | ✅ 已實作（`core/infrastructure/database/ledger_store.py`、`migrations/`，LedgerRepository 改為 facade，介面不變） |
+| P2-2 | PostgreSQL 真相源 + DATABASE_URL 切換 + sqlite→PG 遷移腳本 | ✅ 已實作（`PostgresLedgerStore`、`scripts/migration/sqlite_to_postgres.py`；PG 實證待部署後驗收） |
+| P2-3 | Redis 熱快取（grid:state:*，DB fallback） | ✅ 已實作（`RedisStateCache` + `GridStateStore` write-through/read-through） |
+| P2-4 | Redis Pub/Sub 事件推送（engine → Redis → WebSocket） | ✅ 已實作（`RedisEventBus` + `/ws/grid-events` 訂閱廣播） |
+| P2-5 | Redis 領導者選舉（SETNX + 續約） | ✅ 已實作（`RedisLeaderElection`，grid/DCA 啟動入口接入） |
+| P2-6 | 組態與維運文件 | ✅ 已實作（`.env.example` 增加 DATABASE_URL/REDIS_URL/池大小；見 §5.1 部署維運摘要） |
+| Phase 2 Gate | PG 全綠 + Redis 停機演練 | 🗓️ 待部署環境驗證（見 §5.2） |
 
 > 身份分層補充（實作後確認，較計畫 §4 P1-1 更精確）：
 > **UI/命令/訂單命名空間身份維持檔名 stem**（不變）；**帳本持久化 key** 才由

@@ -12,9 +12,12 @@ from pathlib import Path
 from typing import Optional
 
 from core.infrastructure.database.async_writer import AsyncDatabaseWriter, async_write_enabled
+from core.infrastructure.database.redis_support import RedisEventBus
 from core.infrastructure.identity import resolve_bot_id
 from web_ui.backend.command_repository import GridCommandRepository
 from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
+
+_event_bus = RedisEventBus()
 
 
 def _grid_id(config_path: str) -> str:
@@ -39,6 +42,9 @@ def publish_runtime(config_path: str, stats: dict, updated_at: Optional[float] =
     if command and command.get("action") == "start" and command.get("status") in {"pending_engine", "accepted", "timed_out"}:
         repository.update_status(command["command_id"], "running", "engine runtime heartbeat")
 
+    # P2-4: Redis Pub/Sub 事件推送（可拋棄，失敗不影響主路徑）
+    _event_bus.publish("runtime", {"config_path": config_path, "bot_id": resolve_bot_id(config_path), "updated_at": ts})
+
 
 def publish_lifecycle(config_path: str, status: str, detail: Optional[str] = None) -> None:
     """Record a machine-readable engine acknowledgement."""
@@ -54,6 +60,9 @@ def publish_lifecycle(config_path: str, status: str, detail: Optional[str] = Non
     if status == "failed" or command.get("action") == expected:
         if command.get("status") in {"pending_engine", "accepted", "timed_out"}:
             repository.update_status(command["command_id"], status, detail)
+
+    # P2-4: lifecycle events -> Redis Pub/Sub
+    _event_bus.publish("lifecycle", {"config_path": config_path, "status": status, "detail": detail or ""})
 
 
 def backend_sys_path(project_root: str) -> str:

@@ -65,6 +65,7 @@ from run_grid_trading import create_grid_config, detect_market_type, create_exch
 from web_ui.backend.control_plane import publish_lifecycle, publish_runtime
 from web_ui.backend.lifecycle import account_mode_from_yaml, iter_hotplug_starts, live_trading_enabled, start_rejection
 from core.infrastructure.database.async_writer import AsyncDatabaseWriter
+from core.infrastructure.database.redis_support import RedisLeaderElection, leader_election_enabled
 from core.infrastructure.identity import resolve_bot_id
 
 # 優化的日誌系統
@@ -318,6 +319,14 @@ async def run_single_grid_task(config_path: str, adapter_pool, logger, running_g
         config_data = _load_grid_yaml(config_path)
         grid_config = create_grid_config(config_data)
         grid_bot_id = resolve_bot_id(config_path)  # P1-1: 穩定身份（優先 metadata.bot_id）
+        # P2-5: Redis 領導者選舉（防雙開）。未設定 REDIS_URL 時自動跳過。
+        leader = None
+        if leader_election_enabled():
+            leader = RedisLeaderElection(grid_bot_id)
+            if not leader.acquire():
+                logger.error(f"❌ [{config_path}] 領導權已由另一引擎持有，拒絕啟動（bot_id={grid_bot_id}）")
+                _emit_lifecycle(config_path, "failed", "leader election conflict")
+                return
         shared_adapter = await adapter_pool.get(config_path)
 
         # 🔥 自動獲取精度信息（若 YAML 中省略了 quantity_precision / price_decimals）
@@ -504,6 +513,11 @@ async def run_single_grid_task(config_path: str, adapter_pool, logger, running_g
         logger.error(f"💥 運行網格任務時發生崩潰 [{config_path}]: {e}", exc_info=True)
         _emit_lifecycle(config_path, "failed", str(e))
     finally:
+        if leader is not None:
+            try:
+                leader.release()
+            except Exception as release_err:
+                logger.warning(f"⚠️ [Leader] 釋放領導權失敗 {config_path}: {release_err}")
         if config_path in running_grids_ref:
             del running_grids_ref[config_path]
 
@@ -519,6 +533,7 @@ async def run_single_dca_task(config_path: str, adapter_pool, logger,
     """
     coordinator = None
     executor = None
+    leader = None
     bot_id = Path(config_path).stem  # UI/命令/訂單命名空間身份（檔名 stem，維持 LIVE 訂單連續性）
     try:
         logger.info(f"🔵 [DCA 初始化] 讀取設定檔: {config_path}")
@@ -533,6 +548,14 @@ async def run_single_dca_task(config_path: str, adapter_pool, logger,
         config = load_dca_config(data)
         symbol = config.symbol
         exchange = config.exchange
+
+        # P2-5: Redis 領導者選舉（防雙開）
+        if leader_election_enabled():
+            leader = RedisLeaderElection(resolve_bot_id(config_path))
+            if not leader.acquire():
+                logger.error(f"❌ [DCA {config_path}] 領導權已由另一引擎持有，拒絕啟動")
+                _emit_dca_lifecycle(config_path, "failed", "leader election conflict")
+                return
 
         # 共享 Adapter 池（稽核 3.16）：與網格同 exchange 共用實例
         adapter = await adapter_pool.get(config_path)
@@ -629,6 +652,11 @@ async def run_single_dca_task(config_path: str, adapter_pool, logger,
                 await coordinator.stop()
             except Exception:
                 pass
+        if leader is not None:
+            try:
+                leader.release()
+            except Exception as release_err:
+                logger.warning(f"⚠️ [Leader] 釋放 DCA 領導權失敗 {config_path}: {release_err}")
         if config_path in running_dca_ref:
             del running_dca_ref[config_path]
 
