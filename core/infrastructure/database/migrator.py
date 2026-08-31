@@ -76,6 +76,10 @@ class DatabaseMigrator:
                 # 2. Backfill Position
                 pos_data = payload.get("position") or {}
                 profit_data = payload.get("profit") or {}
+                # legacy grid 快照的 cycles 位於 filled_orders.cycles（無 top-level cycles，
+                # 與 grid 重啟恢復邏輯一致）；DCA 快照則為 top-level cycles。
+                filled_orders = payload.get("filled_orders") or {}
+                cycles_raw = payload.get("cycles", payload.get("completed_cycles", filled_orders.get("cycles", 0)))
                 pos = BotPosition(
                     bot_id=bot_id,
                     active_direction=payload.get("active_direction"),
@@ -83,7 +87,7 @@ class DatabaseMigrator:
                     average_cost=float(pos_data.get("average_cost", 0.0)) if pos_data.get("average_cost") else None,
                     total_cost=float(pos_data.get("total_cost", 0.0) or 0.0),
                     entry_price=float(payload.get("entry_price", 0.0)) if payload.get("entry_price") else None,
-                    completed_cycles=int(payload.get("cycles", payload.get("completed_cycles", 0)) or 0),
+                    completed_cycles=int(cycles_raw or 0),
                     realized_profit=float(profit_data.get("realized", profit_data.get("grid_profit", 0.0)) or 0.0),
                     total_fees=float(profit_data.get("fees", 0.0) or 0.0),
                     updated_at=ts,
@@ -117,6 +121,13 @@ class DatabaseMigrator:
                         )
                         repo.record_fill(fill)
                         stats["fills_migrated"] += 1
+
+                # 4. Backfill bot_snapshots（P1-2 穩定 bot_id 恢復主路徑）。
+                # 遷移後引擎重啟若尚未產生新 heartbeat，load_by_bot_id(bot_snapshots)
+                # 需立即可命中，否則恢復只能走 legacy config_path/symbol 啟發式。
+                # 僅在無既有快照時寫入，確保重跑冪等（不重複 append history/不 bump version）。
+                if repo.load_snapshot_by_bot_id(bot_id) is None:
+                    repo.save_snapshot(bot_id, config_path, payload, ts)
 
         logger.info(f"✅ [Migrator] 資料庫遷移與回補完成: {stats}")
         return stats
