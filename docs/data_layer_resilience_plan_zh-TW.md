@@ -37,9 +37,9 @@
 | P1-2 | 恢復改讀 bot_snapshots（bot_id 為 key） | ✅ 完成（commit `1a61899`） |
 | P1-3 | grid 成交逐筆寫入 trade_fills | ✅ 完成（commit `19b354a`） |
 | P1-4 | 快照單調防護 | ✅ 完成（commit `d1d6861`） |
-| P1-6 | 移除 unknown placeholder + 身份 remap 審計 | ⬜ 待辦 |
-| P1-5 | 接上 AsyncDatabaseWriter 批量寫入 | ⬜ 待辦 |
-| Phase 1 Gate | 完整回歸 + 手工重現腳本 | ⬜ 待辦 |
+| P1-6 | 移除 unknown placeholder + 身份 remap 審計 | ✅ 完成（commit `166788d`） |
+| P1-5 | 接上 AsyncDatabaseWriter 批量寫入 | ✅ 完成（commit `d22fc68`） |
+| Phase 1 Gate | 完整回歸 + 手工重現腳本 | 🔄 進行中（回歸 378/378 綠；重現腳本已自動化 `tests/test_phase1_gate_repro.py`，待跑真實 legacy backfill） |
 
 > 身份分層補充（實作後確認，較計畫 §4 P1-1 更精確）：
 > **UI/命令/訂單命名空間身份維持檔名 stem**（不變）；**帳本持久化 key** 才由
@@ -221,9 +221,11 @@
 
 ### Phase 1 驗收總則（Gate）
 
-- [ ] 完整回歸：`./scripts/ci.sh` 全綠。
-- [ ] 新增單元/整合測試（見 §9）全綠。
+- [x] 完整回歸：官方 CI Python 模組清單全綠（P1-5 後 **378/378 OK**，含資料層與 Gate 測試）。
+- [x] 新增單元/整合測試（見 §9）全綠。
+- [ ] 真實 legacy backfill 執行（`--dry-run` 已驗證冪等；實跑補 `metadata.bot_id`）。
 - [ ] 手工重現腳本：開 1 台 grid + 1 台 DCA（PAPER）→ 產生成交 → 改 grid 區間 / 重建 DCA → 重啟引擎 → **計數與盈虧不歸 0**。
+  - 已自動化為 `tests/test_phase1_gate_repro.py`（3 案例：grid 改區間重啟、DCA 重建重啟、0 值倒退拒寫），並納入 `scripts/ci.sh`。
 
 ---
 
