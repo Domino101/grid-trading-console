@@ -16,7 +16,9 @@ all existing DB tests and engine call sites keep working unchanged.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
+import re
 import threading
 import time
 import typing
@@ -49,6 +51,7 @@ try:  # pragma: no cover - exercised when SQLAlchemy is installed
         delete,
         func,
         select,
+        text,
     )
     from sqlalchemy.dialects.postgresql import insert as pg_insert
     from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -262,7 +265,34 @@ def _monotonic_regression(old: dict, new: dict) -> List[str]:
 
 
 def is_postgres_url(url: Optional[str]) -> bool:
-    return bool(url and url.strip().lower().startswith(("postgres://", "postgresql://")))
+    """True for any PostgreSQL-form URL, with or without an explicit driver.
+
+    Accepts ``postgres://``, ``postgresql://`` and driver-qualified forms such
+    as ``postgresql+psycopg://`` / ``postgresql+psycopg2://`` (F1 fix: the
+    driver-qualified form used to be silently treated as "not Postgres").
+    """
+    if not url:
+        return False
+    normalized = url.strip().lower()
+    if normalized.startswith(("postgres://", "postgresql://")):
+        return True
+    return normalized.startswith("postgresql+") and "://" in normalized
+
+
+def normalize_postgres_url(url: str) -> str:
+    """Route bare ``postgresql://`` URLs to the pinned psycopg (v3) driver.
+
+    requirements.txt pins ``psycopg[binary]`` (v3); SQLAlchemy's default
+    dialect for a bare ``postgresql://`` URL is psycopg2, which is *not*
+    installed, so production deployments crashed on startup (audit F1).
+    Driver-qualified URLs are returned untouched.
+    """
+    stripped = url.strip()
+    if stripped.lower().startswith(("postgres://", "postgresql://")):
+        rewritten = re.sub(r"^(postgres|postgresql)://", "postgresql+psycopg://", stripped, flags=re.IGNORECASE)
+        logger.info("🔗 [LedgerStore] DATABASE_URL 已正規化為 psycopg(v3) 驅動: postgresql+psycopg://…")
+        return rewritten
+    return stripped
 
 
 def get_database_url(database_url: Optional[str] = None) -> Optional[str]:
@@ -569,6 +599,10 @@ class SQLAlchemyLedgerStore:
                 select(bot_positions.c.version).where(bot_positions.c.bot_id == bot_id)
             ).fetchone()
             if existing is None:
+                # F8 fix: honour an explicitly carried version (migration copies
+                # the source OCC version instead of restarting at 1).  Runtime
+                # first-inserts default to version=1, behaviour unchanged.
+                initial_version = max(1, int(getattr(position, "version", 1) or 1))
                 conn.execute(
                     bot_positions.insert().values(
                         bot_id=bot_id,
@@ -580,11 +614,11 @@ class SQLAlchemyLedgerStore:
                         completed_cycles=position.completed_cycles,
                         realized_profit=position.realized_profit,
                         total_fees=position.total_fees,
-                        version=1,
+                        version=initial_version,
                         updated_at=now,
                     )
                 )
-                position.version = 1
+                position.version = initial_version
                 position.updated_at = now
                 return True
 
@@ -836,25 +870,53 @@ class SqliteLedgerStore(SQLAlchemyLedgerStore):
 
 
 class PostgresLedgerStore(SQLAlchemyLedgerStore):
-    """PostgreSQL source-of-truth store (P2-2)."""
+    """PostgreSQL source-of-truth store (P2-2).
 
-    def __init__(self, database_url: Optional[str] = None):
+    ``schema`` optionally namespaces every ledger table (F2 test isolation:
+    each isolated test database path maps to its own schema, mirroring the
+    per-path isolation of SQLite files).  Production keeps ``None`` (public).
+    """
+
+    def __init__(self, database_url: Optional[str] = None, schema: Optional[str] = None):
         url = get_database_url(database_url)
         if not is_postgres_url(url):
             raise LedgerStoreError("PostgresLedgerStore requires a postgresql:// DATABASE_URL.")
-        engine = create_engine(
-            url,
-            pool_size=max(2, int(os.getenv("GRID_PG_POOL_SIZE", "5") or 5)),
-            max_overflow=max(1, int(os.getenv("GRID_PG_MAX_OVERFLOW", "10") or 10)),
-            pool_pre_ping=True,
-        )
+        engine_kwargs: dict = {
+            "pool_size": max(2, int(os.getenv("GRID_PG_POOL_SIZE", "5") or 5)),
+            "max_overflow": max(1, int(os.getenv("GRID_PG_MAX_OVERFLOW", "10") or 10)),
+            "pool_pre_ping": True,
+        }
+        if schema:
+            engine_kwargs["connect_args"] = {"options": f"-csearch_path={schema},public"}
+        engine = create_engine(normalize_postgres_url(url), **engine_kwargs)
+        self.schema = schema
+        if schema:
+            with engine.begin() as conn:
+                conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
         super().__init__(engine)
         self.initialize()
 
 
+def postgres_schema_for_path(database_path: str) -> str:
+    """Deterministic per-path schema name used for PG test isolation (F2)."""
+    digest = hashlib.sha1(os.path.abspath(database_path).encode("utf-8")).hexdigest()[:12]
+    return f"ledger_{digest}"
+
+
 def create_ledger_store(database_path: Optional[str] = None, database_url: Optional[str] = None):
-    """Factory choosing SQLite (default) or PostgreSQL (when DATABASE_URL is set)."""
+    """Factory choosing SQLite (default) or PostgreSQL (when DATABASE_URL is set).
+
+    With PostgreSQL, an explicit non-default ``database_path`` (tests, tooling)
+    maps to its own schema so callers keep the same per-path isolation
+    semantics as SQLite files.  Production deployments (default path / no
+    path) share the ``public`` schema, matching Alembic migrations.
+    """
     url = get_database_url(database_url)
     if is_postgres_url(url):
-        return PostgresLedgerStore(database_url=url)
+        schema: Optional[str] = None
+        if database_path is None:
+            database_path = EnvironmentGuard.get_safe_database_path(None)
+        if database_path and os.path.abspath(database_path) != os.path.abspath(EnvironmentGuard.default_database_path()):
+            schema = postgres_schema_for_path(database_path)
+        return PostgresLedgerStore(database_url=url, schema=schema)
     return SqliteLedgerStore(database_path=database_path)

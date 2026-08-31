@@ -27,6 +27,12 @@ class EnvironmentGuard:
     _test_db_dir: Optional[str] = None
 
     @classmethod
+    def default_database_path(cls) -> str:
+        """Canonical production SQLite path (independent of test redirection)."""
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+        return os.path.join(root, "data", "web_ui_runtime.sqlite3")
+
+    @classmethod
     def is_test_environment(cls) -> bool:
         """Detect if the current process is running in a test suite."""
         if os.getenv("APP_ENV", "").lower() in {"test", "testing", "pytest"}:
@@ -79,5 +85,4 @@ class EnvironmentGuard:
 
         if requested_path:
             return requested_path
-        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
-        return os.path.join(root, "data", "web_ui_runtime.sqlite3")
+        return cls.default_database_path()

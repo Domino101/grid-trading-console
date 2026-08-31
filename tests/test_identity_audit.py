@@ -60,11 +60,10 @@ class TestIdentityAudit(unittest.TestCase):
     def test_no_unknown_placeholder_rows(self):
         self._register(bot_id="bot-a")
         # 正常註冊後不會有任何 strategy_type='unknown' 的列
-        with self.repo._connect() as conn:
-            unknown = conn.execute(
-                "SELECT COUNT(*) AS c FROM bots WHERE strategy_type = 'unknown'"
-            ).fetchone()["c"]
-        self.assertEqual(unknown, 0)
+        # （F3 fix: 檢查走 LedgerStore 抽象，PG 模式不再誤讀本機 SQLite）
+        bots = self.repo.get_all_bots()
+        unknown = [b for b in bots if b.strategy_type == "unknown"]
+        self.assertEqual(unknown, [])
 
 
 if __name__ == "__main__":

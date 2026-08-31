@@ -19,6 +19,7 @@ import {
 } from '../services/api';
 import { ApiError } from '../utils/auth';
 import { money, nextPollDelay, number } from '../utils/format';
+import { connectGridEvents, isRefreshableEvent, type GridEventsHandle } from '../services/events';
 import ConfirmDialog from './ConfirmDialog';
 import GridCard from './GridCard';
 import GridTable from './GridTable';
@@ -112,6 +113,40 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenGrid, onCreateNew, onUnauth
     };
   }, [fetchSnapshot]);
 
+  // P2-4 (audit F6): backend push events accelerate the snapshot refresh so
+  // engine heartbeats/lifecycle changes reach the UI well under the 15s poll
+  // interval.  Polling remains authoritative while disconnected, and every
+  // (re)connect schedules one reconciling refresh (facts rebuild semantics).
+  const [eventsLive, setEventsLive] = useState(false);
+  const eventRefreshTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    let handle: GridEventsHandle | null = null;
+    const scheduleEventRefresh = () => {
+      if (eventRefreshTimer.current !== null) return; // debounce bursts
+      eventRefreshTimer.current = window.setTimeout(() => {
+        eventRefreshTimer.current = null;
+        if (!document.hidden) void fetchSnapshot();
+      }, 150);
+    };
+    handle = connectGridEvents(
+      (event) => {
+        if (isRefreshableEvent(event)) scheduleEventRefresh();
+      },
+      (connected) => {
+        setEventsLive(connected);
+        if (connected) scheduleEventRefresh();
+      },
+    );
+    return () => {
+      if (eventRefreshTimer.current !== null) {
+        window.clearTimeout(eventRefreshTimer.current);
+        eventRefreshTimer.current = null;
+      }
+      handle?.close();
+    };
+  }, [fetchSnapshot]);
+
   const runAction = async (grid: DashboardGridItem, action: 'start' | 'stop' | 'delete') => {
     if (action === 'start' && grid.start_blocked_reason) {
       setError(grid.start_blocked_reason);
@@ -191,6 +226,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenGrid, onCreateNew, onUnauth
         circuitOpen={health?.circuit_breaker.is_open}
         lastSync={snapshot?.generated_at ?? null}
         accountMode={snapshot?.account_mode}
+        eventsLive={eventsLive}
         onRefresh={() => void fetchSnapshot()}
         loading={loading}
       />

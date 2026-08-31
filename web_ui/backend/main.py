@@ -83,12 +83,21 @@ def _stop_redis_subscriber():
     _redis_subscription = None
     if not sub:
         return
-    try:
-        pubsub = sub.get("pubsub")
-        if pubsub is not None:
-            pubsub.close()
-    except Exception:
-        pass
+    # F5: prefer the handle's own close() (stops the listener loop first, then
+    # closes the socket) so shutdown no longer leaks a traceback in the thread.
+    close = sub.get("close") if isinstance(sub, dict) else None
+    if callable(close):
+        try:
+            close()
+        except Exception:
+            pass
+    else:
+        try:
+            pubsub = sub.get("pubsub")
+            if pubsub is not None:
+                pubsub.close()
+        except Exception:
+            pass
     thread = sub.get("thread")
     if thread is not None:
         thread.join(timeout=2)
