@@ -24,6 +24,22 @@
   - `PositionTrackerImpl` 接受 `bot_id`，每筆成交 append 至 `trade_fills`（role=`grid`，以 client/order id 冪等；帳本失敗不阻斷交易）。
   - 新增 `tests/test_grid_fill_ledger.py`（3 案例）。
 
+- **帳本身份可審計，未註冊 bot 拒絕寫入 (P1-6)**：
+  - 移除 `bots` 表 `unknown` placeholder；`record_fill` / `update_position_occ` 在 bot 未註冊時拋 `LedgerIntegrityError`，杜絕「無主成交/持倉」污染帳本。
+  - 新增 `bot_identity_events` 審計表（`created` / `config_linked`），`register_or_update_bot` 寫入身份軌跡，`get_identity_events` 供稽核。
+  - `PositionTrackerImpl` 首次寫成交前先以 config 註冊 bot。
+  - 新增 `tests/test_identity_audit.py`（5 案例）。
+
+- **非同步批量寫入走完整 save 路徑 (P1-5)**：
+  - `AsyncDatabaseWriter` 預設改走 `RuntimeSnapshotRepository.save` 完整落盤（bot 註冊 + fills + OCC 持倉 + snapshot），杜絕 routing 後漏失 DCA 成交抽取。
+  - 新增 bounded retry 佇列（`max_retries`，重試失敗後捨棄並告警）、`async_write_enabled()` env gate（`GRID_DB_ASYNC_WRITE`，預設開）、`is_running()`。
+  - `control_plane.publish_runtime` 於 writer 已啟動且啟用時 enqueue，否則同步 save；命令 promotion 保持同步。
+  - `run_multiple_grids.main` 啟動後 `start()`、關閉時 `stop()` 最終 flush。
+  - 新增 `tests/test_async_writer_full_save.py`（3 案例）。
+
+- **Phase 1 Gate 重現驗證 (P1-Gate)**：
+  - 新增 `tests/test_phase1_gate_repro.py`（3 案例）：改價格區間/重建後重啟，以穩定 `bot_id` 恢復累計計數與盈虧不歸 0；恢復失敗以 0 值回報時單調防護拒寫。
+
 ---
 
 ## [0.2.0-beta] — 2026-08-31
