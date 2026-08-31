@@ -1,5 +1,5 @@
 import React from 'react';
-import { RefreshCcw, ShieldCheck, ShieldAlert, Cpu, Activity } from 'lucide-react';
+import { RefreshCcw, ShieldCheck, ShieldAlert, Cpu, Activity, Radio } from 'lucide-react';
 
 interface TopBarProps {
     dataStatus?: string;
@@ -8,6 +8,7 @@ interface TopBarProps {
     circuitOpen?: boolean;
     lastSync?: number | null;
     accountMode?: string;
+    eventsLive?: boolean;
     onRefresh: () => void;
     loading?: boolean;
     title?: string;
@@ -20,6 +21,7 @@ const TopBar: React.FC<TopBarProps> = ({
     circuitOpen,
     lastSync,
     accountMode,
+    eventsLive,
     onRefresh,
     loading,
     title = '網格總控台',
@@ -58,6 +60,13 @@ const TopBar: React.FC<TopBarProps> = ({
               <span className="positive">熔斷正常</span>
             </>
           )}
+        </div>
+
+        <div className="telemetry-item" title="事件推送（WebSocket）連線狀態：中斷時以輪詢為準">
+          <Radio size={14} />
+          <span>事件:</span>
+          <span className={`telemetry-dot ${eventsLive ? 'online' : 'warning'}`} />
+          <strong>{eventsLive ? '即時' : '輪詢'}</strong>
         </div>
 
         <div className="telemetry-item" title="資料快照最後同步時間">

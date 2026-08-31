@@ -2,6 +2,7 @@
 
 > 對應計畫：`docs/data_layer_resilience_plan_zh-TW.md` §5（Phase 2）
 > 分支：`arena/01a05696-grid-trading-console`
+> 稽核與修復記錄：`docs/phase2_audit_report_20260831_zh-TW.md`、`docs/phase2_fixes_worklog_20260831.md`（2026-08-31 Gate 已通過）
 
 ---
 
@@ -36,6 +37,11 @@ psql -U postgres -c "CREATE ROLE grid LOGIN PASSWORD 'grid';"
 psql -U postgres -c "CREATE DATABASE grid OWNER grid;"
 ```
 
+> **驅動說明（稽核 F1 修復後）**：repo 僅 pin psycopg **v3**（`psycopg[binary]`）。
+> `postgresql://…` 與 `postgres://…` URL 會由系統自動正規化為
+> `postgresql+psycopg://…`；亦接受直接寫 `postgresql+psycopg://…`。
+> **不要**另行安裝 psycopg2。
+
 ### Alembic 初始化（首次）
 
 ```bash
@@ -55,9 +61,12 @@ python scripts/migration/sqlite_to_postgres.py \
 
 ## 4. Redis 快取與事件
 
-- 熱快取 key：`grid:state:{bot_id}`、`grid:state:path:{base64(config_path)}`，TTL = `GRID_REDIS_STATE_TTL`。
+- 熱快取 key：`grid:state:{bot_id}`、`grid:state:path:{base64(config_path)}`，TTL = `GRID_REDIS_STATE_TTL`（已實際接線，稽核 F4 修復）。
 - 事件 channel：`grid:events`，Web API 於 `/ws/grid-events` 訂閱並推送前端；斷線後仍可由 DB facts 重建。
-- 領導者選舉 key：`grid:leader:{bot_id}`，租約 = `GRID_REDIS_LEADER_TTL`；未設 `REDIS_URL` 時自動關閉，允許單機啟動。
+  - 前端已接入：`runtime`/`lifecycle` 事件觸發即時快照刷新（150ms debounce），頂欄顯示「即時/輪詢」連線狀態（稽核 F6 修復）。
+  - 訂閱自動重連（指數退避、上限 30s）：**Redis 重啟後事件推送自動恢復，無需重啟 API**（稽核 F5 修復）。
+- 領導者選舉 key：`grid:leader:{bot_id}`，租約 = `GRID_REDIS_LEADER_TTL`（已實際接線）；續約/釋放為 Lua 原子操作（稽核 F7 修復）。Redis 不可達時 fail-open 放行（防雙開僅剩進程鎖防護），並記 **ERROR** log。
+- 未設 `REDIS_URL` 時自動關閉，允許單機啟動。
 
 > **Redis 不是事實來源**。所有 Redis 讀寫都有 DB fallback；即使 Redis 整個停機，服務不會中斷，資料也不會丟失。
 
@@ -79,3 +88,15 @@ python scripts/migration/sqlite_to_postgres.py \
 ## 7. 回滾
 
 任何子任務均可 `git revert`；Phase 2 以 env 開關控制：將 `DATABASE_URL` / `REDIS_URL` 設空即可回到 Phase 1 的 SQLite 直連模式。
+
+## 8. 部署驗證證據（2026-08-31 稽核沙箱實證）
+
+| 項目 | 結果 |
+|---|---|
+| SQLite 模式（無 DATABASE_URL/REDIS_URL）CI 回歸 | 391/391 OK |
+| PG 16.2 模式 CI 同模組清單（`PG_TEST_URL` leg） | 38 模組全綠（測試以 per-path schema 自隔離） |
+| `alembic upgrade head`（SQLite / PG） | 雙後端成功 |
+| sqlite→PG 遷移（facts 優先）＋ 冪等重跑 | fills 不重複、OCC version 保留、identity events 去重搬運 |
+| Redis 停機演練（殺掉 Redis → 讀寫 → 重啟） | 15/15 檢查通過：資料零損失、自動降級、讀路徑與事件訂閱自癒 |
+| 事件延遲（engine → Redis → WebSocket） | 83–110ms（門檻 <500ms） |
+| 雙環境啟動（有/無 PG+Redis 的 `/healthz`、引擎熱待命） | 皆正常，log 無 traceback |

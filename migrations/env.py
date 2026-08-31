@@ -24,8 +24,15 @@ if config.config_file_name is not None:
 
 # If the environment provides DATABASE_URL, let it override alembic.ini. Default
 # to the local SQLite database so migration works in single-host deployments.
+# Bare postgresql:// URLs are normalized to the pinned psycopg (v3) driver
+# (audit F1: SQLAlchemy's default for a bare URL is psycopg2, which is not a
+# repo dependency, so `alembic upgrade head` crashed against PostgreSQL).
 _database_url = os.getenv("DATABASE_URL")
 if _database_url:
+    from core.infrastructure.database.ledger_store import is_postgres_url, normalize_postgres_url
+
+    if is_postgres_url(_database_url):
+        _database_url = normalize_postgres_url(_database_url)
     config.set_main_option("sqlalchemy.url", _database_url)
 elif not config.get_main_option("sqlalchemy.url"):
     db_path = os.environ.get("GRID_DB_PATH", "data/web_ui_runtime.sqlite3")

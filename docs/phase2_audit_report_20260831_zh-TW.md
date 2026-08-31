@@ -246,3 +246,30 @@ Drill H：/ws/grid-events?token=錯誤 → 4401 拒絕 ✓
 | P2-5「已實作，grid/DCA 啟動入口接入」 | ✅ 屬實（互斥實證通過；fail-open 取捨見 F7） |
 | P2-6「已實作（.env.example／部署維運摘要）」 | ⚠️ 文件屬實；TTL 變數無效（F4）、雙環境啟動無證據（F10） |
 | Phase 2 Gate「🗓️ 待部署環境驗證」 | 本報告已完成該驗證：**未通過**，需先修 F1/F2 |
+
+---
+
+## 附錄 B：複審結果（2026-08-31 修復後）
+
+> 修復實作細節見 `docs/phase2_fixes_worklog_20260831.md`。複審環境與首次稽核相同（PostgreSQL 16.2 + Redis 6.2.14），且**解除安裝 psycopg2-binary** 以最嚴格條件（僅 repo pin 的 psycopg v3）重驗 F1。
+
+| ID | 修復前 | 複審證據 | 判定 |
+|---|---|---|---|
+| F1 (P0) | bare URL 崩潰／+psycopg 靜默回落 SQLite | 無 psycopg2 環境下：`postgresql://` URL → `PostgresLedgerStore` 讀寫成功、Alembic 成功；新增 `test_is_postgres_url_accepts_all_documented_forms` 等 7 個迴歸測試 | ✅ 已修復 |
+| F2 (P1) | PG 模組級 19 模組失敗 | **零外部 fixture**（不做 schema 重置）PG 38 模組全綠；ci.sh 新增 `PG_TEST_URL` leg | ✅ 已修復 |
+| F3 (P1) | `_connect()` 幽靈 SQLite | PG 模式 raise；測試改方言無關；PG 套件全綠 | ✅ 已修復 |
+| F4 (P2) | TTL env 未接線 | 實測 key TTL = 60/15（env 值）；garbage 值回落預設有告警 | ✅ 已修復 |
+| F5 (P2) | Redis 重啟後推送永久靜默、關閉洩漏 traceback | Drill I：重啟後事件續流（True）；shutdown 無 traceback | ✅ 已修復 |
+| F6 (P2) | 前端零接線 | `services/events.ts` + Dashboard 事件刷新 + TopBar 即時/輪詢指示；98/98 測試、lint 0 errors、build ✓ | ✅ 已修復 |
+| F7 (P2) | 靜默 fail-open、非原子續約 | ERROR log、Lua 原子、喪失所有權告警＋重取；演練 15/15 | ✅ 已修復 |
+| F8 (P3) | version 歸 1、審計斷點 | version=7 保留、identity events 去重搬運、重跑冪等 | ✅ 已修復 |
+| F9 (P3) | rich 缺 pin | `rich==13.7.1` 已 pin；乾淨 venv 391/391 | ✅ 已修復 |
+| F10 (P3) | 雙環境啟動無證據 | `/healthz` 雙模式 OK；引擎 PG+Redis 熱待命 OK | ✅ 已補證據 |
+
+**複審後 Phase 2 Gate 判定：✅ 通過**
+
+- Gate 一（Phase 1 不退化）：SQLite 預設模式 **391/391 OK**。
+- Gate 二（PG 全綠）：**38 個 CI 模組全綠**（`DATABASE_URL=postgresql://grid:grid@127.0.0.1:5432/grid`，per-path schema 自隔離，無外部 fixture； psycopg v3 單驅動）。
+- Gate 三（Redis 停機演練）：**15/15 PASS**——讀寫自動降級、資料零損失、讀路徑與事件訂閱於 Redis 重啟後均自癒；領導者選舉互斥正確、fail-open 有 ERROR 可觀測。
+
+**放行建議**：Phase 2 可進入 Phase 3。部署仍應遵循 ops 文件 §5 順序（建 role/db → alembic → 遷移 → 切換 → 驗證），並以 §8 驗證表為部署煙囪測試。

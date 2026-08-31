@@ -20,6 +20,7 @@ from core.infrastructure.database.guard import EnvironmentGuard
 from core.infrastructure.database.ledger_store import (
     LedgerIntegrityError,
     LedgerStore,
+    LedgerStoreError,
     create_ledger_store,
 )
 from core.infrastructure.database.models import (
@@ -79,9 +80,22 @@ class LedgerRepository:
     def _connect(self):
         """Back-compatible sqlite3 connection for local/semi-direct inspection.
 
-        PostgreSQL backends should use ``store`` / SQLAlchemy connections.
+        F3 fix: in PostgreSQL mode this raw-SQLite handle is a *ghost data
+        source* (writes go to PG, inspection would read a local SQLite file).
+        It is now rejected loudly; use ``repo.store`` / SQLAlchemy connections.
         """
+        self._reject_raw_sqlite_in_postgres_mode()
         return connect_sqlite(self.database_path)
+
+    def _reject_raw_sqlite_in_postgres_mode(self) -> None:
+        from core.infrastructure.database.ledger_store import SqliteLedgerStore
+
+        if not isinstance(self._store, SqliteLedgerStore):
+            raise LedgerStoreError(
+                "LedgerRepository._connect() 僅支援 SQLite 後端。"
+                "目前為 PostgreSQL 真相源，請改用 repo.store（SQLAlchemy）讀寫，"
+                "以免誤讀本機 SQLite 造成雙來源分歧（稽核 F3）。"
+            )
 
     def _ensure_schema(self, connection=None) -> None:
         """Idempotent schema creation.
@@ -94,6 +108,7 @@ class LedgerRepository:
         if connection is None:
             self._store.initialize()
             return
+        self._reject_raw_sqlite_in_postgres_mode()
         if hasattr(connection, "executescript"):
             schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
             if os.path.exists(schema_path):

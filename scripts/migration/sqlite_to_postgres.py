@@ -41,6 +41,7 @@ def migrate(sqlite_path: str, postgres_url: str, dry_run: bool = False) -> Dict[
     bots = src.get_all_bots()
     stats = {
         "bots": len(bots),
+        "identity_events": 0,
         "fills": 0,
         "positions": 0,
         "snapshots": 0,
@@ -50,6 +51,29 @@ def migrate(sqlite_path: str, postgres_url: str, dry_run: bool = False) -> Dict[
         if dry_run:
             continue
         dst.register_or_update_bot(bot)
+
+        # F8 fix: preserve the audit trail (created/config_linked/renamed) so a
+        # migrated ledger keeps its identity history instead of growing a
+        # synthetic "created" event dated at migration time.  register_or_update_bot
+        # already inserts one synthetic "created"; skip exact duplicates.
+        existing_events = {
+            (e.event_type, e.recorded_at, e.config_path, e.old_bot_id, e.new_bot_id)
+            for e in dst.get_identity_events(bot.bot_id, limit=100_000)
+        }
+        for event in src.get_identity_events(bot.bot_id, limit=100_000):
+            signature = (event.event_type, event.recorded_at, event.config_path, event.old_bot_id, event.new_bot_id)
+            if signature in existing_events:
+                continue
+            dst.record_identity_event(
+                event.bot_id,
+                event.event_type,
+                config_path=event.config_path,
+                old_bot_id=event.old_bot_id,
+                new_bot_id=event.new_bot_id,
+                recorded_at=event.recorded_at,
+            )
+            existing_events.add(signature)
+            stats["identity_events"] += 1
 
         for fill in src.get_fills(bot.bot_id, limit=1_000_000):
             dst.record_fill(fill)

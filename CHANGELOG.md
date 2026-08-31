@@ -7,6 +7,25 @@
 
 ## [Unreleased]
 
+### Added
+- **Phase 2 生產化資料層（SQLAlchemy + PostgreSQL + Redis）與稽核修復**：
+  - `LedgerStore` 抽象（Protocol）＋ SQLAlchemy Core 實作：`SqliteLedgerStore`（預設）與 `PostgresLedgerStore`（`DATABASE_URL` 切換）；Alembic 納管 schema（`migrations/versions/0001_initial_schema.sql` 語意）。
+  - PostgreSQL 真相源：連線池（`GRID_PG_POOL_SIZE`/`GRID_PG_MAX_OVERFLOW`）、`pool_pre_ping`、金額欄 `NUMERIC(38,18)`；一次性遷移 `scripts/migration/sqlite_to_postgres.py`（facts 優先、冪等可重跑、保留 OCC version 與 identity 審計）。
+  - Redis（可拋棄層，全路徑 DB fallback）：熱快取 `grid:state:*`（write/read-through，TTL=`GRID_REDIS_STATE_TTL`）、Pub/Sub 事件 `grid:events` → `/ws/grid-events` WebSocket 推送、領導者選舉 `grid:leader:*`（SETNX + Lua 原子續約/釋放，TTL=`GRID_REDIS_LEADER_TTL`）。
+  - 前端接入 `/ws/grid-events`：`runtime`/`lifecycle` 事件觸發即時快照刷新（debounce 150ms），頂欄顯示「即時/輪詢」狀態；輪詢仍為權威來源，重連後自動對帳刷新。
+
+### Fixed
+- **Phase 2 稽核修復（2026-08-31，見 `docs/phase2_audit_report_20260831_zh-TW.md` 與 `docs/phase2_fixes_worklog_20260831.md`）**：
+  - **F1 (P0)**：`postgresql://` URL 自動正規化為 `postgresql+psycopg://`（repo 僅 pin psycopg v3，bare URL 原會因找不到 psycopg2 崩潰）；`is_postgres_url()` 接受驅動限定形式，不再靜默回落 SQLite；Alembic `env.py` 同步正規化。
+  - **F2 (P1)**：PG 測試隔離——非預設 ledger 路徑映射至獨立 PG schema（與 SQLite 檔案同級隔離），PG 上模組級全套 DB 測試 38/38 綠；`scripts/ci.sh` 新增 `PG_TEST_URL` 可選 PG 測試段。
+  - **F3 (P1)**：PG 模式下 `LedgerRepository._connect()`/`_ensure_schema(conn)` 明確拒絕（原會靜默讀取本機 SQLite 幽靈資料源）。
+  - **F4 (P2)**：`GRID_REDIS_STATE_TTL`/`GRID_REDIS_LEADER_TTL` 實際接線（原文件宣稱生效但程式從未讀取）。
+  - **F5 (P2)**：Redis Pub/Sub 訂閱自動重連（指數退避、上限 30s），Redis 重啟後事件推送自癒；API 關閉流程不再洩漏 listener traceback。
+  - **F7 (P2)**：領導者選舉 fail-open 升級為 ERROR log；續約/釋放改 Lua compare-and-act 原子腳本；renew 迴圈追蹤連續失敗與所有權喪失並嘗試重取。
+  - **F8 (P3)**：遷移保留來源 OCC `version`、搬運 `bot_identity_events` 並去重。
+  - **F9 (P3)**：`rich` 補 pin（`core/services/grid/__init__.py` 硬依賴）。
+  - 回歸：SQLite 391/391、PG 38 模組全綠、Redis 演練 15/15、前端 98 tests + lint 0 errors + build 通過。
+
 ### Fixed
 - **穩定機器人身份，根除「小改動/重開即歸零」(P1-1 / P1-2)**：
   - 新增 `core/infrastructure/identity.py`：帳本 key `bot_id` 由 YAML `metadata.bot_id`（UUID hex）提供，與檔名解耦；缺漏時退回檔名 stem（legacy 完全向後相容）。

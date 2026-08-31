@@ -59,7 +59,8 @@ python-dotenv==1.0.0          # 环境变量管理（可选）
 redis==5.0.1                  # Redis 缓存客户端
 sqlalchemy==2.0.23            # ORM 框架
 alembic==1.13.1               # 数据库迁移工具
-psycopg[binary]==3.1.19       # PostgreSQL 驱动（Phase 2 真相源）
+psycopg[binary]==3.1.19       # PostgreSQL 驱动（Phase 2 真相源，postgresql:// 会自动正規化為 +psycopg）
+rich==13.7.1                  # 终端 UI（core/services/grid/__init__.py 硬依賴，稽核 F9 補 pin）
 
 # ────────────────────────────────────────────────────────────────────────────
 # 🧪 测试框架 (Testing)

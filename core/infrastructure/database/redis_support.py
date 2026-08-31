@@ -20,6 +20,22 @@ logger = get_logger(__name__)
 GRID_EVENTS_CHANNEL = "grid:events"
 
 
+def env_int(name: str, default: int) -> int:
+    """Parse an integer env var, falling back to default on absence/garbage.
+
+    F4 fix: GRID_REDIS_STATE_TTL / GRID_REDIS_LEADER_TTL were documented but
+    never read; they now feed the cache TTL and leader lease respectively.
+    """
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return int(raw.strip())
+    except (TypeError, ValueError):
+        logger.warning(f"⚠️ [Redis] 環境變數 {name}={raw!r} 不是有效整數，改用預設值 {default}")
+        return default
+
+
 def redis_enabled() -> bool:
     return bool(os.getenv("REDIS_URL"))
 
@@ -85,10 +101,13 @@ class RedisStateCache:
     Keys:
       grid:state:{bot_id}          -> {"config_path", "stats", "updated_at"}
       grid:state:path:{b64}         -> same JSON (fast path lookup by config)
+
+    TTL defaults to ``GRID_REDIS_STATE_TTL`` (env, default 300s) when not
+    passed explicitly (F4 fix).
     """
 
-    def __init__(self, ttl: int = 300):
-        self.ttl = ttl
+    def __init__(self, ttl: Optional[int] = None):
+        self.ttl = int(ttl) if ttl is not None else env_int("GRID_REDIS_STATE_TTL", 300)
 
     def _key_for_bot(self, bot_id: str) -> str:
         return f"grid:state:{bot_id}"
@@ -159,83 +178,207 @@ class RedisStateCache:
 
 
 class RedisEventBus:
-    """Pub/Sub for lifecycle / heartbeat / fill events (P2-4)."""
+    """Pub/Sub for lifecycle / heartbeat / fill events (P2-4).
+
+    F5 fix: the listener thread used to die with its socket when Redis
+    restarted, silently stopping all downstream WebSocket pushes until the API
+    process was restarted.  The subscription now reconnects with bounded
+    backoff, and ``subscribe()`` returns a handle with a ``close()`` hook so
+    API shutdown no longer leaks an unhandled traceback in the listener thread.
+    """
+
+    def __init__(self, channel: str = GRID_EVENTS_CHANNEL):
+        self.channel = channel
 
     def publish(self, event: str, payload: dict) -> None:
         message = json.dumps({"event": event, **payload}, ensure_ascii=False, default=str)
 
         def _do(client: Any):
-            client.publish(GRID_EVENTS_CHANNEL, message)
+            client.publish(self.channel, message)
 
         safe_redis(_do, None)
 
-    def subscribe(self, callback: Callable[[dict], None]) -> Any:
-        """Return a public-subscription object; caller must keep it referenced/close."""
+    def subscribe(self, callback: Callable[[dict], None]) -> Optional[Dict[str, Any]]:
+        """Return a subscription handle; caller must keep it referenced/close."""
         client = get_redis()
         if client is None:
             return None
-        pubsub = client.pubsub()
-        pubsub.subscribe(GRID_EVENTS_CHANNEL)
+
+        holder: Dict[str, Any] = {"running": True, "pubsub": None}
+
+        def _connect(client_: Any) -> Any:
+            pubsub = client_.pubsub()
+            pubsub.subscribe(self.channel)
+            holder["pubsub"] = pubsub
+            return pubsub
+
+        def _dispatch(raw: Any) -> None:
+            if not isinstance(raw, dict) or raw.get("type") != "message":
+                return
+            try:
+                data = json.loads(raw.get("data", "{}"))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                return
+            try:
+                callback(data)
+            except Exception as exc:
+                logger.warning(f"⚠️ [Redis] 事件回呼失敗: {exc}")
 
         def _thread() -> None:
-            for raw in pubsub.listen():
-                if raw is None or raw.get("type") != "message":
-                    continue
+            backoff = 1.0
+            while holder["running"]:
+                pubsub = holder.get("pubsub")
                 try:
-                    data = json.loads(raw.get("data", "{}"))
-                except (TypeError, ValueError, json.JSONDecodeError):
-                    continue
-                try:
-                    callback(data)
+                    if pubsub is None:
+                        fresh = get_redis()
+                        if fresh is None:
+                            # Redis still down/disabled; keep waiting, bounded.
+                            time.sleep(backoff)
+                            backoff = min(backoff * 2, 30.0)
+                            continue
+                        pubsub = _connect(fresh)
+                        backoff = 1.0
+                        logger.info("✅ [Redis] 事件訂閱已（重）連")
+                    for raw in pubsub.listen():
+                        if not holder["running"]:
+                            break
+                        _dispatch(raw)
+                    if not holder["running"]:
+                        break
+                    # listen() ended without exception (e.g. closed remotely)
+                    raise ConnectionError("redis pubsub listen ended")
                 except Exception as exc:
-                    logger.warning(f"⚠️ [Redis] 事件回呼失敗: {exc}")
+                    if not holder["running"]:
+                        break
+                    logger.warning(f"⚠️ [Redis] 事件訂閱中斷，{backoff:.0f}s 後重連: {exc}")
+                    try:
+                        stale = holder.get("pubsub")
+                        if stale is not None:
+                            stale.close()
+                    except Exception:
+                        pass
+                    holder["pubsub"] = None
+                    reset_redis_client()
+                    time.sleep(backoff)
+                    backoff = min(backoff * 2, 30.0)
 
         thread = threading.Thread(target=_thread, name="grid-redis-events", daemon=True)
         thread.start()
-        return {"pubsub": pubsub, "thread": thread}
+
+        def _close() -> None:
+            holder["running"] = False
+            pubsub = holder.get("pubsub")
+            if pubsub is not None:
+                try:
+                    pubsub.close()
+                except Exception:
+                    pass
+
+        return {"pubsub": holder.get("pubsub"), "thread": thread, "close": _close}
 
 
 class RedisLeaderElection:
-    """SETNX-based leadership for bot engine instances (P2-5)."""
+    """SETNX-based leadership for bot engine instances (P2-5).
 
-    def __init__(self, bot_id: str, engine_id: Optional[str] = None, ttl: int = 30):
+    F7 hardening:
+    * acquire() logs an explicit ERROR when Redis is configured but unreachable
+      (fail-open preserved for single-host autonomy per ADR-2, no longer silent).
+    * renew()/release() are atomic Lua compare-and-act scripts, so a stale
+      owner can no longer renew/delete a key now owned by another engine.
+    * the renewal loop tracks consecutive failures and ownership loss, logging
+      ERROR and attempting one re-acquire instead of failing silently.
+
+    TTL defaults to ``GRID_REDIS_LEADER_TTL`` (env, default 30s) when not
+    passed explicitly (F4 fix).
+    """
+
+    _RENEW_SCRIPT = """
+    local v = redis.call('GET', KEYS[1])
+    if v == ARGV[1] then
+      redis.call('EXPIRE', KEYS[1], ARGV[2])
+      return 1
+    end
+    return 0
+    """
+
+    _RELEASE_SCRIPT = """
+    local v = redis.call('GET', KEYS[1])
+    if v == ARGV[1] then
+      redis.call('DEL', KEYS[1])
+      return 1
+    end
+    return 0
+    """
+
+    def __init__(self, bot_id: str, engine_id: Optional[str] = None, ttl: Optional[int] = None):
         self.bot_id = bot_id
         self.engine_id = engine_id or f"{os.getpid()}-{time.time_ns()}"
-        self.ttl = ttl
+        self.ttl = int(ttl) if ttl is not None else env_int("GRID_REDIS_LEADER_TTL", 30)
         self._key = f"grid:leader:{bot_id}"
         self._renew_thread: Optional[threading.Thread] = None
         self._running = False
+        self._renew_failures = 0
+        self._lost_logged = False
 
     @property
     def key(self) -> str:
         return self._key
 
     def acquire(self) -> bool:
-        """Try to become leader. Returns True when this engine owns the lock."""
+        """Try to become leader. Returns True when this engine owns the lock.
 
-        def _do(client: Any) -> bool:
-            owned = client.set(self._key, self.engine_id, nx=True, ex=self.ttl)
+        Redis-unreachable keeps the documented fail-open semantics (the
+        process-level/pgrep duplicate-engine guard remains authoritative),
+        but the degradation is logged at ERROR level, not silently.
+        """
+        client = get_redis()
+        if client is None:
+            if redis_enabled():
+                logger.error(
+                    f"❌ [Leader] REDIS_URL 已設定但 Redis 不可達，領導者選舉降級放行"
+                    f"（bot_id={self.bot_id} engine={self.engine_id}）；防雙開僅剩進程鎖防護"
+                )
+            return True
+
+        def _do(c: Any) -> bool:
+            owned = c.set(self._key, self.engine_id, nx=True, ex=self.ttl)
             if owned:
                 logger.info(f"✅ [Leader] 取得領導權 bot_id={self.bot_id} engine={self.engine_id}")
                 return True
-            current = client.get(self._key)
+            current = c.get(self._key)
             if isinstance(current, bytes):
                 current = current.decode("utf-8", "replace")
-            if current == self.engine_id:
-                return True
-            return False
+            return current == self.engine_id
 
-        owned = safe_redis(_do, True)
+        try:
+            owned = bool(_do(client))
+        except Exception as exc:
+            logger.error(f"❌ [Leader] Redis 操作失敗，領導者選舉降級放行 bot_id={self.bot_id}: {exc}")
+            return True
         if owned:
+            self._renew_failures = 0
+            self._lost_logged = False
             self._start_renew()
-        return bool(owned)
+        return owned
 
-    def renew(self) -> None:
-        def _do(client: Any):
-            if client.get(self._key) == self.engine_id:
-                client.expire(self._key, self.ttl)
+    def renew(self) -> bool:
+        """Atomically renew the lease iff still the owner. False = lost/unknown."""
 
-        safe_redis(_do, None)
+        def _do(client: Any) -> bool:
+            return bool(client.eval(self._RENEW_SCRIPT, 1, self._key, self.engine_id, str(self.ttl)))
+
+        result = safe_redis(_do, None)
+        if result is None:
+            # Redis unavailable: count consecutive failures for observability.
+            self._renew_failures += 1
+            if self._renew_failures == 3:
+                logger.error(
+                    f"❌ [Leader] 續約連續 {self._renew_failures} 次失敗（Redis 不可達），"
+                    f"bot_id={self.bot_id}：租約到期後可能出現雙領導，請檢查 Redis"
+                )
+            return False
+        self._renew_failures = 0
+        return bool(result)
 
     def _start_renew(self) -> None:
         if self._renew_thread is not None:
@@ -249,14 +392,29 @@ class RedisLeaderElection:
     def _renew_loop(self) -> None:
         while self._running:
             time.sleep(max(1, self.ttl // 3))
-            self.renew()
+            if self.renew():
+                continue
+            # Lease expired / unknown: try to retake ownership once per cycle
+            # and log loudly while leadership is not (verifiably) ours.
+
+            def _take(client: Any) -> bool:
+                return bool(client.set(self._key, self.engine_id, nx=True, ex=self.ttl))
+
+            if safe_redis(_take, False):
+                self._lost_logged = False
+                logger.warning(f"⚠️ [Leader] 租約曾中斷，已重新取得領導權 bot_id={self.bot_id}")
+            elif not self._lost_logged:
+                self._lost_logged = True
+                logger.error(
+                    f"❌ [Leader] 領導權已喪失且無法重新取得 bot_id={self.bot_id}"
+                    f" engine={self.engine_id}（可能由另一引擎持有）"
+                )
 
     def release(self) -> None:
         self._running = False
 
-        def _do(client: Any):
-            if client.get(self._key) == self.engine_id:
-                client.delete(self._key)
+        def _do(client: Any) -> bool:
+            return bool(client.eval(self._RELEASE_SCRIPT, 1, self._key, self.engine_id))
 
         safe_redis(_do, None)
         logger.info(f"🔓 [Leader] 釋放領導權 bot_id={self.bot_id} engine={self.engine_id}")
