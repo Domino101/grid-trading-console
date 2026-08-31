@@ -1,7 +1,8 @@
-import os
 import threading
 import time
 from typing import Optional, Dict
+
+from core.infrastructure.identity import resolve_bot_id
 
 
 class GridStateStore:
@@ -52,7 +53,7 @@ class GridStateStore:
         self._repository.save(config_path, stats, updated_at)
         try:
             from web_ui.backend.command_repository import GridCommandRepository
-            grid_id = os.path.splitext(os.path.basename(config_path))[0]
+            grid_id = stats.get("grid_id") or resolve_bot_id(config_path)
             command = GridCommandRepository.instance().latest_for_grid(grid_id)
             if command and command["action"] == "start" and command["status"] == "pending_engine":
                 GridCommandRepository.instance().update_status(command["command_id"], "running")
@@ -60,9 +61,7 @@ class GridStateStore:
             pass
 
     def _decorate(self, config_path: str, stats: dict, updated: float) -> dict:
-        grid_id = stats.get("grid_id")
-        if not grid_id:
-            grid_id = os.path.splitext(os.path.basename(config_path))[0]
+        grid_id = stats.get("grid_id") or resolve_bot_id(config_path)
         return {
             **stats,
             "grid_id": grid_id,

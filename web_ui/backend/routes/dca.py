@@ -212,7 +212,7 @@ def _build_dca_read_model(
     runtime_map: Optional[dict] = None,
 ) -> dict:
     """單台 DCA 讀模型；runtime_map 為一次性讀取的批次快照（禁止 N+1）。"""
-    bot_id = Path(config_path).stem
+    bot_id = DcaYAMLGenerator.bot_id_from_path(config_path)
     yaml_data = _read_dca_yaml(config_path) or {}
     section = _dca_section(yaml_data)
     runtime = (runtime_map or {}).get(config_path)

@@ -64,6 +64,7 @@ from run_grid_trading import create_grid_config, detect_market_type, create_exch
 
 from web_ui.backend.control_plane import publish_lifecycle, publish_runtime
 from web_ui.backend.lifecycle import account_mode_from_yaml, iter_hotplug_starts, live_trading_enabled, start_rejection
+from core.infrastructure.identity import resolve_bot_id
 
 # 優化的日誌系統
 setup_optimized_logging(use_colored=True)
@@ -315,6 +316,7 @@ async def run_single_grid_task(config_path: str, adapter_pool, logger, running_g
         # 1. 載入並解析配置
         config_data = _load_grid_yaml(config_path)
         grid_config = create_grid_config(config_data)
+        grid_bot_id = resolve_bot_id(config_path)  # P1-1: 穩定身份（優先 metadata.bot_id）
         shared_adapter = await adapter_pool.get(config_path)
 
         # 🔥 自動獲取精度信息（若 YAML 中省略了 quantity_precision / price_decimals）
@@ -430,6 +432,7 @@ async def run_single_grid_task(config_path: str, adapter_pool, logger, running_g
                         }
                     stats_dict["symbol"] = grid_config.symbol
                     stats_dict["source"] = "engine_runtime"
+                    stats_dict["bot_id"] = grid_bot_id
                     try:
                         pending = engine.get_pending_orders()
                         stats_dict["pending_order_list"] = [
@@ -512,7 +515,7 @@ async def run_single_dca_task(config_path: str, adapter_pool, logger,
     """
     coordinator = None
     executor = None
-    bot_id = Path(config_path).stem
+    bot_id = resolve_bot_id(config_path)  # P1-1: 穩定身份（優先 metadata.bot_id）
     try:
         logger.info(f"🔵 [DCA 初始化] 讀取設定檔: {config_path}")
         data = _load_dca_yaml(config_path)
@@ -586,6 +589,7 @@ async def run_single_dca_task(config_path: str, adapter_pool, logger,
             stats_dict["symbol"] = symbol
             stats_dict["exchange"] = exchange
             stats_dict["source"] = "dca_engine_runtime"
+            stats_dict["bot_id"] = bot_id
             stats_dict["synthetic"] = (getattr(adapter, "exchange", None) is None)
             # Phase 7 詳情工作台：掛單 / 成交 / 階梯槽位 / 指標快照（導出失敗不阻斷心跳）
             try:

@@ -5,10 +5,17 @@ YAML 配置自動生成器
 run_grid_trading.py:create_grid_config() 的 30+ 個參數。
 """
 
+import os
 import yaml
 import re
-from pathlib import Path
 from typing import Optional, Tuple, List
+
+from core.infrastructure.identity import (
+    find_config_path,
+    generate_bot_id,
+    resolve_bot_id,
+    with_metadata_bot_id,
+)
 
 
 class GridYAMLGenerator:
@@ -125,12 +132,14 @@ class GridYAMLGenerator:
 
         return errors
 
-    def generate(self, params: dict) -> Tuple[str, str]:
+    def generate(self, params: dict, existing_bot_id: Optional[str] = None) -> Tuple[str, str]:
         """
         從 JSON 參數生成 YAML 配置檔。
 
         Args:
             params: API 請求體 JSON（已通過 validate_params 驗證）
+            existing_bot_id: 編輯既有網格時傳入的穩定身份；未提供時產生新 id。
+                            確保改價格區間/重設後 bot 身份不漂移（P1-1）。
 
         Returns:
             (yaml_content, relative_file_path)
@@ -175,8 +184,11 @@ class GridYAMLGenerator:
         # 6. 生成檔案路徑（清理特殊字元，防止路徑穿越）
         file_path = self._build_file_path(params, grid_type)
 
-        # 7. 生成 YAML 內容
-        config = {"grid_system": grid_system}
+        # 7. 生成 YAML 內容（含穩定 bot_id；P1-1 身份與檔名解耦）
+        config = with_metadata_bot_id(
+            {"grid_system": grid_system},
+            existing_bot_id or generate_bot_id(),
+        )
         yaml_content = yaml.dump(
             config,
             default_flow_style=False,
@@ -212,10 +224,16 @@ class GridYAMLGenerator:
 
     @staticmethod
     def grid_id_from_path(config_path: str) -> str:
-        """從配置檔案路徑提取 grid_id（去掉目錄和 .yaml 後綴）"""
-        return Path(config_path).stem
+        """解析穩定 grid_id：優先 metadata.bot_id，缺漏時退回檔名 stem（legacy）。"""
+        return resolve_bot_id(config_path)
 
     @staticmethod
     def path_from_grid_id(grid_id: str) -> str:
-        """從 grid_id 還原配置檔案路徑"""
-        return f"config/grid/{grid_id}.yaml"
+        """從 grid_id 還原配置檔案路徑。
+
+        優先嘗試檔名 stem（legacy）；否則以 metadata.bot_id 反向掃描 config/grid/。
+        """
+        direct = f"config/grid/{grid_id}.yaml"
+        if os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", direct)):
+            return direct
+        return find_config_path(grid_id, "config/grid") or direct

@@ -482,12 +482,22 @@ class GridCoordinator:
                 from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
             except ImportError:
                 from runtime_repository import RuntimeSnapshotRepository
-            snapshots = RuntimeSnapshotRepository.instance().load_all()
+            from core.infrastructure.identity import resolve_bot_id
+
+            repository = RuntimeSnapshotRepository.instance()
+            snapshots = repository.load_all()
             target_path = getattr(self, "config_path", None)
             matched = None
-            if target_path and target_path in snapshots:
+            # P1-2 主路徑：以穩定 bot_id 查詢（bot_snapshots 表），不受檔名漂移影響
+            if target_path:
+                by_id = repository.load_by_bot_id(resolve_bot_id(target_path))
+                if by_id:
+                    matched, _ = by_id
+            # 向下相容：legacy config_path 查詢
+            if matched is None and target_path and target_path in snapshots:
                 matched, _ = snapshots[target_path]
-            else:
+            # 最後手段：legacy symbol 啟發式
+            if matched is None:
                 sym = getattr(self.config, "symbol", None)
                 candidate_matches = [
                     (p, payload) for p, (payload, _) in snapshots.items()

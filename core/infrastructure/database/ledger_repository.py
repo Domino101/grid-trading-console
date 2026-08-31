@@ -426,6 +426,37 @@ class LedgerRepository:
                 continue
         return snapshots
 
+    def load_snapshot_by_bot_id(self, bot_id: str) -> Optional[Tuple[dict, float]]:
+        """P1-2: 以穩定 bot_id 讀取最新快照（bot_snapshots 以 bot_id 為 key）。"""
+        with self._lock, self._connect() as conn:
+            row = conn.execute(
+                "SELECT payload, updated_at FROM bot_snapshots WHERE bot_id = ?",
+                (bot_id,),
+            ).fetchone()
+        if not row:
+            return None
+        try:
+            payload = json.loads(row["payload"])
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        return (payload, float(row["updated_at"]))
+
+    def load_all_snapshots_by_bot_id(self) -> Dict[str, Tuple[dict, float]]:
+        """P1-2: 以 bot_id 為 key 讀取全部最新快照。"""
+        with self._lock, self._connect() as conn:
+            rows = conn.execute("SELECT bot_id, payload, updated_at FROM bot_snapshots").fetchall()
+        snapshots: Dict[str, Tuple[dict, float]] = {}
+        for row in rows:
+            try:
+                payload = json.loads(row["payload"])
+                if isinstance(payload, dict):
+                    snapshots[row["bot_id"]] = (payload, float(row["updated_at"]))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+        return snapshots
+
     def load_snapshot_history(self, config_path: str, since: float, limit: int = 1000) -> List[Tuple[dict, float]]:
         with self._lock, self._connect() as conn:
             rows = conn.execute(
