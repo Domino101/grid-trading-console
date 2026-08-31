@@ -566,6 +566,9 @@ class GridResetManager:
             f"✅ {reset_type}重置完成！成功挂出 {len(placed_orders)} 个订单"
         )
 
+        # P1-4: 合法重置歸零累計計數，標記下一筆 heartbeat 豁免單調防護
+        self.coordinator._monotonic_bypass_next = True
+
         # 🔥 重置循环统计开始时间（重置后重新开始统计）
         self.coordinator._cycle_start_time = datetime.now()
         self.coordinator._cycle_timestamps.clear()  # 🆕 清空循环时间戳
