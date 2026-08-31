@@ -60,6 +60,17 @@ CREATE TABLE IF NOT EXISTS bot_snapshot_history (
     recorded_at REAL NOT NULL
 );
 
+-- Identity Audit (P1-6): created / config_linked / renamed / remapped
+CREATE TABLE IF NOT EXISTS bot_identity_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bot_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    config_path TEXT,
+    old_bot_id TEXT,
+    new_bot_id TEXT,
+    recorded_at REAL NOT NULL
+);
+
 -- Legacy Compatibility Tables
 CREATE TABLE IF NOT EXISTS grid_runtime_snapshots (
     config_path TEXT PRIMARY KEY,
@@ -80,4 +91,5 @@ CREATE INDEX IF NOT EXISTS idx_trade_fills_client_order ON trade_fills(client_or
 CREATE INDEX IF NOT EXISTS idx_bots_config_path ON bots(config_path);
 CREATE INDEX IF NOT EXISTS idx_snapshot_history_bot_time ON bot_snapshot_history(bot_id, recorded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_snapshot_history_path_time ON bot_snapshot_history(config_path, recorded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_identity_events_bot_time ON bot_identity_events(bot_id, recorded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_legacy_runtime_history ON grid_runtime_history(config_path, recorded_at DESC);

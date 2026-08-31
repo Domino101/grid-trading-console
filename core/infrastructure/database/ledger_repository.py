@@ -12,11 +12,21 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.infrastructure.database.guard import EnvironmentGuard
-from core.infrastructure.database.models import BotPosition, BotRecord, BotSnapshot, TradeFill
+from core.infrastructure.database.models import (
+    BotIdentityEvent,
+    BotPosition,
+    BotRecord,
+    BotSnapshot,
+    TradeFill,
+)
 from core.logging import get_logger
 from web_ui.backend.lifecycle import connect_sqlite
 
 logger = get_logger(__name__)
+
+
+class LedgerIntegrityError(RuntimeError):
+    """P1-6: 帳本完整性錯誤——例如對未註冊 bot 寫入成交/持倉。"""
 
 
 def _num(value: Any) -> Optional[float]:
@@ -161,6 +171,17 @@ class LedgerRepository:
                     updated_at REAL NOT NULL
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS bot_identity_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    bot_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    config_path TEXT,
+                    old_bot_id TEXT,
+                    new_bot_id TEXT,
+                    recorded_at REAL NOT NULL
+                )
+            """)
 
     def _initialize(self) -> None:
         with self._lock:
@@ -171,6 +192,9 @@ class LedgerRepository:
 
     def register_or_update_bot(self, bot: BotRecord) -> None:
         with self._lock, self._connect() as conn:
+            existing = conn.execute(
+                "SELECT config_path FROM bots WHERE bot_id = ?", (bot.bot_id,)
+            ).fetchone()
             conn.execute(
                 """
                 INSERT INTO bots(bot_id, strategy_type, symbol, exchange, account_mode, config_path, status, created_at, archived_at)
@@ -196,6 +220,75 @@ class LedgerRepository:
                     bot.archived_at,
                 ),
             )
+            # P1-6: 身份審計——新建 bot 或 config_path 變更皆留下軌跡
+            if existing is None:
+                self._record_identity_event_conn(
+                    conn, bot.bot_id, "created",
+                    config_path=bot.config_path,
+                    recorded_at=bot.created_at or time.time(),
+                )
+            elif bot.config_path and existing["config_path"] != bot.config_path:
+                self._record_identity_event_conn(
+                    conn, bot.bot_id, "config_linked",
+                    config_path=bot.config_path,
+                    recorded_at=time.time(),
+                )
+
+    @staticmethod
+    def _record_identity_event_conn(
+        conn: sqlite3.Connection,
+        bot_id: str,
+        event_type: str,
+        config_path: Optional[str] = None,
+        old_bot_id: Optional[str] = None,
+        new_bot_id: Optional[str] = None,
+        recorded_at: Optional[float] = None,
+    ) -> None:
+        ts = recorded_at if recorded_at is not None else time.time()
+        conn.execute(
+            """
+            INSERT INTO bot_identity_events(bot_id, event_type, config_path, old_bot_id, new_bot_id, recorded_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (bot_id, event_type, config_path, old_bot_id, new_bot_id, ts),
+        )
+
+    def record_identity_event(
+        self,
+        bot_id: str,
+        event_type: str,
+        config_path: Optional[str] = None,
+        old_bot_id: Optional[str] = None,
+        new_bot_id: Optional[str] = None,
+        recorded_at: Optional[float] = None,
+    ) -> None:
+        """P1-6: 記錄一筆 bot 身份審計事件（created/config_linked/renamed/remapped）。"""
+        with self._lock, self._connect() as conn:
+            self._record_identity_event_conn(
+                conn, bot_id, event_type, config_path, old_bot_id, new_bot_id, recorded_at
+            )
+
+    def get_identity_events(self, bot_id: str, limit: int = 100) -> List[BotIdentityEvent]:
+        """P1-6: 讀取 bot 的身份審計軌跡（依時間遞增）。"""
+        with self._lock, self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM bot_identity_events
+                WHERE bot_id = ? ORDER BY recorded_at ASC, id ASC LIMIT ?
+                """,
+                (bot_id, limit),
+            ).fetchall()
+        return [
+            BotIdentityEvent(
+                bot_id=r["bot_id"],
+                event_type=r["event_type"],
+                config_path=r["config_path"],
+                old_bot_id=r["old_bot_id"],
+                new_bot_id=r["new_bot_id"],
+                recorded_at=float(r["recorded_at"]),
+            )
+            for r in rows
+        ]
 
     def get_bot(self, bot_id: str) -> Optional[BotRecord]:
         with self._lock, self._connect() as conn:
@@ -236,13 +329,12 @@ class LedgerRepository:
     def record_fill(self, fill: TradeFill) -> None:
         """Append-only recording of a trade execution fill."""
         with self._lock, self._connect() as conn:
-            # Ensure parent bot entry exists or placeholder
+            # P1-6: 不再產生 'unknown' placeholder；bot 必須先由呼叫方註冊
             bot_exists = conn.execute("SELECT 1 FROM bots WHERE bot_id = ?", (fill.bot_id,)).fetchone()
             if not bot_exists:
-                conn.execute(
-                    """INSERT OR IGNORE INTO bots(bot_id, strategy_type, symbol, exchange, account_mode, status, created_at)
-                       VALUES (?, 'unknown', 'unknown', 'unknown', 'unknown', 'running', ?)""",
-                    (fill.bot_id, fill.executed_at),
+                raise LedgerIntegrityError(
+                    f"無法記錄成交：bot_id={fill.bot_id!r} 尚未註冊於 bots 表。"
+                    "請先呼叫 register_or_update_bot() 再寫入成交（P1-6）。"
                 )
 
             conn.execute(
@@ -324,12 +416,13 @@ class LedgerRepository:
         """
         now = position.updated_at if position.updated_at > 0 else time.time()
         with self._lock, self._connect() as conn:
-            # Ensure bot exists
-            conn.execute(
-                """INSERT OR IGNORE INTO bots(bot_id, strategy_type, symbol, exchange, account_mode, status, created_at)
-                   VALUES (?, 'unknown', 'unknown', 'unknown', 'unknown', 'running', ?)""",
-                (bot_id, now),
-            )
+            # P1-6: 不再產生 'unknown' placeholder；bot 必須先由呼叫方註冊
+            bot_exists = conn.execute("SELECT 1 FROM bots WHERE bot_id = ?", (bot_id,)).fetchone()
+            if not bot_exists:
+                raise LedgerIntegrityError(
+                    f"無法更新持倉：bot_id={bot_id!r} 尚未註冊於 bots 表。"
+                    "請先呼叫 register_or_update_bot() 再更新持倉（P1-6）。"
+                )
 
             # Check if record exists
             existing = conn.execute("SELECT version FROM bot_positions WHERE bot_id = ?", (bot_id,)).fetchone()

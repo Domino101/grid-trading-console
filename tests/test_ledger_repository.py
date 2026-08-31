@@ -45,6 +45,11 @@ class TestLedgerRepository(unittest.TestCase):
         bot_id = "bot-dca-pnut"
         now = time.time()
 
+        self.repo.register_or_update_bot(BotRecord(
+            bot_id=bot_id, strategy_type="dca", symbol="PNUT/USDT", exchange="binance",
+            account_mode="paper", status="running", created_at=now,
+        ))
+
         # 1. Base order fill: Buy 100 PNUT at 0.05
         f1 = TradeFill(
             fill_id="f1",
@@ -88,6 +93,10 @@ class TestLedgerRepository(unittest.TestCase):
 
     def test_optimistic_concurrency_control_occ(self):
         bot_id = "bot-occ-test"
+        self.repo.register_or_update_bot(BotRecord(
+            bot_id=bot_id, strategy_type="grid", symbol="X/USDT", exchange="binance",
+            account_mode="paper", status="running", created_at=time.time(),
+        ))
         pos = BotPosition(
             bot_id=bot_id,
             active_direction="long",

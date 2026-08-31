@@ -57,3 +57,14 @@ class BotSnapshot:
     config_path: Optional[str] = None
     version: int = 1
     updated_at: float = 0.0
+
+
+@dataclass
+class BotIdentityEvent:
+    """審計事件：bot 身份的建立/連結/改名/重映射（P1-6）。"""
+    bot_id: str
+    event_type: str      # 'created' | 'config_linked' | 'renamed' | 'remapped'
+    config_path: Optional[str] = None
+    old_bot_id: Optional[str] = None
+    new_bot_id: Optional[str] = None
+    recorded_at: float = 0.0
