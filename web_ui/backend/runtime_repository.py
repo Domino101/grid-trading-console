@@ -1,18 +1,18 @@
 """Small durable repository for dashboard runtime snapshots.
 
-SQLite is deliberately used as the Phase 1 single-host baseline.  The API can
-restart without losing the last engine heartbeat, while the repository interface
-can later be replaced by Redis/PostgreSQL for a multi-instance deployment.
+Acts as a backward-compatible adapter facade over the normalized LedgerRepository.
 """
 
 from __future__ import annotations
 
-import json
 import os
 import threading
 import time
 from typing import Optional
 
+from core.infrastructure.database.guard import EnvironmentGuard
+from core.infrastructure.database.ledger_repository import LedgerRepository
+from core.infrastructure.database.models import BotPosition, BotRecord, TradeFill
 from web_ui.backend.lifecycle import connect_sqlite
 
 
@@ -21,9 +21,10 @@ class RuntimeSnapshotRepository:
     _instance_lock = threading.Lock()
 
     def __init__(self, database_path: Optional[str] = None):
-        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-        self.database_path = database_path or os.path.join(root, "data", "web_ui_runtime.sqlite3")
-        os.makedirs(os.path.dirname(self.database_path), exist_ok=True)
+        self.database_path = EnvironmentGuard.get_safe_database_path(database_path)
+        if self.database_path != ":memory:":
+            os.makedirs(os.path.dirname(self.database_path), exist_ok=True)
+        self._ledger = LedgerRepository(self.database_path)
         self._lock = threading.Lock()
         self._initialize()
 
@@ -41,85 +42,80 @@ class RuntimeSnapshotRepository:
             cls._instance = None
 
     def _connect(self):
-        connection = connect_sqlite(self.database_path)
-        self._ensure_schema(connection)
-        return connection
+        return connect_sqlite(self.database_path)
 
-    def _ensure_schema(self, connection: sqlite3.Connection) -> None:
-        connection.execute("""
-            CREATE TABLE IF NOT EXISTS grid_runtime_snapshots (
-                config_path TEXT PRIMARY KEY,
-                payload TEXT NOT NULL,
-                updated_at REAL NOT NULL
-            )
-        """)
-        connection.execute("""
-            CREATE TABLE IF NOT EXISTS grid_runtime_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                config_path TEXT NOT NULL,
-                payload TEXT NOT NULL,
-                recorded_at REAL NOT NULL
-            )
-        """)
-        connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_runtime_history_path_time "
-            "ON grid_runtime_history(config_path, recorded_at DESC)"
-        )
+    def _ensure_schema(self, connection) -> None:
+        self._ledger._ensure_schema(connection)
 
     def _initialize(self) -> None:
-        with connect_sqlite(self.database_path) as connection:
-            self._ensure_schema(connection)
+        pass
 
     def save(self, config_path: str, stats: dict, updated_at: Optional[float] = None) -> float:
         timestamp = updated_at if updated_at is not None else time.time()
-        payload = json.dumps(stats, ensure_ascii=False, separators=(",", ":"), default=str)
-        with self._lock, self._connect() as connection:
-            connection.execute(
-                """INSERT INTO grid_runtime_snapshots(config_path, payload, updated_at)
-                   VALUES(?, ?, ?)
-                   ON CONFLICT(config_path) DO UPDATE SET payload=excluded.payload, updated_at=excluded.updated_at""",
-                (config_path, payload, timestamp),
-            )
-            connection.execute(
-                "INSERT INTO grid_runtime_history(config_path, payload, recorded_at) VALUES(?, ?, ?)",
-                (config_path, payload, timestamp),
-            )
-            connection.execute("DELETE FROM grid_runtime_history WHERE recorded_at < ?", (timestamp - 7 * 86400,))
-        return timestamp
+        bot_id = stats.get("bot_id") or os.path.splitext(os.path.basename(config_path))[0]
+
+        # 1. Update bot registration
+        bot_record = BotRecord(
+            bot_id=bot_id,
+            strategy_type=stats.get("strategy_type", "dca" if "dca" in config_path else "grid"),
+            symbol=stats.get("symbol", "unknown"),
+            exchange=stats.get("exchange", "unknown"),
+            account_mode=stats.get("account_mode", "paper"),
+            config_path=config_path,
+            status=stats.get("status", "running"),
+            created_at=timestamp,
+        )
+        self._ledger.register_or_update_bot(bot_record)
+
+        # 2. Extract and record any discrete fills
+        fills = stats.get("fills") or []
+        for f in fills:
+            if isinstance(f, dict) and "price" in f and "quantity" in f:
+                cid = f.get("client_order_id", f"{bot_id}_{f.get('role', 'fill')}_{f.get('price')}")
+                fill = TradeFill(
+                    fill_id=f.get("fill_id", cid),
+                    bot_id=bot_id,
+                    exchange_order_id=f.get("order_id") or f.get("exchange_order_id"),
+                    client_order_id=cid,
+                    side=f.get("side", "buy"),
+                    role=f.get("role", "grid"),
+                    price=float(f["price"]),
+                    quantity=float(f["quantity"]),
+                    fee=float(f.get("fee", 0.0) or 0.0),
+                    fee_currency=f.get("fee_currency"),
+                    realized_pnl=float(f.get("realized_pnl", 0.0) or 0.0),
+                    executed_at=float(f.get("executed_at", timestamp) or timestamp),
+                )
+                self._ledger.record_fill(fill)
+
+        # 3. Update Position & Metrics
+        pos_data = stats.get("position") or {}
+        profit_data = stats.get("profit") or {}
+        pos = BotPosition(
+            bot_id=bot_id,
+            active_direction=stats.get("active_direction"),
+            quantity=float(pos_data.get("quantity", stats.get("grid_position", 0.0)) or 0.0),
+            average_cost=float(pos_data.get("average_cost", 0.0)) if pos_data.get("average_cost") else None,
+            total_cost=float(pos_data.get("total_cost", 0.0) or 0.0),
+            entry_price=float(stats.get("entry_price", 0.0)) if stats.get("entry_price") else None,
+            completed_cycles=int(stats.get("cycles", stats.get("completed_cycles", 0)) or 0),
+            realized_profit=float(profit_data.get("realized", profit_data.get("grid_profit", 0.0)) or 0.0),
+            total_fees=float(profit_data.get("fees", 0.0) or 0.0),
+            updated_at=timestamp,
+        )
+        # Fetch existing version for OCC update
+        existing_pos = self._ledger.get_position(bot_id)
+        expected_ver = existing_pos.version if existing_pos else 1
+        self._ledger.update_position_occ(bot_id, pos, expected_ver)
+
+        # 4. Save snapshots & history
+        return self._ledger.save_snapshot(bot_id, config_path, stats, timestamp)
 
     def load_all(self) -> dict[str, tuple[dict, float]]:
-        with self._lock, self._connect() as connection:
-            rows = connection.execute(
-                "SELECT config_path, payload, updated_at FROM grid_runtime_snapshots"
-            ).fetchall()
-        snapshots: dict[str, tuple[dict, float]] = {}
-        for row in rows:
-            try:
-                payload = json.loads(row["payload"])
-                if isinstance(payload, dict):
-                    snapshots[row["config_path"]] = (payload, float(row["updated_at"]))
-            except (TypeError, ValueError, json.JSONDecodeError):
-                continue
-        return snapshots
+        return self._ledger.load_all_snapshots()
 
     def history(self, config_path: str, since: float, limit: int = 1000) -> list[tuple[dict, float]]:
-        with self._lock, self._connect() as connection:
-            rows = connection.execute(
-                """SELECT payload, recorded_at FROM grid_runtime_history
-                   WHERE config_path = ? AND recorded_at >= ? ORDER BY recorded_at ASC LIMIT ?""",
-                (config_path, since, limit),
-            ).fetchall()
-        result: list[tuple[dict, float]] = []
-        for row in rows:
-            try:
-                payload = json.loads(row["payload"])
-                if isinstance(payload, dict):
-                    result.append((payload, float(row["recorded_at"])))
-            except (TypeError, ValueError, json.JSONDecodeError):
-                continue
-        return result
+        return self._ledger.load_snapshot_history(config_path, since, limit)
 
     def remove(self, config_path: str) -> None:
-        with self._lock, self._connect() as connection:
-            connection.execute("DELETE FROM grid_runtime_snapshots WHERE config_path = ?", (config_path,))
-            connection.execute("DELETE FROM grid_runtime_history WHERE config_path = ?", (config_path,))
+        self._ledger.remove_snapshot(config_path)

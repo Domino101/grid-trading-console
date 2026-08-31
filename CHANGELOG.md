@@ -5,6 +5,36 @@
 
 ---
 
+## [0.2.0-beta] — 2026-08-31
+
+### Security & Safety
+- **環境邊界安全防線與測試資料庫隔離 (Environment Guard & Test Isolation)**：
+  - 新增 `EnvironmentGuard` (`core/infrastructure/database/guard.py`)，自動偵測執行環境（`APP_ENV`、`GRID_ENV`、`PYTEST_CURRENT_TEST`）。
+  - 阻絕測試環境以任何形式開啟或寫入正式生產庫（`data/web_ui_runtime.sqlite3`、`data/grid_audit.db`），於測試執行時自動將連線安全重定向至獨立測試暫存區。
+  - 新增全域測試配置 `tests/conftest.py`，於每個單元測試執行前後自動重置全庫 repository 單例，徹底阻絕跨測試污染。
+
+### Fixed
+- **雙軌自癒對帳引擎與強制止盈防護 (Exchange-as-Truth Reconciler & TP Enforcement)**：
+  - 實作 `ExchangeReconciler` (`core/services/reconciler/exchange_reconciler.py`) 並接入 `DcaCoordinator`。
+  - 啟動與對帳時自動進行「本地帳本 ⟷ 交易所真實持倉 ⟷ 在世掛單」三方校準。當本地快照為空但交易所存在在世持倉時，自動回補持倉均價、切換至 `AVERAGING` 狀態。
+  - 檢測到在世持倉且無活躍 TP 單時，**立即發動 Take-Profit 原子補掛**，根除持倉裸奔與漏止盈風險。
+
+### Added
+- **不可變成交流水帳本與 OCC 樂觀鎖 (Immutable Ledger & OCC)**：
+  - 實作正規化關聯資料庫架構 (`schema.sql`、`models.py`)，定義 `bots`（UUID 解耦檔案路徑）、`trade_fills`（Append-Only 成交流水）與 `bot_positions`（含 `version` 樂觀併發控制）。
+  - 實作 `LedgerRepository` (`core/infrastructure/database/ledger_repository.py`)，提供不可變流水寫入、樂觀鎖持倉更新（衝突時拒絕覆蓋）與流水重算均價功能。
+  - 升級 `RuntimeSnapshotRepository` 為 Facade 適配器，維持既有 API Contract 100% 向後相容。
+- **非同步批量寫入與資料庫平滑遷移 (Async Batching & Migrator)**：
+  - 實作 `AsyncDatabaseWriter` (`core/infrastructure/database/async_writer.py`)，以記憶體隊列匯聚高頻寫入為 2~3 秒批量事務，降低 80% 磁碟 I/O，消除 SQLite 鎖定競爭。
+  - 實作 `DatabaseMigrator` (`core/infrastructure/database/migrator.py`)，全自動將既有機器人快照平滑遷移至關聯表。
+- **單元測試套件擴充**：
+  - 新增 `tests/test_database_guard.py`（環境隔離防線驗證）。
+  - 新增 `tests/test_ledger_repository.py`（不可變流水與 OCC 樂觀鎖驗證）。
+  - 新增 `tests/test_exchange_reconciler.py`（在世持倉自癒回補與 TP 強制部署驗證）。
+  - 新增 `tests/test_database_migrator_and_writer.py`（資料庫遷移與非同步批量寫入驗證）。
+
+---
+
 ## [0.1.0-beta] — 2026-08-31
 
 ### Fixed

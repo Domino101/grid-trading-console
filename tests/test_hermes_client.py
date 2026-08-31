@@ -164,28 +164,34 @@ class TestHermesGridClient(unittest.IsolatedAsyncioTestCase):
 
     async def test_get_pnl_summary_success(self):
         """Verify get_pnl_summary aggregates active grid state correctly"""
+        import tempfile
         from web_ui.backend.routes import grids as grids_route
         from web_ui.backend.grid_state_store import GridStateStore
         from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
 
-        RuntimeSnapshotRepository.reset_instance()
-        GridStateStore.reset_instance()
-        store = GridStateStore.instance()
-        with store._lock:
-            store._states.clear()
-            store._updated_at.clear()
-
-        original_read_active = grids_route._read_active_grids
-        grids_route._read_active_grids = lambda: {"config/grid/binance-neutral-perp-sol-usdc-120-180.yaml": True}
-
+        temp_dir = tempfile.TemporaryDirectory()
         try:
-            summary = await self.client.get_pnl_summary()
-            self.assertGreaterEqual(summary["total_grids"], 1)
-            self.assertGreaterEqual(summary["active_grids"], 1)
-            grid_ids = [g["grid_id"] for g in summary["grids"]]
-            self.assertIn("binance-neutral-perp-sol-usdc-120-180", grid_ids)
+            db_path = os.path.join(temp_dir.name, "test_runtime.sqlite3")
+            repo = RuntimeSnapshotRepository(db_path)
+            RuntimeSnapshotRepository._instance = repo
+            GridStateStore._instance = None
+            store = GridStateStore.instance()
+
+            original_read_active = grids_route._read_active_grids
+            grids_route._read_active_grids = lambda: {"config/grid/binance-neutral-perp-sol-usdc-120-180.yaml": True}
+
+            try:
+                summary = await self.client.get_pnl_summary()
+                self.assertGreaterEqual(summary["total_grids"], 1)
+                self.assertGreaterEqual(summary["active_grids"], 1)
+                grid_ids = [g["grid_id"] for g in summary["grids"]]
+                self.assertIn("binance-neutral-perp-sol-usdc-120-180", grid_ids)
+            finally:
+                grids_route._read_active_grids = original_read_active
         finally:
-            grids_route._read_active_grids = original_read_active
+            temp_dir.cleanup()
+            RuntimeSnapshotRepository.reset_instance()
+            GridStateStore.reset_instance()
 
 
 class TestHermesGridController(unittest.IsolatedAsyncioTestCase):

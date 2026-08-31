@@ -157,9 +157,11 @@ class DcaCoordinator:
                     extra={"symbol": self._config.symbol, "bot_id": self._bot_id, "action": "recover_snapshot"}
                 )
 
-                # 4. 接管在世掛單
-                await self.reconcile_startup_orders()
-                return True
+            # 4. 執行交易所真值雙軌自癒對帳 (Exchange-as-Truth Reconciler)
+            from core.services.reconciler import ExchangeReconciler
+            reconcile_res = await ExchangeReconciler.reconcile_dca(self)
+
+            return bool(matched) or reconcile_res.get("rehydrated", False)
         except Exception as e:
             logger.warning(
                 f"⚠️ [DCA {self._config.symbol}] 快照恢復略過或失敗: {e}",
