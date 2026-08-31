@@ -93,3 +93,17 @@ CREATE INDEX IF NOT EXISTS idx_snapshot_history_bot_time ON bot_snapshot_history
 CREATE INDEX IF NOT EXISTS idx_snapshot_history_path_time ON bot_snapshot_history(config_path, recorded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_identity_events_bot_time ON bot_identity_events(bot_id, recorded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_legacy_runtime_history ON grid_runtime_history(config_path, recorded_at DESC);
+
+-- Phase 3 (P3-1): append-only event stream (event-sourcing canonical facts).
+CREATE TABLE IF NOT EXISTS bot_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bot_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    event_type TEXT NOT NULL,
+    dedupe_key TEXT,
+    payload TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bot_events_bot_seq ON bot_events(bot_id, seq);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bot_events_dedupe ON bot_events(bot_id, dedupe_key) WHERE dedupe_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_bot_events_bot_time ON bot_events(bot_id, created_at DESC);

@@ -24,6 +24,7 @@ from core.infrastructure.database.ledger_store import (
     create_ledger_store,
 )
 from core.infrastructure.database.models import (
+    BotEvent,
     BotIdentityEvent,
     BotPosition,
     BotRecord,
@@ -150,6 +151,20 @@ class LedgerRepository:
 
     def get_fills(self, bot_id: str, limit: int = 500, since: float = 0.0) -> List[TradeFill]:
         return self._store.get_fills(bot_id, limit, since)
+
+    # ══════════════════ P3-1 事件流 ══════════════════
+    def append_event(
+        self,
+        bot_id: str,
+        event_type: str,
+        payload: Optional[dict] = None,
+        created_at: Optional[float] = None,
+        dedupe_key: Optional[str] = None,
+    ) -> int:
+        return self._store.append_event(bot_id, event_type, payload, created_at, dedupe_key)
+
+    def get_events(self, bot_id: str, since_seq: int = 0, limit: int = 100000) -> List[BotEvent]:
+        return self._store.get_events(bot_id, since_seq, limit)
 
     # ══════════════════ 持倉與 OCC 樂觀鎖 ══════════════════
     def get_position(self, bot_id: str) -> Optional[BotPosition]:

@@ -68,3 +68,18 @@ class BotIdentityEvent:
     old_bot_id: Optional[str] = None
     new_bot_id: Optional[str] = None
     recorded_at: float = 0.0
+
+
+@dataclass
+class BotEvent:
+    """Phase 3 (P3-1): append-only 事件流（事件溯源 canonical 記錄）。
+
+    ``seq`` 為 per-bot 單調遞增序號（由 store 事務內配置）；``dedupe_key``
+    提供時 (bot_id, dedupe_key) 唯一，重送同一事件為冪等 no-op。
+    """
+    bot_id: str
+    seq: int
+    event_type: str      # bot_created/bot_renamed/order_placed/order_cancelled/fill/take_profit/stop_loss/reset/state_transition/reconcile
+    payload: dict
+    created_at: float
+    dedupe_key: Optional[str] = None

@@ -47,6 +47,11 @@
 | P2-5 | Redis 領導者選舉（SETNX + 續約） | ✅ 已實作、實證並修復 F7（雙引擎互斥實證通過；Lua 原子續約/釋放；fail-open 有 ERROR log） |
 | P2-6 | 組態與維運文件 | ✅ 已實作並補齊（`.env.example`；雙環境（有/無 PG+Redis）啟動已於稽核沙箱實證 `/healthz` OK；`rich` 補 pin） |
 | Phase 2 Gate | PG 全綠 + Redis 停機演練 | ✅ 通過（2026-08-31 稽核複審：SQLite 391/391；PG 38 模組全綠；Redis 停機演練 15/15、資料零損失。詳見 `docs/phase2_audit_report_20260831_zh-TW.md` 與 `docs/phase2_fixes_worklog_20260831.md`） |
+| P3-1 | `bot_events` append-only 事件流 + 摺疊（fold） | ✅ 已實作並實證（`bot_events` 表 + Alembic 0002；`event_fold.py` 屬性測試 fold==rehydrate/直寫；fill/reset/take_profit/stop_loss/state_transition/identity 已接線） |
+| P3-2 | grid 三路對帳（`reconcile_grid`） | ✅ 已實作並實證（情境 A 本地0↔交易所>0 回補、A' 幽靈持倉歸零、B 殘單標取消，全部記 `reconcile` 審計；接入 `GridCoordinator.start()`） |
+| P3-3 | 稽核與回放工具 | ✅ 已實作（`scripts/tools/replay_bot.py`：時間線重建 + 逐欄 diff 報告，退出碼 0/2/3） |
+| P3-4 | 備份/災難恢復演練 | ✅ 已實作並實證（`scripts/tools/rebuild_projections.py`；PG + SQLite 刪除投影→重建→回放一致；SOP 見 `docs/phase3_disaster_recovery_zh-TW.md`） |
+| Phase 3 Gate | 事件重放 + 三路對帳 + 災難恢復 | ✅ 通過（2026-08-31；詳見 `docs/phase3_worklog_20260831.md`） |
 
 > 身份分層補充（實作後確認，較計畫 §4 P1-1 更精確）：
 > **UI/命令/訂單命名空間身份維持檔名 stem**（不變）；**帳本持久化 key** 才由
@@ -315,9 +320,9 @@
 
 ### Phase 3 驗收總則（Gate）
 
-- [ ] 事件重放與直寫投影一致（屬性測試通過）。
-- [ ] grid + DCA 三路對帳自癒皆通過演練。
-- [ ] 災難恢復 SOP 演練通過。
+- [x] 事件重放與直寫投影一致（屬性測試通過）。（2026-08-31：`tests/test_event_fold.py` 100 條隨機序列 fold==rehydrate/直寫模擬）
+- [x] grid + DCA 三路對帳自癒皆通過演練。（`tests/test_grid_reconcile.py` 情境 A/A'/B + fail-safe；DCA 既有 reconciler 回歸全綠）
+- [x] 災難恢復 SOP 演練通過。（PG 16.2 + SQLite 實機：刪除全部投影表 → `rebuild_projections.py` → 回放一致；SOP 見 `docs/phase3_disaster_recovery_zh-TW.md`）
 
 ---
 
