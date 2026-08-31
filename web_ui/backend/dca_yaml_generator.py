@@ -15,6 +15,7 @@ import os
 import re
 import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 import yaml
@@ -24,12 +25,7 @@ _project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-from core.infrastructure.identity import (
-    find_config_path,
-    generate_bot_id,
-    resolve_bot_id,
-    with_metadata_bot_id,
-)
+from core.infrastructure.identity import generate_bot_id, with_metadata_bot_id
 from core.services.dca.config_loader import (
     dca_config_to_dict,
     load_dca_config,
@@ -102,19 +98,16 @@ class DcaYAMLGenerator:
 
     @staticmethod
     def bot_id_from_path(config_path: str) -> str:
-        """解析穩定 bot_id：優先 metadata.bot_id，缺漏時退回檔名 stem（legacy）。"""
-        return resolve_bot_id(config_path)
+        """從配置檔案路徑提取 bot_id（去掉目錄與 .yaml 後綴）。
+
+        注意：此為 UI/命令層身份；帳本持久化 key 由 ``resolve_bot_id``（metadata.bot_id）提供。
+        """
+        return Path(config_path).stem
 
     @staticmethod
     def path_from_bot_id(bot_id: str) -> str:
-        """從 bot_id 還原配置檔案路徑；呼叫端應先做路徑穿越驗證。
-
-        優先嘗試檔名 stem（legacy）；否則以 metadata.bot_id 反向掃描 config/dca/。
-        """
-        direct = f"config/dca/{bot_id}.yaml"
-        if os.path.exists(os.path.join(_project_root, direct)):
-            return direct
-        return find_config_path(bot_id, "config/dca", _project_root) or direct
+        """從 bot_id 還原配置檔案路徑；呼叫端應先做路徑穿越驗證。"""
+        return f"config/dca/{bot_id}.yaml"
 
     @staticmethod
     def is_valid_bot_id(bot_id: str) -> bool:

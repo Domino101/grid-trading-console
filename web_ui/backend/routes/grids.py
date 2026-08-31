@@ -556,8 +556,8 @@ async def create_grid(
             detail=dup_msg,
         )
 
-    # 4. 生成 YAML
-    yaml_content, config_path = _generator.generate(params)
+    # 4. 生成 YAML（P1-1：編輯/重建時沿用既有 bot_id 保留交易紀錄）
+    yaml_content, config_path = _generator.generate(params, existing_bot_id=params.get("bot_id"))
     grid_id = GridYAMLGenerator.grid_id_from_path(config_path)
 
     # 檢查配置檔案是否已存在

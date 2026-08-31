@@ -5,17 +5,12 @@ YAML 配置自動生成器
 run_grid_trading.py:create_grid_config() 的 30+ 個參數。
 """
 
-import os
 import yaml
 import re
+from pathlib import Path
 from typing import Optional, Tuple, List
 
-from core.infrastructure.identity import (
-    find_config_path,
-    generate_bot_id,
-    resolve_bot_id,
-    with_metadata_bot_id,
-)
+from core.infrastructure.identity import generate_bot_id, with_metadata_bot_id
 
 
 class GridYAMLGenerator:
@@ -224,16 +219,13 @@ class GridYAMLGenerator:
 
     @staticmethod
     def grid_id_from_path(config_path: str) -> str:
-        """解析穩定 grid_id：優先 metadata.bot_id，缺漏時退回檔名 stem（legacy）。"""
-        return resolve_bot_id(config_path)
+        """從配置檔案路徑提取 grid_id（去掉目錄和 .yaml 後綴）。
+
+        注意：此為 UI/命令層身份；帳本持久化 key 由 ``resolve_bot_id``（metadata.bot_id）提供。
+        """
+        return Path(config_path).stem
 
     @staticmethod
     def path_from_grid_id(grid_id: str) -> str:
-        """從 grid_id 還原配置檔案路徑。
-
-        優先嘗試檔名 stem（legacy）；否則以 metadata.bot_id 反向掃描 config/grid/。
-        """
-        direct = f"config/grid/{grid_id}.yaml"
-        if os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", direct)):
-            return direct
-        return find_config_path(grid_id, "config/grid") or direct
+        """從 grid_id 還原配置檔案路徑"""
+        return f"config/grid/{grid_id}.yaml"
