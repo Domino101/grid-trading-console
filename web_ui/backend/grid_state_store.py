@@ -3,9 +3,12 @@ import threading
 import time
 from typing import Optional, Dict
 
+from core.infrastructure.database.redis_support import RedisStateCache
+from core.infrastructure.identity import resolve_bot_id
+
 
 class GridStateStore:
-    """In-process cache over the durable runtime repository."""
+    """In-process cache over the durable runtime repository (P2-3: + Redis hot cache)."""
 
     _instance = None
     _lock = threading.Lock()
@@ -18,6 +21,7 @@ class GridStateStore:
         self._last_refresh = 0.0
         from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
         self._repository = RuntimeSnapshotRepository.instance()
+        self._cache = RedisStateCache()
         self._refresh_from_repository(force=True)
 
     @classmethod
@@ -33,10 +37,21 @@ class GridStateStore:
         with cls._lock:
             cls._instance = None
 
+    @staticmethod
+    def _bot_id(config_path: str, stats: dict) -> str:
+        return stats.get("bot_id") or resolve_bot_id(config_path)
+
     def _refresh_from_repository(self, force: bool = False) -> None:
         now = time.time()
         if not force and (now - self._last_refresh) < self.REFRESH_TTL:
             return
+        # P2-3: try Redis hot cache first; DB is the fallback.
+        redis_snapshots = self._cache.get_all()
+        for config_path, (stats, updated_at) in redis_snapshots.items():
+            current = self._updated_at.get(config_path, 0)
+            if updated_at >= current:
+                self._states[config_path] = stats
+                self._updated_at[config_path] = updated_at
         for config_path, (stats, updated_at) in self._repository.load_all().items():
             current = self._updated_at.get(config_path, 0)
             if updated_at >= current:
@@ -50,6 +65,8 @@ class GridStateStore:
             self._states[config_path] = stats
             self._updated_at[config_path] = updated_at
         self._repository.save(config_path, stats, updated_at)
+        # P2-3: write-through hot cache (disposable; safe to ignore failures).
+        self._cache.set(self._bot_id(config_path, stats), config_path, stats, updated_at)
         try:
             from web_ui.backend.command_repository import GridCommandRepository
             grid_id = os.path.splitext(os.path.basename(config_path))[0]
@@ -91,6 +108,7 @@ class GridStateStore:
             self._states.pop(config_path, None)
             self._updated_at.pop(config_path, None)
         self._repository.remove(config_path)
+        self._cache.delete(config_path, self._bot_id(config_path, {}))
 
     def get_summary(self) -> dict:
         all_stats = self.get_all()

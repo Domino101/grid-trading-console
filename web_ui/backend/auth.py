@@ -11,12 +11,13 @@ Token 來源優先順序：
 import os
 import secrets
 import logging
+from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 logger = logging.getLogger("GridAPI.Auth")
 
-_security = HTTPBearer()
+_security = HTTPBearer(auto_error=False)
 
 
 def _token_file_path() -> str:
@@ -73,9 +74,9 @@ def token_matches(value: str) -> bool:
 
 
 async def verify_token(
-    credentials: HTTPAuthorizationCredentials = Depends(_security),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_security),
 ) -> str:
-    if not token_matches(credentials.credentials):
+    if credentials is None or not token_matches(credentials.credentials):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API token",

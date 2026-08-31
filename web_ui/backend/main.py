@@ -25,6 +25,7 @@ from web_ui.backend.file_manager import file_manager
 from web_ui.backend.models import ProcessStatus, StartProcessRequest
 from web_ui.backend.auth import token_matches, verify_token
 from web_ui.backend.lifecycle import cors_settings
+from core.infrastructure.database.redis_support import RedisEventBus
 
 # 🆕 Hermes Grid API v1 路由
 from web_ui.backend.routes.system import router as system_router
@@ -38,12 +39,69 @@ from web_ui.backend.routes.market import router as market_router
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("WebUI")
 
+# P2-4: WebSocket clients subscribed to grid/lifecycle events pushed via Redis.
+_event_clients: set = set()
+_redis_subscription = None
+
+
+async def _broadcast_event(data: dict) -> None:
+    stale = []
+    for ws in list(_event_clients):
+        try:
+            await ws.send_json(data)
+        except Exception:
+            stale.append(ws)
+    for ws in stale:
+        _event_clients.discard(ws)
+
+
+def _redis_event_callback(data: dict, loop: asyncio.AbstractEventLoop):
+    def _pump():
+        asyncio.create_task(_broadcast_event(data))
+    try:
+        loop.call_soon_threadsafe(_pump)
+    except RuntimeError:
+        pass
+
+
+def _start_redis_subscriber():
+    global _redis_subscription
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop is None:
+        return None
+    bus = RedisEventBus()
+    _redis_subscription = bus.subscribe(lambda data: _redis_event_callback(data, loop))
+    return _redis_subscription
+
+
+def _stop_redis_subscriber():
+    global _redis_subscription
+    sub = _redis_subscription
+    _redis_subscription = None
+    if not sub:
+        return
+    try:
+        pubsub = sub.get("pubsub")
+        if pubsub is not None:
+            pubsub.close()
+    except Exception:
+        pass
+    thread = sub.get("thread")
+    if thread is not None:
+        thread.join(timeout=2)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Start process monitoring
+    # Startup: Start process monitoring + optional Redis event subscription.
     monitor_task = asyncio.create_task(monitor_processes())
+    _start_redis_subscriber()
     yield
-    # Shutdown: Stop monitoring (cancelled automatically on shutdown usually, but good to be explicit if needed)
+    # Shutdown: Stop monitoring and Redis subscriber.
+    _stop_redis_subscriber()
     monitor_task.cancel()
     try:
         await monitor_task
@@ -194,6 +252,25 @@ async def websocket_endpoint(websocket: WebSocket, pid: int, token: str = ""):
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
         process_manager.remove_log_listener(pid, log_listener)
+
+@app.websocket("/ws/grid-events")
+async def grid_events_websocket(websocket: WebSocket, token: str = ""):
+    if not token_matches(token):
+        await websocket.close(code=4401, reason="Invalid or missing API token")
+        return
+    await websocket.accept()
+    _event_clients.add(websocket)
+    try:
+        while True:
+            # Keep the connection open; push events arrive via _broadcast_event.
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        _event_clients.discard(websocket)
+
 
 # Mount frontend static files
 # Ensure directory exists to avoid error on startup if frontend not built yet
