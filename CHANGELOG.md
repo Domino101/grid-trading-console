@@ -9,12 +9,20 @@
 
 ### Fixed
 - **穩定機器人身份，根除「小改動/重開即歸零」(P1-1 / P1-2)**：
-  - 新增 `core/infrastructure/identity.py`：`bot_id` 由 YAML `metadata.bot_id`（UUID hex）提供，與檔名解耦；缺漏時退回檔名 stem（legacy 完全向後相容）。
-  - `GridYAMLGenerator.generate()` 與 `DcaYAMLGenerator.generate()` 寫入 `metadata.bot_id`，並支援 `existing_bot_id` 供編輯流程保留既有身份（改價格區間/重建不再漂移）。
-  - 帳本寫入（`RuntimeSnapshotRepository.save`）、引擎 heartbeat（`run_multiple_grids.py`）、命令平面（`control_plane`）、狀態快取（`grid_state_store`）、行程管理（`process_manager`）與讀模型（`routes/dca`）統一改用穩定身份解析。
+  - 新增 `core/infrastructure/identity.py`：帳本 key `bot_id` 由 YAML `metadata.bot_id`（UUID hex）提供，與檔名解耦；缺漏時退回檔名 stem（legacy 完全向後相容）。
+  - 身份分層：**UI/命令/訂單命名空間身份維持檔名 stem**（不變，確保 DCA LIVE `client_order_id` 命名空間連續）；**帳本持久化 key** 由 `resolve_bot_id`（metadata.bot_id）統一解析（`RuntimeSnapshotRepository.save`、grid fills、重啟恢復）。
+  - `GridYAMLGenerator.generate()` 與 `DcaYAMLGenerator.generate()` 寫入 `metadata.bot_id`，並支援 `existing_bot_id` 供編輯/重建流程保留既有身份（改價格區間/重建不再漂移）；create 路由與 schema 支援 `bot_id` 傳遞。
   - `LedgerRepository` 新增 `load_snapshot_by_bot_id()` / `load_all_snapshots_by_bot_id()`；grid 與 DCA 重啟恢復改以 **bot_id 為 key** 查詢 `bot_snapshots`（config_path/symbol 啟發式僅作 legacy fallback）。
-  - `path_from_grid_id()` / `path_from_bot_id()` 支援以 `metadata.bot_id` 反向掃描解析配置檔路徑。
-  - 新增 `tests/test_bot_identity_stability.py`（6 案例：身份產生/保留/解析/檔名漂移後快照不丟失）。
+  - 新增 `scripts/migration/backfill_bot_ids.py`（冪等、原子寫入、`--dry-run`）為既有 YAML 補 `metadata.bot_id`。
+  - 新增 `tests/test_bot_identity_stability.py`、`tests/test_backfill_bot_ids.py`。
+
+- **快照單調防護，防止恢復失敗後以 0 值覆寫累計計數 (P1-4)**：
+  - `LedgerRepository.save_snapshot` 在嚴格遞增計數器（cycles/buy/sell/fees）倒退時拒絕覆寫；合法重置（止盈/本金保護/價格脫離）以一次性 `_monotonic_bypass` 旗標豁免。
+  - 新增 `tests/test_monotonic_guard.py`（5 案例）。
+
+- **grid 成交逐筆寫入不可變成交流水 (P1-3)**：
+  - `PositionTrackerImpl` 接受 `bot_id`，每筆成交 append 至 `trade_fills`（role=`grid`，以 client/order id 冪等；帳本失敗不阻斷交易）。
+  - 新增 `tests/test_grid_fill_ledger.py`（3 案例）。
 
 ---
 

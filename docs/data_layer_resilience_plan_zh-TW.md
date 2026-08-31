@@ -29,6 +29,23 @@
 
 > **核心決策（ADR-0）**：Phase 1 是 Phase 2/3 的**前置條件**。只換 PostgreSQL/Redis 而不修身份與恢復來源，歸 0 依然會發生——只是「更快地把錯亂的帳本寫進一個更好的引擎」。
 
+### 執行進度（Progress Tracker）
+
+| 子任務 | 內容 | 狀態 |
+|---|---|---|
+| P1-1 | 穩定 bot_id + backfill + create 路由 passthrough | ✅ 完成（commits `1a61899`、`3ec4f73`） |
+| P1-2 | 恢復改讀 bot_snapshots（bot_id 為 key） | ✅ 完成（commit `1a61899`） |
+| P1-3 | grid 成交逐筆寫入 trade_fills | ✅ 完成（commit `19b354a`） |
+| P1-4 | 快照單調防護 | ✅ 完成（commit `d1d6861`） |
+| P1-6 | 移除 unknown placeholder + 身份 remap 審計 | ⬜ 待辦 |
+| P1-5 | 接上 AsyncDatabaseWriter 批量寫入 | ⬜ 待辦 |
+| Phase 1 Gate | 完整回歸 + 手工重現腳本 | ⬜ 待辦 |
+
+> 身份分層補充（實作後確認，較計畫 §4 P1-1 更精確）：
+> **UI/命令/訂單命名空間身份維持檔名 stem**（不變）；**帳本持久化 key** 才由
+> `metadata.bot_id` 提供。原因：DCA `client_order_id = dca_{sha1(bot_id)[:8]}_…`
+> 由 bot_id 衍生，若引擎 bot_id 改成 UUID，LIVE 重啟會認不出在世訂單。
+
 ---
 
 ## 1. 現況盤點（commit `eb0190c`）
