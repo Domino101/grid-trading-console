@@ -38,6 +38,18 @@ gh auth login   # 必須是 Domino101，不是 Arena bot
 
 操作手冊見 [`docs/dca_bot_user_guide_zh-TW.md`](docs/dca_bot_user_guide_zh-TW.md)，圖表與回測見 [`docs/dca_chart_backtest_user_guide_zh-TW.md`](docs/dca_chart_backtest_user_guide_zh-TW.md)。本版本**不開啟 LIVE**（`GRID_LIVE_TRADING_ENABLED` 維持關閉）。
 
+### 策略市場完整回測（左側「網格回測」分頁）
+
+把「策略市場只有短期年化排名」的缺口補齊，讓使用者依**初始資金、開啟時間、收益曲線、爆倉風險**判斷是否可上實盤：
+
+- **統一分頁**：左側「網格回測」可切換 **網格回測** 或 **DCA 回測（單向/雙向 + 指標）**。
+- **網格回測**：`core/services/grid/backtest/` 資金感知模擬器，逐倉保證金/清算模擬，輸出總報酬、買入持有對照、Alpha、最大回撤、已完成循環、權益曲線；支援**資金分配**（每格固定金額 / 每格佔總資金 %）、**壓力情境**（±15/30/50% 單向移動）與**參數掃描**；爆倉時提示「需追加多少資金才能防止爆倉」。
+- **DCA 回測**：統一入口支援單向做多 / 單向做空 / 雙向與 RSI / MACD / Bollinger / Price Change 指標入場；來源可為手動參數（draft）或既有 DCA bot；直接複用 `/api/v1/dca/backtest` 的實盤同源 `DcaCoordinator + DcaOrderExecutor`。
+- **市場排行**：每行保留「一鍵開格」，另加「回測」按鈕一鍵帶入參數。
+- **限制**：網格 v1 以專用近似模擬器（資金/保證金近似，不模擬 funding、滑價、部分成交、follow/scalping/martingale）；DCA 沿用既有回測的撮合簡化揭露。
+
+文件：計畫 [`docs/grid_backtest_implementation_plan_zh-TW.md`](docs/grid_backtest_implementation_plan_zh-TW.md)、使用手冊 [`docs/grid_backtest_user_guide_zh-TW.md`](docs/grid_backtest_user_guide_zh-TW.md)、稽核報告 [`docs/grid_backtest_audit_report_zh-TW.md`](docs/grid_backtest_audit_report_zh-TW.md)。
+
 ## 必要環境變數
 
 | 變數 | 說明 |
@@ -102,6 +114,7 @@ python3 -m unittest \
   tests.test_paper_adapter \
   tests.test_command_repository \
   tests.test_runtime_repository \
+  tests.test_ledger_repository \
   tests.test_paper_grid_lifecycle_e2e \
   tests.test_frontend_format_contract \
   tests.test_dashboard_snapshot \
@@ -109,7 +122,13 @@ python3 -m unittest \
   tests.test_dca_ladder tests.test_dca_indicators tests.test_dca_config_and_state \
   tests.test_dca_executor tests.test_dca_coordinator tests.test_dca_config_loader \
   tests.test_dca_ohlcv_cache tests.test_dca_paper_e2e tests.test_dca_yaml_generator \
-  tests.test_dca_http_contract tests.test_dca_snapshot tests.test_dca_frontend_contract
+  tests.test_dca_http_contract tests.test_dca_snapshot tests.test_dca_frontend_contract \
+  tests.services.grid.test_coordinator_stats_and_fills \
+  tests.services.grid.backtest.test_allocation \
+  tests.services.grid.backtest.test_risk \
+  tests.services.grid.backtest.test_simulator \
+  tests.services.grid.backtest.test_stress \
+  tests.test_grid_backtest_http_contract
 
 cd web_ui/frontend && npm test && npm run lint && npm run build
 ```

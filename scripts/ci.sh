@@ -50,6 +50,17 @@ TEST_MODULES=(
   tests.test_grid_reconcile
   tests.test_replay_rebuild_tools
   tests.test_backend_import_contract
+  tests.test_grid_backtest_http_contract
+  tests.services.grid.test_coordinator_stats_and_fills
+  tests.services.grid.test_batch_retry_circuit_breaker
+  tests.services.grid.test_fifo_arbitrage_and_window_protection
+  tests.services.grid.test_grid_profit_and_stream_fix
+  tests.services.grid.test_three_pillar_profit_isolation
+  tests.services.grid.backtest.test_allocation
+  tests.services.grid.backtest.test_risk
+  tests.services.grid.backtest.test_simulator
+  tests.services.grid.backtest.test_stress
+  tests.services.dca.test_dca_snapshot_recovery
 )
 
 python -m unittest "${TEST_MODULES[@]}"

@@ -23,10 +23,10 @@ Analyze the performance of all enabled trading strategies:
 
 ## /deploy-gcp
 Deploy latest code to GCP production or PM2 runner:
-1. Verify clean git working tree and passed tests
+1. Verify clean git working tree and passed tests (`./scripts/ci.sh`)
 2. Run deployment checklist
-3. Restart PM2 processes (`pm2 restart ecosystem.config.js`) or background services
-4. Verify Web UI health endpoint (`start_web_ui.sh`)
+3. Restart services: PM2 (`pm2 restart ecosystem.config.js`) for engines; systemd (`systemctl restart crypto-webui`) for production Web UI; `start_web_ui.sh` for local only
+4. Verify Web UI health endpoint (`curl http://127.0.0.1:8001/api/v1/system/health`)
 5. Monitor logs for 5 minutes
 6. Report deployment status
 
@@ -52,11 +52,11 @@ Initialize a new topic branch for feature development or refactoring:
 1. Ensure working tree is clean (`git status`).
 2. Checkout latest `main` and pull updates (`git checkout main && git pull origin main`).
 3. Create new topic branch (`git checkout -b arena/<topic_name>`).
-4. Confirm test baseline (`python3 -m pytest -q`).
+4. Confirm test baseline (`./scripts/ci.sh`, or `python3 -m unittest ...` / `python3 -m pytest -q`).
 
 ## /release-merge-prep
 Prepare a feature/arena branch for merging into `main`:
-1. Run automated release gate checks and pytest suite (`python3 -m pytest`).
+1. Run automated release gate checks and the Python suite (`./scripts/ci.sh`, or `python3 -m unittest ...`).
 2. Inspect financial safety red lines (Risk limits, Exchange WS circuit breaker, Min notional checks).
 3. Generate standard Markdown Release Audit Sign-off Checklist.
 4. Provide git merge commands (`git merge --no-ff`).

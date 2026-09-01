@@ -11,16 +11,22 @@ description: "Automated test generation for grid-trading-console. Use when creat
 - Running test validation before merging or deployment
 
 ## Test Framework
-`grid-trading-console` uses `pytest` for testing Python components:
+`grid-trading-console` tests are `unittest`-style and can be run through the repo entrypoint (or pytest since it is installed):
 ```bash
-# Run full test suite
+# Run the canonical full suite (Python + frontend + lint + build)
+./scripts/ci.sh
+
+# Run a targeted module list with unittest (repo convention)
+python3 -m unittest tests.test_dca_ladder tests.services.grid.backtest.test_simulator
+
+# Run the full Python suite with pytest (also works)
 python3 -m pytest
 
-# Run specific test file
-python3 -m pytest tests/test_grid_trading.py -v
+# Run a specific test file
+python3 -m pytest tests/services/grid/backtest/test_risk.py -v
 
 # Run frontend tests
-cd web_ui/frontend && npm run test
+cd web_ui/frontend && npm test
 ```
 
 ## Key Test Areas

@@ -9,7 +9,7 @@ A skill for creating new skills and iteratively improving them.
 
 ## Project-Specific Conventions (grid-trading-console)
 
-This project is a **multi-exchange cryptocurrency grid trading and console system** (Python 3.10+, custom exchange adapters for Binance, OKX, Hyperliquid, Lighter, EdgeX, Backpack, O1Exchange, Paper, Multi-Grid Engine, Volume Maker, FastAPI backend, React 19 frontend). When creating or editing skills for this project, follow these conventions:
+This project is a **multi-exchange cryptocurrency grid/DCA trading and console system** (Python 3.11+; custom exchange adapters for Binance, OKX, Hyperliquid, Lighter, EdgeX, Backpack, O1Exchange, Paper; Multi-Grid + DCA supervisor in `run_multiple_grids.py`; FastAPI backend `web_ui/backend/main.py`; React 19 frontend `web_ui/frontend/`). When creating or editing skills for this project, follow these conventions:
 
 ### Skill Directory & Naming
 - Skills live in `.agents/skills/<skill-name>/SKILL.md`
@@ -36,12 +36,14 @@ Current active skills cover:
 ### Key Project Components to Reference
 | Component | Location | Details |
 |---|---|---|
-| Strategy & Services | `core/services/` | Grid Trading, Multi-Grid Engine, Volume Maker, Arbitrage Monitor, Price Alerts |
-| Exchange Adapters | `core/adapters/exchanges/adapters/` | Binance, OKX, Hyperliquid, Lighter, EdgeX, Backpack |
-| Adapter Factory | `core/adapters/exchanges/factory.py` | Instantiates CCXT or custom adapters |
+| Strategy & Services | `core/services/` | Grid, DCA (`dca/`), Volume Maker, Arbitrage Monitor, Price Alerts, backtest (`grid/backtest/`, `dca/backtest/`) |
+| Exchange Adapters | `core/adapters/exchanges/adapters/` | Binance, OKX, Hyperliquid, Lighter, EdgeX, Backpack, O1Exchange, Paper |
+| Adapter Factory | `core/adapters/exchanges/` | Instantiates CCXT or custom adapters |
 | WebSocket Pool | `core/adapters/exchanges/websocket_manager.py` | Connection pool & BBO orderbook streams |
-| Web UI | `web_ui/` | Flask/FastAPI server (`app.py`), templates, static assets |
-| Launch Scripts | `/` | `run_grid_trading.py`, `run_volume_maker.py`, `start_web_ui.sh` |
+| Web UI Backend | `web_ui/backend/main.py` | FastAPI + Uvicorn on port 8001; routes under `web_ui/backend/routes/` |
+| Web UI Frontend | `web_ui/frontend/` | React 19 + TypeScript + Vite; builds to `web_ui/frontend/dist/` |
+| Runtime/DB | `data/` | SQLite ledger (`web_ui_runtime.sqlite3`) + `grid_audit.db`; optional PostgreSQL via `DATABASE_URL` |
+| Launch Scripts | `/` | `run_multiple_grids.py`, `run_grid_trading.py`, `run_volume_maker.py`, `start_web_ui.sh` |
 
 ### Language Note
 The user communicates in **繁體中文 (Traditional Chinese)**. Skill content should be in **English** for code/technical terms but descriptions and explanations can include Chinese where appropriate for clarity.

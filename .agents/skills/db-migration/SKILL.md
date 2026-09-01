@@ -9,7 +9,7 @@ description: "Database migration procedures for grid-trading-console (SQLite dat
 - User requests schema changes or new tables
 - Before running ALTER/CREATE/DROP statements on runtime or audit databases
 - When modifying SQLite/PostgreSQL schema definitions or resolving WAL/lock issues
-- **When upgrading a live machine from the pre-v0.2.0-beta codebase (legacy JSON snapshot schema) to the current Phase 1-3 branch — follow `docs/live_upgrade_playbook_zh-TW.md` instead of improvising.**
+- **When upgrading a live machine from the pre-v0.2.0-beta codebase (legacy JSON snapshot schema) to the current branch (Phase 1–3 + strategy backtest) — follow `docs/live_upgrade_playbook_zh-TW.md` instead of improvising.**
 
 ## Database Infrastructure
 `grid-trading-console` defaults to SQLite (`data/web_ui_runtime.sqlite3`); setting
@@ -26,8 +26,11 @@ description: "Database migration procedures for grid-trading-console (SQLite dat
 | `data/web_ui_runtime.sqlite3` | `bot_events` | Phase 3 append-only event stream (seq per bot) |
 | `data/web_ui_runtime.sqlite3` | `grid_runtime_snapshots` / `grid_runtime_history` | Legacy compat tables (still dual-written; old readers keep working) |
 | `data/web_ui_runtime.sqlite3` | `grid_commands` / `grid_command_events` / `grid_events` | Command pipeline (unchanged) |
-| `data/web_ui_runtime.sqlite3` | `dca_klines` / `audit_log` | Chart cache / audit trail (unchanged) |
+| `data/web_ui_runtime.sqlite3` | `dca_klines` | K-line cache for DCA chart/backtest (unchanged) |
 | `data/grid_audit.db` | `audit_log` | Operator action audit trail and security events |
+| n/a (stateless) | — | `core/services/grid/backtest` + `/api/v1/grid-backtest` are stateless; no new table |
+
+Alembic versions: `0001_initial_schema` (bots/trade_fills/.../legacy compat), `0002_bot_events` (append-only event stream).
 
 ## Migration Protocol
 1. **Backup**: Always backup before any schema migration:
@@ -51,7 +54,9 @@ description: "Database migration procedures for grid-trading-console (SQLite dat
    ```bash
    sqlite3 data/web_ui_runtime.sqlite3 ".tables"
    sqlite3 data/web_ui_runtime.sqlite3 "SELECT count(*) FROM bots; SELECT bot_id,completed_cycles,version FROM bot_positions;"
+   sqlite3 data/web_ui_runtime.sqlite3 "SELECT bot_id,seq,event_type FROM bot_events ORDER BY created_at DESC LIMIT 5;"
    ```
+   When PostgreSQL is enabled, run the same verification against `DATABASE_URL` (ledger store only; `grid_audit.db` and `dca_klines` remain SQLite).
 5. **Service Restart & Smoke Test**: If Web UI is running, restart backend and verify
    live endpoints (`/healthz`, dashboard values unchanged — no counter resets).
 

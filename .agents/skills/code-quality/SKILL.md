@@ -12,7 +12,7 @@ description: "Mandatory code quality checks for grid-trading-console. Run after 
 - When user asks for over-engineering review or bloat audit
 
 ## Pre-Commit Checklist
-- [ ] Run `python3 -m pytest` to ensure test suite passes
+- [ ] Run the repo test entrypoint (`./scripts/ci.sh`, or `python3 -m unittest` / `python3 -m pytest` for a targeted subset) to ensure the test suite passes
 - [ ] Run `ocr review --audience agent` (or `ocr delegate preview`) to perform AI line-level defect & security inspection
 - [ ] No `print()` statements in production core services (use `logging`)
 - [ ] No hardcoded credentials or API keys in code or config (use `.env`)
@@ -42,8 +42,8 @@ description: "Mandatory code quality checks for grid-trading-console. Run after 
 1. **檢查受影響的運行中進程**：
    - 檢查 Web UI 後端：`lsof -i :8001` 或 `ps aux | grep main.py`
    - 檢查交易引擎 / PM2 進程：`pm2 list` 或 `ps aux | grep run_multiple_grids`
-2. **自動重啟受影響服務**：
-   - 若 Web UI 後端運行中：終止舊進程並重啟 `cd web_ui/backend && nohup /root/grid-trading-console/venv/bin/python3 main.py > ../../logs/web_ui.log 2>&1 &`
+2. **自動重啟受影響服務**（使用 repo-relative 路徑，勿硬編 `/root/grid-trading-console`）：
+   - 若 Web UI 後端運行中：終止舊進程並重啟 `cd web_ui/backend && python main.py > ../../logs/web_ui.log 2>&1 &`（本機便利也可 `bash start_web_ui.sh`；正式環境用 `systemctl restart crypto-webui`）
    - 若前端有修改：執行 `cd web_ui/frontend && npm run build` 重新構建靜態資源
    - 若策略/引擎修改：執行 `pm2 restart <service>` 或重啟對應策略進程
 3. **執行運行態即時驗證 (Live Smoke Test)**：

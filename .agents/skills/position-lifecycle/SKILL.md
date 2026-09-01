@@ -26,5 +26,6 @@ description: "Position lifecycle management for grid-trading-console. Use when d
 - **Unrealized PnL**: `(current_mid_price - avg_entry_price) * position_size`
 
 ## Verification & Debugging
-- Check positions in runtime snapshots (`data/web_ui_runtime.sqlite3`) or API endpoints (`/api/v1/grids`).
-- Verify position updates match exchange WebSocket fills.
+- Canonical state lives in the relational ledger (`data/web_ui_runtime.sqlite3`): `bots`, `trade_fills`, `bot_positions`, `bot_snapshots` (or `DATABASE_URL` PostgreSQL for the ledger store). `grid_runtime_snapshots` are legacy compat tables.
+- API endpoints: `/api/v1/grids`, `/api/v1/dca`, and per-bot chart endpoints.
+- Verify position updates match exchange WebSocket fills; reconcile through `core/services/grid/reconciliation/` and `bot_events` append-only stream when there is drift.

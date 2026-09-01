@@ -15,9 +15,9 @@ description: "Guidelines and instructions to start/restart grid-trading-console 
 > The SSH tunnel command is a client-side command that must be run on the user's local machine.
 
 ## Service Commands (Server-Side)
-- **Start Web UI**: `bash start_web_ui.sh` (Runs FastAPI backend on port 8001 with built React frontend)
-- **Start Multi-Grid Engine**: `python3 run_multiple_grids.py` (or via PM2: `pm2 start ecosystem.config.js`)
-- **Start Single Grid**: `python3 run_grid_trading.py`
+- **Start Web UI**: local `bash start_web_ui.sh` (FastAPI on port 8001 + built React frontend); production `systemctl restart crypto-webui` (see `scripts/deployment/crypto-webui.service`)
+- **Start Multi-Grid Engine**: `python3 run_multiple_grids.py` (runs grid + DCA engines together) or via PM2: `pm2 start ecosystem.config.js`
+- **Start Single Grid**: `python3 run_grid_trading.py` (only for single-strategy testing; avoid double-running the same YAML in production)
 - **Start Volume Maker**: `python3 run_volume_maker.py`
 - **PM2 Control**: `pm2 start ecosystem.config.js` / `pm2 restart all` / `pm2 status`
 

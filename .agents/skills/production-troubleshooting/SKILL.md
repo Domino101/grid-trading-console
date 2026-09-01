@@ -24,8 +24,8 @@ description: "Production troubleshooting playbook for grid-trading-console. Use 
 
 ### Process Crashed / Restart Failed
 - Check logs for missing module or invalid syntax.
-- Test script manually under venv: `/root/grid-trading-console/venv/bin/python3 run_multiple_grids.py --help`.
+- Test script manually with the project venv (repo-relative): `source venv/bin/activate && python run_multiple_grids.py --help`.
 
 ### Web UI Offline (Port 8001)
 - Check port availability: `lsof -i :8001` or `netstat -tlpn | grep 8001`.
-- Restart Web UI: `bash start_web_ui.sh` or run manually via `web_ui/backend/main.py`.
+- Restart Web UI: local `bash start_web_ui.sh` or `cd web_ui/backend && python main.py`; production `systemctl restart crypto-webui`.
