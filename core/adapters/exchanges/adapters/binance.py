@@ -272,9 +272,9 @@ class BinanceAdapter(ExchangeAdapter):
         
         return orders
 
-    async def get_order(self, order_id: str, symbol: str) -> OrderData:
+    async def get_order(self, order_id: str, symbol: str, params: Optional[Dict[str, Any]] = None) -> OrderData:
         """获取订单信息"""
-        return await self._rest.get_order(order_id, symbol)
+        return await self._rest.get_order(order_id, symbol, params)
 
     async def get_open_orders(self, symbol: Optional[str] = None) -> List[OrderData]:
         """获取开放订单"""

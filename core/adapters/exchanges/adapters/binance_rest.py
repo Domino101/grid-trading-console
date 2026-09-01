@@ -654,7 +654,16 @@ class BinanceRest(BinanceBase):
             mapped_symbol = self.map_symbol_to_binance(symbol)
             
             # 准备订单参数
-            order_params = params or {}
+            order_params = dict(params) if params else {}
+            client_id = (
+                order_params.pop("client_order_id", None)
+                or order_params.pop("clientOrderId", None)
+                or order_params.pop("newClientOrderId", None)
+            )
+            if client_id:
+                order_params["clientOrderId"] = str(client_id)
+            if "reduce_only" in order_params:
+                order_params["reduceOnly"] = bool(order_params.pop("reduce_only"))
             
             side_str = side.value.lower() if hasattr(side, "value") else str(side).lower()
             order_type_str = self.ORDER_TYPE_MAPPING.get(order_type, getattr(order_type, "value", str(order_type)).upper())
@@ -705,13 +714,23 @@ class BinanceRest(BinanceBase):
             for o in batch:
                 o_amount = o['amount']
                 o_price = o.get('price')
+                p = dict(o.get('params') or {})
+                cid = (
+                    p.pop("client_order_id", None)
+                    or p.pop("clientOrderId", None)
+                    or p.pop("newClientOrderId", None)
+                )
+                if cid:
+                    p["clientOrderId"] = str(cid)
+                if "reduce_only" in p:
+                    p["reduceOnly"] = bool(p.pop("reduce_only"))
                 ccxt_orders.append({
                     'symbol': mapped_symbol,
                     'type': self.ORDER_TYPE_MAPPING.get(o['order_type'], 'LIMIT'),
                     'side': o['side'].value.lower(),
                     'amount': float(o_amount),
                     'price': float(o_price) if o_price is not None else None,
-                    'params': o.get('params') or {},
+                    'params': p,
                 })
 
             try:
@@ -818,8 +837,14 @@ class BinanceRest(BinanceBase):
             mapped_symbol = self.map_symbol_to_binance(symbol)
             order_params = dict(params) if params else {}
             str_id = str(order_id)
-            if not str_id.isdigit() and "origClientOrderId" not in order_params and "clientOrderId" not in order_params:
-                order_params["origClientOrderId"] = str_id
+            client_id = (
+                order_params.pop("client_order_id", None)
+                or order_params.get("origClientOrderId")
+                or order_params.get("clientOrderId")
+                or (str_id if not str_id.isdigit() else None)
+            )
+            if client_id and "origClientOrderId" not in order_params and "clientOrderId" not in order_params:
+                order_params["origClientOrderId"] = str(client_id)
             
             data = await self._execute_with_retry(
                 self.exchange.fetch_order,

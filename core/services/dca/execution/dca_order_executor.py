@@ -196,9 +196,19 @@ class DcaOrderExecutor(IDcaOrderExecutor):
         try:
             order_side = _to_order_side(side)
             order_type = OrderType.LIMIT
+            is_close_order = role in (DcaOrderRole.TAKE_PROFIT, DcaOrderRole.STOP_LOSS)
+            order_params = {
+                "client_order_id": client_id,
+                "clientOrderId": client_id,
+                "newClientOrderId": client_id,
+            }
+            if is_close_order:
+                order_params["reduce_only"] = True
+                order_params["reduceOnly"] = True
+
             raw = await self._exchange.create_order(
                 self._symbol, order_side, order_type, q_qty, q_price,
-                params={"client_order_id": client_id},
+                params=order_params,
             )
             order.order_id = str(getattr(raw, "id", getattr(raw, "order_id", "")) or "")
             logger.info(
@@ -251,9 +261,19 @@ class DcaOrderExecutor(IDcaOrderExecutor):
         try:
             order_side = _to_order_side(side)
             order_type = OrderType.MARKET
+            is_close_order = role in (DcaOrderRole.TAKE_PROFIT, DcaOrderRole.STOP_LOSS)
+            order_params = {
+                "client_order_id": client_id,
+                "clientOrderId": client_id,
+                "newClientOrderId": client_id,
+            }
+            if is_close_order:
+                order_params["reduce_only"] = True
+                order_params["reduceOnly"] = True
+
             raw = await self._exchange.create_order(
                 self._symbol, order_side, order_type, q_qty, None,
-                params={"client_order_id": client_id},
+                params=order_params,
             )
             order.order_id = str(getattr(raw, "id", getattr(raw, "order_id", "")) or "")
             order.mark_filled(price=mark, quantity=q_qty)

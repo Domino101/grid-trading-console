@@ -5,7 +5,7 @@
 
 ---
 
-## [Unreleased]
+## [0.3.0] — 2026-09-01
 
 ### Added
 - **策略市場完整回測（網格 / DCA 單向 / DCA 雙向 + 指標回測）**：
@@ -22,6 +22,8 @@
   - `GridStatistics` 與 `GridMetrics`：新增 `total_volume` 欄位並輸出至展示字典 `volume`。
   - `GridCoordinator`：重啟從持久化快照恢復時支援載入 `volume`；對舊版未帶 volume 的快照以歷史成交單數與配置金額進行基準平滑回補。
   - `run_multiple_grids.py`：多網格心跳狀態回傳即時注入 `volume` 指標。
+- **UI/UX 前端深色體驗升級 (Obsidian Pro Dark Theme Form Controls)**：
+  - 重構全域下拉選單（`select`）與回測表單輸入框，統一暗色配色、自訂 SVG 箭頭圖示、高亮聚焦邊框，徹底解決深色模式下系統預設原生表單元件全白反光問題。
 
 ### Changed
 - **系統併發與安全閾值擴容 (Concurrency Limit Expansion)**：
@@ -29,6 +31,10 @@
   - `BinanceRest`：節流閥 `_throttle_max_calls` 上限由 3 提升至 5，增強多機器人並行時的 REST API 吞吐能力。
 
 ### Fixed
+- **DCA 下單保護與 Binance 介面參數對齊**：
+  - `BinanceBaseAdapter` / `BinanceRest`：API Key 與 Secret 自動去除頭尾空白字元與換行符號（`strip()`），徹底杜絕複製貼上金鑰引起的認證與簽名錯誤（`-2014` / `-1022`）。
+  - `Binance` 合約下單介面：參數支援 `clientOrderId` / `newClientOrderId` 與 `reduceOnly`；DCA 停利（Take-Profit）與停損（Stop-Loss）市價平倉委託自動注入 `reduce_only=True`，杜絕平倉單因市況超額成交導致反向開倉。
+  - `run_multiple_grids.py`：新增 `starting_grids` 與 `starting_dca` 啟動防重集合，解決冷啟動階梯式等待（stagger delay）期間熱插拔監控協程重複拉起同一機器人任務的競態條件。
 - **環境防線路徑匹配與協調器類型安全加固**：
   - `EnvironmentGuard` (`core/infrastructure/database/guard.py`)：修正生產資料庫路徑判定，嚴格錨定專案根目錄 `data/`，避免外部任意路徑包含 `/data/` 引起誤判。
   - `DcaCoordinator` (`core/services/dca/coordinator/dca_coordinator.py`)：修復 `load_by_bot_id` 回傳值 tuple 解構安全性防護。
