@@ -465,7 +465,7 @@ class BinanceBase:
         
         return OrderData(
             id=str(order_data.get('orderId') or order_data.get('id') or ''),
-            client_id=order_data.get('clientOrderId'),
+            client_id=order_data.get('clientOrderId') or order_data.get('origClientOrderId') or order_data.get('client_id') or order_data.get('client_order_id'),
             symbol=symbol,
             side=OrderSide.BUY if order_data.get('side') == 'BUY' else OrderSide.SELL,
             type=order_type,

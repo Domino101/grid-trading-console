@@ -28,7 +28,7 @@ from typing import Callable, Dict, List, Optional, Set, Tuple
 from ..interfaces.dca_executor import IDcaOrderExecutor, OutcomeKind
 from ..ladder import build_ladder, stop_loss_price
 from ..models.dca_config import DcaConfig
-from ..models.dca_order import DcaOrder, DcaOrderRole, DcaOrderStatus
+from ..models.dca_order import DcaOrder, DcaOrderRole, DcaOrderStatus, bot_id_hash8
 from ..models.dca_state import DcaState, DcaStatus, SlotStatus
 from ..models.dca_statistics import DcaStatistics
 from .direction_lock import DirectionLock
@@ -188,11 +188,16 @@ class DcaCoordinator:
             if not open_orders:
                 return 0
             
+            my_hash = bot_id_hash8(self._bot_id)
             taken_count = 0
             for order in open_orders:
                 cid = order.client_order_id
+                if not cid or not isinstance(cid, str):
+                    continue
                 parts = cid.split("_")
-                slot = parts[3] if len(parts) >= 4 else ""
+                if len(parts) < 4 or parts[0] != "dca" or parts[1] != my_hash:
+                    continue
+                slot = parts[3]
                 
                 if slot == "base":
                     order.role = DcaOrderRole.BASE

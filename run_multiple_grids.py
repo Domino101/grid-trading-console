@@ -303,7 +303,7 @@ def _emit_dca_lifecycle(config_path: str, status: str, detail=None, symbol=None)
         logging.getLogger("system").warning("寫入 DCA lifecycle journal 失敗: %s", exc)
 
 
-async def run_single_grid_task(config_path: str, adapter_pool, logger, running_grids_ref):
+async def run_single_grid_task(config_path: str, adapter_pool, logger, running_grids_ref, starting_grids=None):
     """
     併發啟動並運行單個網格任務
     """
@@ -376,6 +376,8 @@ async def run_single_grid_task(config_path: str, adapter_pool, logger, running_g
             "coordinator": coordinator,
             "task": asyncio.current_task()
         }
+        if starting_grids is not None:
+            starting_grids.discard(config_path)
 
         # 4. 現貨啟動前檢查
         if reserve_manager:
@@ -514,6 +516,8 @@ async def run_single_grid_task(config_path: str, adapter_pool, logger, running_g
         logger.error(f"💥 運行網格任務時發生崩潰 [{config_path}]: {e}", exc_info=True)
         _emit_lifecycle(config_path, "failed", str(e))
     finally:
+        if starting_grids is not None:
+            starting_grids.discard(config_path)
         if leader is not None:
             try:
                 leader.release()
@@ -524,7 +528,7 @@ async def run_single_grid_task(config_path: str, adapter_pool, logger, running_g
 
 
 async def run_single_dca_task(config_path: str, adapter_pool, logger,
-                              running_dca_ref, dca_ohlcv_caches):
+                              running_dca_ref, dca_ohlcv_caches, starting_dca=None):
     """
     併發啟動並運行單個 DCA 機器人（Phase 3）。
 
@@ -594,6 +598,9 @@ async def run_single_dca_task(config_path: str, adapter_pool, logger,
             "coordinator": coordinator,
             "task": asyncio.current_task(),
         }
+        if starting_dca is not None:
+            starting_dca.discard(config_path)
+
         coordinator.start()
         _emit_dca_lifecycle(config_path, "running", symbol=symbol)
         logger.info(f"✨ [DCA {symbol}] 協調器已就緒，當前狀態: {coordinator.state.status.value}")
@@ -648,6 +655,8 @@ async def run_single_dca_task(config_path: str, adapter_pool, logger,
         except Exception:
             pass
     finally:
+        if starting_dca is not None:
+            starting_dca.discard(config_path)
         if coordinator is not None:
             try:
                 await coordinator.stop()
@@ -797,6 +806,8 @@ async def main():
     # 4. 併發運行字典與監控循環
     running_grids_ref = {}
     running_dca_ref = {}
+    starting_grids = set()
+    starting_dca = set()
     dca_ohlcv_caches = {}
 
     # 定義熱插拔控制監控協程
@@ -831,7 +842,7 @@ async def main():
 
             # 檢查是否有啟用但被阻擋或不存在的配置，即時回報失敗而非靜默逾時
             for path, enabled in current_status.items():
-                if enabled and path not in running_grids_ref:
+                if enabled and path not in running_grids_ref and path not in starting_grids:
                     if not _exists(path):
                         if path not in reported_rejections:
                             reported_rejections.add(path)
@@ -847,14 +858,15 @@ async def main():
 
             for path in iter_hotplug_starts(
                 current_status,
-                running_grids_ref.keys(),
+                set(running_grids_ref.keys()) | starting_grids,
                 _exists,
                 _config_account_mode,
                 live_trading_enabled(),
             ):
                 reported_rejections.discard(path)
+                starting_grids.add(path)
                 logger.info(f"▶️ [動態控制] 檢測到 {path} 被設為啟用，正在異步啟動網格...")
-                asyncio.create_task(run_single_grid_task(path, adapter_pool, logger, running_grids_ref))
+                asyncio.create_task(run_single_grid_task(path, adapter_pool, logger, running_grids_ref, starting_grids))
 
     # DCA 熱插拔監控協程（與 active_grids_monitor 對稱，稽核 3.12/3.13/3.14）
     async def active_dca_monitor():
@@ -888,7 +900,7 @@ async def main():
 
             # 找不到設定檔 / start_rejection 即時發 failed（稽核 3.14）
             for path, enabled in current_status.items():
-                if enabled and path not in running_dca_ref:
+                if enabled and path not in running_dca_ref and path not in starting_dca:
                     if not _dca_exists(path):
                         if path not in reported_dca_rejections:
                             reported_dca_rejections.add(path)
@@ -906,16 +918,17 @@ async def main():
 
             for path in iter_hotplug_starts(
                 current_status,
-                running_dca_ref.keys(),
+                set(running_dca_ref.keys()) | starting_dca,
                 _dca_exists,
                 _dca_config_account_mode,
                 live_trading_enabled(),
             ):
                 reported_dca_rejections.discard(path)
+                starting_dca.add(path)
                 logger.info(f"▶️ [DCA 動態控制] 檢測到 {path} 被設為啟用，正在異步啟動 DCA...")
                 asyncio.create_task(
                     run_single_dca_task(
-                        path, adapter_pool, logger, running_dca_ref, dca_ohlcv_caches
+                        path, adapter_pool, logger, running_dca_ref, dca_ohlcv_caches, starting_dca
                     )
                 )
 
@@ -929,7 +942,8 @@ async def main():
         if idx > 0:
             logger.info(f"⏳ 等待 {stagger_delay} 秒後啟動下一個網格...")
             await asyncio.sleep(stagger_delay)
-        asyncio.create_task(run_single_grid_task(path, adapter_pool, logger, running_grids_ref))
+        starting_grids.add(path)
+        asyncio.create_task(run_single_grid_task(path, adapter_pool, logger, running_grids_ref, starting_grids))
 
     initial_dca_paths = [
         path for path, enabled in active_dca_status.items()
@@ -940,8 +954,9 @@ async def main():
         if idx > 0:
             logger.info(f"⏳ 等待 {stagger_delay} 秒後啟動下一個 DCA...")
             await asyncio.sleep(stagger_delay)
+        starting_dca.add(path)
         asyncio.create_task(
-            run_single_dca_task(path, adapter_pool, logger, running_dca_ref, dca_ohlcv_caches)
+            run_single_dca_task(path, adapter_pool, logger, running_dca_ref, dca_ohlcv_caches, starting_dca)
         )
 
     # 啟動監控協程
