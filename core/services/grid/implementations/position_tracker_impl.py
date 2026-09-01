@@ -72,6 +72,7 @@ class PositionTrackerImpl(IPositionTracker):
         self.sell_count = 0
         self.completed_cycles = 0
         self.loss_cycles = 0
+        self.total_volume = Decimal('0')  # 累計成交額 (USD)
 
         # 资金信息（需要从交易所获取）
         self.available_balance = Decimal('0')
@@ -121,6 +122,7 @@ class PositionTrackerImpl(IPositionTracker):
 
         self.current_position = self.virtual_position
         self.average_cost = self.virtual_average_cost
+        self.total_volume += filled_price * filled_amount
 
         # 2. 計算手續費（優先使用訂單實際手續費，若無則依交易對與配置解析）
         order_fee = getattr(order, 'fee', None)
@@ -428,6 +430,7 @@ class PositionTrackerImpl(IPositionTracker):
             filled_buy_count=self.buy_count,
             filled_sell_count=self.sell_count,
             completed_cycles=self.completed_cycles,
+            total_volume=self.total_volume,
             realized_profit=self.grid_profit,
             unrealized_profit=unrealized_pnl,
             total_profit=total_pnl,
@@ -552,6 +555,7 @@ class PositionTrackerImpl(IPositionTracker):
         self.sell_count = 0
         self.completed_cycles = 0
         self.loss_cycles = 0
+        self.total_volume = Decimal('0')
         self.start_time = datetime.now()
         self.last_trade_time = datetime.now()
 

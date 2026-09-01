@@ -116,7 +116,7 @@ class DcaCoordinator:
             bot_id = resolve_bot_id(config_path) if config_path else self._bot_id
             matched = None
             by_id = repository.load_by_bot_id(bot_id)
-            if by_id:
+            if isinstance(by_id, tuple) and len(by_id) == 2:
                 matched, _ = by_id
             # 向下相容：legacy config_path 查詢
             if matched is None and config_path and config_path in snapshots:

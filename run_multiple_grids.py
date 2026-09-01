@@ -431,6 +431,7 @@ async def run_single_grid_task(config_path: str, adapter_pool, logger, running_g
                             "current_position": float(stats.current_position),
                             "grid_position": float(getattr(stats, "grid_position", stats.current_position)),
                             "account_position": float(stats.account_position) if getattr(stats, "account_position", None) is not None else None,
+                            "volume": float(getattr(stats, "total_volume", getattr(stats, "volume", Decimal("0")))),
                             "profit": {
                                 "grid_profit": float(getattr(stats, "grid_profit", stats.realized_profit)),
                                 "realized": float(stats.realized_profit),
