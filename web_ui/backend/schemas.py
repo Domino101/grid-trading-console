@@ -1089,6 +1089,11 @@ class GridBacktestRequest(BaseModel):
     end_ts: Optional[int] = Field(default=None, description="結束時間 unix 秒 (UTC)")
     bars: Optional[int] = Field(default=None, ge=10, le=20000, description="回測棒數上限")
     source: str = Field(default="manual", description="manual / market_ranking / existing_yaml")
+    sweep_grid_counts: Optional[List[int]] = Field(default=None, description="參數掃描網格數列表")
+    sweep_per_grid_notional: Optional[List[float]] = Field(default=None, description="參數掃描每格名目金額列表")
+    sweep_leverages: Optional[List[int]] = Field(default=None, description="參數掃描槓桿倍數列表")
+    max_total_bars: Optional[int] = Field(default=300000, description="總棒數預算上限")
+    runs_limit: Optional[int] = Field(default=500, description="最大掃描次數上限")
 
 
 class GridBacktestAllocation(BaseModel):
