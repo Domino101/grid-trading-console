@@ -17,10 +17,11 @@ import { api, ApiError, type MarketRankingItem, type MarketRankingsResponse } fr
 
 interface MarketRankingsProps {
   onSelectSymbol: (item: MarketRankingItem, period: string) => void;
+  onBacktest?: (item: MarketRankingItem, period: string) => void;
   onUnauthorized?: () => void;
 }
 
-const MarketRankings: React.FC<MarketRankingsProps> = ({ onSelectSymbol, onUnauthorized }) => {
+const MarketRankings: React.FC<MarketRankingsProps> = ({ onSelectSymbol, onBacktest, onUnauthorized }) => {
   const [exchange, setExchange] = useState<string>('binance');
   const [period, setPeriod] = useState<string>('7d');
   const [search, setSearch] = useState<string>('');
@@ -325,15 +326,28 @@ const MarketRankings: React.FC<MarketRankingsProps> = ({ onSelectSymbol, onUnaut
                   </td>
                   <td>{getRatingBadge(item.rating)}</td>
                   <td style={{ textAlign: 'right' }}>
-                    <button
-                      type="button"
-                      className="btn-create-grid"
-                      onClick={() => onSelectSymbol(item, period)}
-                    >
-                      <Sparkles size={14} />
-                      <span>一鍵開格</span>
-                      <ArrowRight size={13} />
-                    </button>
+                    <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'flex-end' }}>
+                      <button
+                        type="button"
+                        className="btn-create-grid"
+                        onClick={() => onSelectSymbol(item, period)}
+                      >
+                        <Sparkles size={14} />
+                        <span>一鍵開格</span>
+                        <ArrowRight size={13} />
+                      </button>
+                      {onBacktest && (
+                        <button
+                          type="button"
+                          className="btn btn-outline"
+                          style={{ fontSize: '0.74rem', padding: '0.42rem 0.6rem' }}
+                          onClick={() => onBacktest(item, period)}
+                        >
+                          <Activity size={13} />
+                          <span>回測</span>
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

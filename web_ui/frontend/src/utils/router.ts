@@ -1,4 +1,4 @@
-export type AppTab = 'dashboard' | 'market' | 'configs' | 'detail' | 'dca' | 'dca-create';
+export type AppTab = 'dashboard' | 'market' | 'configs' | 'detail' | 'dca' | 'dca-create' | 'grid-backtest';
 
 export interface RouteState {
   tab: AppTab;
@@ -6,7 +6,7 @@ export interface RouteState {
   dcaBotId: string | null;
 }
 
-const VALID_TABS = new Set<AppTab>(['dashboard', 'market', 'configs', 'detail', 'dca', 'dca-create']);
+const VALID_TABS = new Set<AppTab>(['dashboard', 'market', 'configs', 'detail', 'dca', 'dca-create', 'grid-backtest']);
 
 function safeDecode(val: string): string {
   try {
@@ -51,6 +51,11 @@ export function parseHash(rawHash: string): RouteState {
   // 拆分 path 與 query string
   const [pathPart, queryPart] = clean.split('?');
   const params = new URLSearchParams(queryPart || '');
+
+  // 0. 網格回測分頁（必須先於 startsWith('grid') 判斷，避免被當成 Grid Detail）
+  if (pathPart === 'grid-backtest') {
+    return { tab: 'grid-backtest', gridId: null, dcaBotId: null };
+  }
 
   // 1. Grid Detail 路由判斷
   if (pathPart.startsWith('detail') || pathPart.startsWith('grid')) {
@@ -112,6 +117,8 @@ export function formatHash(state: { tab: AppTab; gridId?: string | null; dcaBotI
       return state.dcaBotId ? `#/dca?id=${encodeURIComponent(state.dcaBotId)}` : '#/dca';
     case 'dca-create':
       return '#/dca-create';
+    case 'grid-backtest':
+      return '#/grid-backtest';
     case 'detail':
       return state.gridId ? `#/detail?id=${encodeURIComponent(state.gridId)}` : '#/dashboard';
     default:

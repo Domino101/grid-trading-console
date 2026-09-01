@@ -8,7 +8,12 @@
 ## [Unreleased]
 
 ### Added
-- **網格累計成交額統計與歷史快照無損還原 (Grid Total Volume Tracking & Recovery)**：
+- **策略市場完整回測（網格 / DCA 單向 / DCA 雙向 + 指標回測）**：
+  - 左側新增「網格回測」分頁；策略市場每行新增「回測」按鈕（原「一鍵開格」保留）。
+  - 網格區域：`core/services/grid/backtest/` 資金感知模擬器（逐倉保證金、權益曲線、最大回撤、清算價、壓力情境、參數掃描、需追加資金防爆倉建議）；`/api/v1/grid-backtest/{run,stress,sweep}`。
+  - 資金分配：支援「每格固定金額」與「每格佔總資金 %」；資金不足以掛滿格數時警示。
+  - DCA 區域：統一入口支援單向做多 / 單向做空 / 雙向；指標入場（RSI / MACD / Bollinger / PriceChange）；來源為手動 draft 或既有 DCA bot；直接複用既有 `/api/v1/dca/backtest` 真實引擎與 `DcaBacktestPanel/Result`。
+  - 見 `docs/grid_backtest_user_guide_zh-TW.md`、`docs/grid_backtest_audit_report_zh-TW.md`、`docs/grid_backtest_implementation_plan_zh-TW.md`。
   - `PositionTrackerImpl`：新增 `self.total_volume` 累計成交額 (USD) 指標，每筆成交即時累加 `filled_price * filled_amount`，重置時清零。
   - `GridStatistics` 與 `GridMetrics`：新增 `total_volume` 欄位並輸出至展示字典 `volume`。
   - `GridCoordinator`：重啟從持久化快照恢復時支援載入 `volume`；對舊版未帶 volume 的快照以歷史成交單數與配置金額進行基準平滑回補。

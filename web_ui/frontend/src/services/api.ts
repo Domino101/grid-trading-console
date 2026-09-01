@@ -258,6 +258,83 @@ export interface MarketRankingsResponse {
     items: MarketRankingItem[];
 }
 
+// ── 網格完整回測型別 ──
+
+export interface GridBacktestRequest {
+    symbol: string;
+    exchange: string;
+    grid_type: string;
+    lower_price: number;
+    upper_price: number;
+    grid_count?: number | null;
+    grid_interval?: number | null;
+    per_grid_notional?: number | null;
+    per_grid_capital_percent?: number | null;
+    initial_capital: number;
+    leverage?: number;
+    fee_rate?: number | null;
+    maintenance_margin_rate?: number | null;
+    timeframe?: string;
+    start_ts?: number | null;
+    end_ts?: number | null;
+    bars?: number | null;
+    source?: string;
+    sweep_grid_counts?: number[];
+    sweep_per_grid_notional?: number[];
+    sweep_leverages?: number[];
+    max_total_bars?: number;
+    runs_limit?: number;
+}
+
+export interface GridBacktestResult {
+    spec: Record<string, unknown>;
+    bars: number;
+    timeframe: string;
+    first_ts: number | null;
+    last_ts: number | null;
+    metrics: Record<string, unknown>;
+    risk: Record<string, unknown>;
+    equity: unknown[];
+    marks: unknown[];
+    cycles: unknown[];
+    warnings: string[];
+    data_status: string;
+    source: string;
+    skipped_margin_fills: number;
+    candles: unknown[];
+}
+
+export interface GridBacktestResponse {
+    result: GridBacktestResult;
+}
+
+export interface GridBacktestStressScenario {
+    movement_pct: number;
+    liquidation_occurred: boolean;
+    final_equity: number;
+    min_equity: number | null;
+    additional_capital_to_prevent_liquidation: number | null;
+}
+
+export interface GridBacktestStressResponse {
+    start_price: number;
+    scenarios: GridBacktestStressScenario[];
+    warnings: string[];
+}
+
+export interface GridBacktestSweepRun {
+    params: Record<string, unknown>;
+    metrics: Record<string, unknown>;
+    risk: Record<string, unknown>;
+    error: string | null;
+}
+
+export interface GridBacktestSweepResponse {
+    runs: GridBacktestSweepRun[];
+    budget: Record<string, unknown>;
+    warnings: string[];
+}
+
 
 
 export interface GridHistoryPoint {
@@ -1261,6 +1338,34 @@ export const api = {
     ): Promise<MarketIndicatorsResponse> {
         const qs = `?exchange=${encodeURIComponent(exchange)}&timeframe=${encodeURIComponent(timeframe)}&limit=${limit}`;
         return requestJson(`/v1/market/indicators/${encodeURIComponent(symbol)}${qs}`, { headers: authHeaders(), signal }, '無法讀取指標即時值');
+    },
+
+    // ── 網格完整回測（P3）──
+    async runGridBacktest(request: GridBacktestRequest, signal?: AbortSignal): Promise<GridBacktestResponse> {
+        return requestJson('/v1/grid-backtest/run', {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify(request),
+            signal,
+        }, '無法執行網格回測');
+    },
+
+    async runGridStress(request: GridBacktestRequest, signal?: AbortSignal): Promise<GridBacktestStressResponse> {
+        return requestJson('/v1/grid-backtest/stress', {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify(request),
+            signal,
+        }, '無法執行壓力情境');
+    },
+
+    async runGridSweep(request: GridBacktestRequest, signal?: AbortSignal): Promise<GridBacktestSweepResponse> {
+        return requestJson('/v1/grid-backtest/sweep', {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify(request),
+            signal,
+        }, '無法執行參數掃描');
     },
 };
 

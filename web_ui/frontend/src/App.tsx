@@ -1,9 +1,10 @@
 import React, { lazy, Suspense, useState, useEffect } from 'react';
-import { Activity, Menu, PlusCircle, BarChart3, Trophy, X, LogOut, Terminal, Repeat, Wand2 } from 'lucide-react';
+import { Activity, Menu, PlusCircle, BarChart3, Trophy, X, LogOut, Terminal, Repeat, Wand2, Gauge } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import DcaDashboard from './components/DcaDashboard';
 import DcaForm from './components/DcaForm';
 import GridForm, { type InitialGridConfig } from './components/GridForm';
+import GridBacktestPage, { type GridBacktestInitialConfig } from './components/GridBacktestPage';
 import MarketRankings from './components/MarketRankings';
 import LoginPage from './components/LoginPage';
 import { api, type MarketRankingItem } from './services/api';
@@ -21,6 +22,7 @@ const App: React.FC = () => {
   });
 
   const [prefilledGridConfig, setPrefilledGridConfig] = useState<InitialGridConfig | null>(null);
+  const [prefilledBacktestConfig, setPrefilledBacktestConfig] = useState<GridBacktestInitialConfig | null>(null);
   const [hasToken, setHasToken] = useState(() => Boolean(getStoredToken()));
   const [authError, setAuthError] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -74,9 +76,12 @@ const App: React.FC = () => {
     setAuthError(message ?? null);
   };
 
-  const go = (tab: 'dashboard' | 'market' | 'configs' | 'dca' | 'dca-create') => {
+  const go = (tab: 'dashboard' | 'market' | 'configs' | 'dca' | 'dca-create' | 'grid-backtest') => {
     if (tab !== 'configs') {
       setPrefilledGridConfig(null);
+    }
+    if (tab !== 'grid-backtest') {
+      setPrefilledBacktestConfig(null);
     }
     navigate({ tab, gridId: null, dcaBotId: null });
     setDrawerOpen(false);
@@ -89,6 +94,22 @@ const App: React.FC = () => {
 
   const handleSelectDcaBot = (botId: string | null) => {
     navigate({ tab: 'dca', gridId: null, dcaBotId: botId });
+  };
+
+  const handleSelectMarketBacktest = (item: MarketRankingItem, _period: string) => {
+    void _period;
+    setPrefilledBacktestConfig({
+      symbol: item.symbol,
+      exchange: item.exchange,
+      lower_price: item.lower_price,
+      upper_price: item.upper_price,
+      grid_count: item.grid_count,
+      grid_interval: item.grid_interval,
+      recommended_order_amount: item.recommended_order_amount,
+      estimated_apr: item.estimated_apr,
+    });
+    navigate({ tab: 'grid-backtest', gridId: null, dcaBotId: null });
+    setDrawerOpen(false);
   };
 
   const handleSelectMarketSymbol = (item: MarketRankingItem, period: string) => {
@@ -186,6 +207,15 @@ const App: React.FC = () => {
           </button>
 
           <button
+            className={`btn ${activeTab === 'grid-backtest' ? 'active' : ''}`}
+            type="button"
+            onClick={() => go('grid-backtest')}
+          >
+            <Gauge size={17} />
+            <span>網格回測</span>
+          </button>
+
+          <button
             className={`btn ${activeTab === 'configs' ? 'active' : ''}`}
             type="button"
             onClick={() => go('configs')}
@@ -248,6 +278,15 @@ const App: React.FC = () => {
         {activeTab === 'market' && (
           <MarketRankings
             onSelectSymbol={handleSelectMarketSymbol}
+            onBacktest={handleSelectMarketBacktest}
+            onUnauthorized={() => lock('Token 無效或已過期，請重新登入。')}
+          />
+        )}
+
+        {activeTab === 'grid-backtest' && (
+          <GridBacktestPage
+            initialConfig={prefilledBacktestConfig}
+            onClearInitialConfig={() => setPrefilledBacktestConfig(null)}
             onUnauthorized={() => lock('Token 無效或已過期，請重新登入。')}
           />
         )}

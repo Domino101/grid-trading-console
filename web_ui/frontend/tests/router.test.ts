@@ -53,3 +53,9 @@ test('formatHash correctly formats route state into URL hash', () => {
   assert.equal(formatHash({ tab: 'detail', gridId: 'grid_100' }), '#/detail?id=grid_100');
   assert.equal(formatHash({ tab: 'detail', gridId: null }), '#/dashboard');
 });
+
+test('parseHash handles grid-backtest tab', () => {
+  assert.deepEqual(parseHash('#/grid-backtest'), { tab: 'grid-backtest', gridId: null, dcaBotId: null });
+  assert.deepEqual(parseHash('#grid-backtest'), { tab: 'grid-backtest', gridId: null, dcaBotId: null });
+  assert.equal(formatHash({ tab: 'grid-backtest' }), '#/grid-backtest');
+});

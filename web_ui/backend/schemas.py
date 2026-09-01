@@ -1063,3 +1063,160 @@ class SweepRequest(BaseModel):
     symbol: Optional[str] = Field(default=None, description="交易對符號")
 
 
+
+
+# ────────────────────────────────────────────────────────
+# 網格完整回測（P2）
+# ────────────────────────────────────────────────────────
+
+class GridBacktestRequest(BaseModel):
+    """POST /api/v1/grid-backtest/run 請求體。"""
+    exchange: str = Field(..., description="交易所名稱")
+    symbol: str = Field(..., description="交易對符號")
+    grid_type: str = Field(default="neutral", description="long / short / neutral")
+    lower_price: Optional[float] = Field(default=None, description="價格下限")
+    upper_price: Optional[float] = Field(default=None, description="價格上限")
+    grid_count: Optional[int] = Field(default=None, ge=2, le=120, description="網格數")
+    grid_interval: Optional[float] = Field(default=None, gt=0, description="網格間距（與 grid_count 二選一）")
+    per_grid_notional: Optional[float] = Field(default=None, gt=0, description="每格名目金額 (USDT)")
+    per_grid_capital_percent: Optional[float] = Field(default=None, gt=0, le=100, description="每格佔總資金百分比")
+    initial_capital: float = Field(..., gt=0, description="初始資金 (USDT)")
+    leverage: int = Field(default=10, ge=1, le=20, description="槓桿倍數")
+    fee_rate: Optional[float] = Field(default=None, gt=0, description="手續費率，未填用預設 0.0002")
+    maintenance_margin_rate: Optional[float] = Field(default=None, gt=0, description="維持保證金率，未填用預設 0.005")
+    timeframe: str = Field(default="1h", description="K 線時框 (1m/5m/15m/30m/1h/4h/1d)")
+    start_ts: Optional[int] = Field(default=None, description="開始時間 unix 秒 (UTC)")
+    end_ts: Optional[int] = Field(default=None, description="結束時間 unix 秒 (UTC)")
+    bars: Optional[int] = Field(default=None, ge=10, le=20000, description="回測棒數上限")
+    source: str = Field(default="manual", description="manual / market_ranking / existing_yaml")
+
+
+class GridBacktestAllocation(BaseModel):
+    order_amount: float
+    per_grid_notional: float
+    max_fillable_cells: int
+    required_capital: float
+    supplied_capital: float
+    insufficient_capital: bool
+    message: str
+
+
+class GridBacktestEquityPoint(BaseModel):
+    ts: int
+    equity: float
+    wallet_balance: float
+    position_quantity: float
+    average_cost: Optional[float] = None
+    unrealized_pnl: float = 0.0
+    margin_used: float = 0.0
+    maintenance_margin: float = 0.0
+    margin_ratio: Optional[float] = None
+    liquidation_price: Optional[float] = None
+    status: str = "open"
+
+
+class GridBacktestFillMark(BaseModel):
+    ts: int
+    price: float
+    side: str
+    quantity: float
+    notional: float
+    fee: float
+    kind: str
+    cell_index: int = 0
+    cycle_index: int = 0
+
+
+class GridBacktestCycleRecord(BaseModel):
+    index: int
+    direction: str
+    entry_ts: Optional[int] = None
+    exit_ts: Optional[int] = None
+    entry_price: Optional[float] = None
+    exit_price: Optional[float] = None
+    quantity: float = 0.0
+    realized_pnl: Optional[float] = None
+    realized_pct: Optional[float] = None
+    bars: int = 0
+    cell_index: int = 0
+
+
+class GridBacktestRiskMetrics(BaseModel):
+    max_drawdown_pct: float = 0.0
+    min_equity: Optional[float] = None
+    max_margin_used_pct: Optional[float] = None
+    liquidation_occurred: bool = False
+    liquidation_ts: Optional[int] = None
+    liquidation_price: Optional[float] = None
+    worst_margin_buffer: Optional[float] = None
+    worst_margin_buffer_ts: Optional[int] = None
+    additional_capital_required_now: Optional[float] = None
+    additional_capital_to_prevent_liquidation: Optional[float] = None
+
+
+class GridBacktestMetrics(BaseModel):
+    initial_capital: float
+    final_equity: float
+    total_return_pct: float
+    buy_hold_return_pct: float
+    alpha_pct: float
+    realized_pnl: float
+    total_fees: float
+    cycles_completed: int
+    win_rate_pct: Optional[float] = None
+    max_drawdown_pct: float
+    exposure_pct: float
+    profit_factor: Optional[float] = None
+
+
+class GridBacktestResult(BaseModel):
+    spec: Dict[str, Any]
+    bars: int
+    timeframe: str
+    first_ts: Optional[int] = None
+    last_ts: Optional[int] = None
+    metrics: GridBacktestMetrics
+    risk: GridBacktestRiskMetrics
+    allocation: GridBacktestAllocation
+    equity: List[GridBacktestEquityPoint] = Field(default_factory=list)
+    marks: List[GridBacktestFillMark] = Field(default_factory=list)
+    cycles: List[GridBacktestCycleRecord] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    data_status: str = "live"
+    source: str = "exchange"
+    skipped_margin_fills: int = 0
+    candles: List[KlineCandle] = Field(default_factory=list)
+
+
+class GridBacktestResponse(BaseModel):
+    result: GridBacktestResult
+
+
+class GridBacktestStressScenario(BaseModel):
+    movement_pct: float
+    liquidation_occurred: bool
+    liquidation_ts: Optional[int] = None
+    liquidation_price: Optional[float] = None
+    final_equity: float
+    min_equity: Optional[float] = None
+    additional_capital_to_prevent_liquidation: Optional[float] = None
+    max_drawdown_pct: Optional[float] = None
+
+
+class GridBacktestStressResponse(BaseModel):
+    start_price: float
+    scenarios: List[GridBacktestStressScenario]
+    warnings: List[str] = Field(default_factory=list)
+
+
+class GridBacktestSweepRun(BaseModel):
+    params: Dict[str, Any] = Field(..., description="本次掃描參數")
+    metrics: GridBacktestMetrics
+    risk: GridBacktestRiskMetrics
+    error: Optional[str] = None
+
+
+class GridBacktestSweepResponse(BaseModel):
+    runs: List[GridBacktestSweepRun] = Field(default_factory=list)
+    budget: Dict[str, Any] = Field(default_factory=dict)
+    warnings: List[str] = Field(default_factory=list)

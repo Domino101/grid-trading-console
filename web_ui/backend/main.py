@@ -34,6 +34,7 @@ from web_ui.backend.routes.dca import router as dca_router
 from web_ui.backend.routes.dashboard import router as dashboard_router
 from web_ui.backend.routes.commands import router as commands_router
 from web_ui.backend.routes.market import router as market_router
+from web_ui.backend.routes.grid_backtest import router as grid_backtest_router
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -155,6 +156,7 @@ app.include_router(dca_router)
 app.include_router(dashboard_router)
 app.include_router(commands_router)
 app.include_router(market_router)
+app.include_router(grid_backtest_router)
 
 async def monitor_processes():
     """Background task to monitor processes and update their status."""
