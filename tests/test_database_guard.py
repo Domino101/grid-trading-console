@@ -13,12 +13,12 @@ class TestEnvironmentGuard(unittest.TestCase):
         self.assertTrue(EnvironmentGuard.is_test_environment())
 
     def test_production_path_assertion_raises_error(self):
-        prod_path = "/root/grid-trading-console/data/web_ui_runtime.sqlite3"
+        prod_path = EnvironmentGuard.default_database_path()
         with self.assertRaises(ProductionDatabaseProtectionError):
             EnvironmentGuard.assert_safe_connection(prod_path)
 
     def test_production_path_auto_redirected_in_connect_sqlite(self):
-        prod_path = "/root/grid-trading-console/data/web_ui_runtime.sqlite3"
+        prod_path = EnvironmentGuard.default_database_path()
         conn = connect_sqlite(prod_path)
         self.assertIsNotNone(conn)
         # Verify it did not connect to the real production file

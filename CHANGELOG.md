@@ -14,6 +14,10 @@
   - 資金分配：支援「每格固定金額」與「每格佔總資金 %」；資金不足以掛滿格數時警示。
   - DCA 區域：統一入口支援單向做多 / 單向做空 / 雙向；指標入場（RSI / MACD / Bollinger / PriceChange）；來源為手動 draft 或既有 DCA bot；直接複用既有 `/api/v1/dca/backtest` 真實引擎與 `DcaBacktestPanel/Result`。
   - 見 `docs/grid_backtest_user_guide_zh-TW.md`、`docs/grid_backtest_audit_report_zh-TW.md`、`docs/grid_backtest_implementation_plan_zh-TW.md`。
+- **Agent 指導文件與 CI 適配（2026-09-01）**：
+  - `.agents/rules/README.md` 與 `AGENTS.md`：資料庫段落改為現況（SQLite 預設、`DATABASE_URL` PostgreSQL、Alembic `0001/0002`、既有 DB 不可 `alembic upgrade head`），服務重啟改為 repo-relative / systemd / PM2，測試改為 `scripts/ci.sh` 或 `unittest`。
+  - `.agents/skills/*`：修正 `db-migration` 表清單（`audit_log` 只在 `grid_audit.db`、`dca_klines` 在 runtime DB）、`code-quality`/`dashboard-enhancement`/`deployment-check`/`ssh-tunnel` 的硬編碼路徑與部署方式、`skill-creator` 的 Python/Web UI/adapter 元件清單、`test-generation`/`release-gate` 的測試命令與新回測回歸。
+  - `scripts/ci.sh`：納入既有 grid/DCA 回歸與新 grid backtest 測試模組。
   - `PositionTrackerImpl`：新增 `self.total_volume` 累計成交額 (USD) 指標，每筆成交即時累加 `filled_price * filled_amount`，重置時清零。
   - `GridStatistics` 與 `GridMetrics`：新增 `total_volume` 欄位並輸出至展示字典 `volume`。
   - `GridCoordinator`：重啟從持久化快照恢復時支援載入 `volume`；對舊版未帶 volume 的快照以歷史成交單數與配置金額進行基準平滑回補。

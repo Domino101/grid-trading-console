@@ -10,11 +10,14 @@ Whenever code or configuration affecting active runtime services (Web UI backend
      - Web UI backend: `lsof -i :8001` or `pgrep -fa "main.py"`
      - PM2 / Trading Engine: `pm2 list` or `pgrep -fa "run_multiple_grids.py"`
 2. **Clean Restart**:
-   - Web UI:
+   - Web UI (use repo-relative commands; `/root/...` is NOT this checkout):
      ```bash
      pkill -f "python.*main.py" || true
      sleep 1
-     cd web_ui/backend && nohup /root/grid-trading-console/venv/bin/python3 main.py > ../../logs/web_ui.log 2>&1 &
+     cd "$(git rev-parse --show-toplevel)"   # project root
+     cd web_ui/backend && python main.py > ../../logs/web_ui.log 2>&1 &
+     # local convenience: bash start_web_ui.sh
+     # production: systemctl restart crypto-webui
      ```
    - Frontend SPA (if UI files changed):
      ```bash

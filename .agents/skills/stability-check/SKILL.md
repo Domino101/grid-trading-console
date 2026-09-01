@@ -8,7 +8,7 @@ description: "Stability, performance bottleneck, and resource monitoring checks 
 This skill provides guidelines and tools for monitoring the resource footprint of grid-trading-console to detect memory leaks, thread leaks, high CPU load, or IDE/server slowness.
 
 ## When to Activate
-- When running stability tests or verifying long-running bot instances (`run_multiple_grids.py`, `run_grid_trading.py`, `run_volume_maker.py`, `start_web_ui.sh`)
+- When running stability tests or verifying long-running bot instances (`run_multiple_grids.py`, `run_grid_trading.py`, `run_volume_maker.py`, `start_web_ui.sh` (local) / `systemctl restart crypto-webui` (production))
 - Inspecting system load, CPU/RAM usage, or memory leaks
 - Troubleshooting IDE server lag, high untracked file counts, or high CPU utilization
 

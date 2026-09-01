@@ -9,10 +9,11 @@ These rules are automatically applied by the AI agent when working in this proje
 - Before declaring any trade-related task complete, verify position tracking, order states, and error handling
 
 ## rule-02-code-structure
-- New trading services and strategies go in `core/services/` (e.g. `grid/`, `volume_maker/`, `arbitrage_monitor/`, `price_alert/`)
+- New trading services and strategies go in `core/services/` (e.g. `grid/`, `dca/`, `volume_maker/`, `arbitrage_monitor/`, `price_alert/`, and `*/backtest/` for backtest logic)
 - Exchange-specific adapters go in `core/adapters/exchanges/adapters/` (e.g. `binance.py`, `okx.py`, `hyperliquid.py`, `lighter.py`, `edgex.py`, `backpack.py`, `o1exchange.py`, `paper.py`)
-- Web UI backend is FastAPI (`web_ui/backend/main.py` on port 8001), frontend is React 19 SPA (`web_ui/frontend/`)
+- Web UI backend is FastAPI (`web_ui/backend/main.py` on port 8001; routes under `web_ui/backend/routes/`), frontend is React 19 SPA (`web_ui/frontend/`)
 - Configuration goes in `config/` or environment variables in `.env` — never hardcoded credentials
+- Grid/DCA runtime state uses the relational ledger (SQLite `data/web_ui_runtime.sqlite3` or PostgreSQL via `DATABASE_URL`); operator audit uses `data/grid_audit.db`
 
 ## rule-03-logging
 - Use `logging` module — NEVER `print()` for any runtime output in core services
@@ -20,12 +21,15 @@ These rules are automatically applied by the AI agent when working in this proje
 - All log messages include: timestamp, service_name, exchange, symbol, action, result
 
 ## rule-04-database
-- Database connections (SQLite `data/web_ui_runtime.sqlite3` and `data/grid_audit.db`) MUST use parameterized queries — no string concatenation
-- Schema changes require backup → dry run → execute → verify workflow
+- Default is SQLite `data/web_ui_runtime.sqlite3` (canonical ledger: `bots/trade_fills/bot_positions/bot_snapshots/bot_events/...`) + `data/grid_audit.db` (operator audit). `DATABASE_URL` switches the ledger store to PostgreSQL (Phase 2); Redis is an optional ephemeral cache/event/leader layer.
+- All database queries (SQLite or PostgreSQL) MUST use parameterized queries — no string concatenation.
+- Schema is owned by SQLAlchemy (`core/infrastructure/database/ledger_store.py`) and Alembic (`migrations/versions/`. **Existing SQLite DB: NEVER run `alembic upgrade head`**; run `DatabaseMigrator.migrate()` for legacy-json backfill. Alembic only for a fresh DB (usually fresh PostgreSQL).
+- Schema changes require backup → dry run → execute → verify workflow.
 
 ## rule-05-restart-after-changes
 - After any change under `core/`, `web_ui/`, `run_*.py`, `config/`, or `requirements.txt`, ALWAYS remind the user that a service restart is required for the change to take effect — do not assume hot-reload.
-- State the exact restart command at the end of the response (e.g. `python3 run_grid_trading.py`, `bash start_web_ui.sh`, or `pm2 restart ecosystem.config.js`), and list which file(s) triggered the requirement.
+- State the exact restart command at the end of the response (e.g. `python3 run_multiple_grids.py`, `cd web_ui/backend && python main.py`, `bash start_web_ui.sh` (local only), or `pm2 restart ecosystem.config.js` / `systemctl restart crypto-webui` (production)), and list which file(s) triggered the requirement.
+- Use repo-relative commands or `$PROJECT_ROOT`; never hardcode an absolute path like `/root/grid-trading-console/...`.
 - Edits that do NOT require restart: files under `tests/`, `docs/`, `.agents/`, top-level `*.md` reports, and `tools/` one-off scripts.
 
 ## rule-06-bot-audit
@@ -67,7 +71,8 @@ Non-trivial logic (a branch, a loop, a parser, a money/security path) leaves ONE
 - `main` branch MUST remain stable, 100% test-passing, and deploy-ready at all times.
 - NEVER develop directly on `main` for non-trivial features, refactoring, or structural audits.
 - All work MUST occur on topic branches (`arena/<topic>` or `feature/<topic>`).
-- Before merging any branch into `main`, verify unit tests pass (`python3 -m pytest`).
+- Before merging any branch into `main`, verify unit tests pass (`./scripts/ci.sh`; Python uses `python3 -m unittest ...` or `python3 -m pytest`).
 - Merges to `main` SHOULD use `--no-ff` (`git merge --no-ff <branch>`) to maintain a clean release graph.
+- When a feature touches DB/API/trading state, also update `.agents/` guidance + `README.md`/`CHANGELOG.md` in the same change set so agent instructions stay accurate.
 
 
