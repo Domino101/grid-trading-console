@@ -133,6 +133,7 @@ class GridStatistics:
     # 包含字段与cycle_apr_formula_data相同
 
     # 🆕 三柱收益與虛擬持倉隔離指標
+    total_volume: Decimal = Decimal('0')       # 累計成交額 (USD)
     grid_profit: Decimal = Decimal('0')        # 網格套利利潤（真實配對已實現毛利）
     grid_position: Decimal = Decimal('0')      # 網格自身虛擬持倉（排除手動干預）
     grid_average_cost: Decimal = Decimal('0')  # 網格自身持倉均價
@@ -165,6 +166,7 @@ class GridStatistics:
                 'sell': self.filled_sell_count,
                 'cycles': self.completed_cycles
             },
+            'volume': float(self.total_volume),
             'profit': {
                 'grid_profit': float(self.grid_profit),
                 'realized': float(self.realized_profit),

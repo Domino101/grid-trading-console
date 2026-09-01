@@ -539,6 +539,15 @@ class GridCoordinator:
                 # 讀取網格真實套利毛利（忠實使用快照記錄，不進行理論乘法估算）
                 grid_profit = Decimal(str(profit.get("grid_profit", profit.get("realized", 0)) or 0))
                 order_amt = getattr(self.config, 'order_amount', Decimal('0')) or Decimal('0')
+                vol_raw = matched.get("volume")
+                if vol_raw is not None and Decimal(str(vol_raw)) > 0:
+                    recovered_volume = Decimal(str(vol_raw))
+                elif (buy_c + sell_c) > 0 and order_amt > 0:
+                    # 歷史快照升級過渡補償：若舊快照無 volume 欄位，以歷史總成交單數估算基準成交額
+                    ref_price = Decimal(str(matched.get("current_price") or matched.get("average_cost") or 0))
+                    recovered_volume = Decimal(str(buy_c + sell_c)) * order_amt * ref_price
+                else:
+                    recovered_volume = Decimal('0')
 
                 # 判斷手續費率 (優先檢測配置與交易對規則，避免恢復歷史錯誤手續費)
                 fee_rate = getattr(self.config, 'fee_rate', None)
@@ -568,6 +577,7 @@ class GridCoordinator:
                     self.tracker.grid_profit = grid_profit
                     self.tracker.realized_pnl = grid_profit
                     self.tracker.total_fees = fees
+                    self.tracker.total_volume = recovered_volume
                     self.tracker.sync_recovered_position(saved_pos, saved_avg_cost)
 
                 self.state.filled_buy_count = buy_c
@@ -578,7 +588,7 @@ class GridCoordinator:
                 self.state.current_position = saved_pos
                 self.logger.info(
                     f"🔄 已從持久化快照恢復歷史累計數據: 買單={buy_c}, 賣單={sell_c}, "
-                    f"套利循環={cycles}格, 套利毛利={grid_profit}, 網格持倉={saved_pos}, 手續費={fees}"
+                    f"套利循環={cycles}格, 套利毛利={grid_profit}, 成交額={recovered_volume}, 網格持倉={saved_pos}, 手續費={fees}"
                 )
         except Exception as e:
             self.logger.warning(f"恢復歷史網格數據略過或失敗: {e}", exc_info=True)

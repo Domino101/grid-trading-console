@@ -7,7 +7,22 @@
 
 ## [Unreleased]
 
+### Added
+- **網格累計成交額統計與歷史快照無損還原 (Grid Total Volume Tracking & Recovery)**：
+  - `PositionTrackerImpl`：新增 `self.total_volume` 累計成交額 (USD) 指標，每筆成交即時累加 `filled_price * filled_amount`，重置時清零。
+  - `GridStatistics` 與 `GridMetrics`：新增 `total_volume` 欄位並輸出至展示字典 `volume`。
+  - `GridCoordinator`：重啟從持久化快照恢復時支援載入 `volume`；對舊版未帶 volume 的快照以歷史成交單數與配置金額進行基準平滑回補。
+  - `run_multiple_grids.py`：多網格心跳狀態回傳即時注入 `volume` 指標。
+
+### Changed
+- **系統併發與安全閾值擴容 (Concurrency Limit Expansion)**：
+  - `SafetyGuard` (`web_ui/backend/safety_guard.py`)：將最大同時運行網格策略數 `MAX_CONCURRENT_GRIDS` 提升至 10，合併最大策略上限 `MAX_CONCURRENT_COMBINED_BOTS` 提升至 20。
+  - `BinanceRest`：節流閥 `_throttle_max_calls` 上限由 3 提升至 5，增強多機器人並行時的 REST API 吞吐能力。
+
 ### Fixed
+- **環境防線路徑匹配與協調器類型安全加固**：
+  - `EnvironmentGuard` (`core/infrastructure/database/guard.py`)：修正生產資料庫路徑判定，嚴格錨定專案根目錄 `data/`，避免外部任意路徑包含 `/data/` 引起誤判。
+  - `DcaCoordinator` (`core/services/dca/coordinator/dca_coordinator.py`)：修復 `load_by_bot_id` 回傳值 tuple 解構安全性防護。
 - **線上既有庫平滑導入修正（2026-08-31，`docs/live_upgrade_playbook_zh-TW.md` 診斷沙箱實證）**：
   - `DatabaseMigrator` 遷移後補寫 `bot_snapshots`（原只回補 bots/trade_fills/bot_positions，P1-2 穩定 bot_id 恢復主路徑在遷移後首次重啟會落空、被迫走 legacy 啟發式）；僅在無既有快照時寫入，重跑冪等。
   - `DatabaseMigrator` 與 `RuntimeSnapshotRepository.save()` 的 `completed_cycles` 回補新增 `filled_orders.cycles` 來源（舊版 grid 快照無 top-level `cycles`，原實作遷移後 grid 持倉投影恆為 0）。

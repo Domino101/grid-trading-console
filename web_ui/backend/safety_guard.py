@@ -19,9 +19,9 @@ logger = logging.getLogger("GridAPI.Safety")
 # 常數
 # ────────────────────────────────────────────────────────
 
-MAX_CONCURRENT_GRIDS = 5
+MAX_CONCURRENT_GRIDS = 10
 MAX_CONCURRENT_DCA_BOTS = 5
-MAX_CONCURRENT_COMBINED_BOTS = 10
+MAX_CONCURRENT_COMBINED_BOTS = 20
 ENGINE_PID_FILE = "/tmp/grid_multiple_runners.pid"
 
 

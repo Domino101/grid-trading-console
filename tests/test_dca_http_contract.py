@@ -284,17 +284,17 @@ class DcaHttpContractTests(unittest.TestCase):
         os.makedirs(os.path.join(self.temp_dir.name, "config", "grid"), exist_ok=True)
         os.makedirs(os.path.join(self.temp_dir.name, "config", "dca"), exist_ok=True)
         with open(os.path.join(self.temp_dir.name, "config", "active_grids.json"), "w", encoding="utf-8") as handle:
-            json.dump({f"config/grid/g{i}.yaml": True for i in range(6)}, handle)
+            json.dump({f"config/grid/g{i}.yaml": True for i in range(12)}, handle)
         with open(os.path.join(self.temp_dir.name, "config", "active_dca.json"), "w", encoding="utf-8") as handle:
-            json.dump({f"config/dca/d{i}.yaml": True for i in range(5)}, handle)
+            json.dump({f"config/dca/d{i}.yaml": True for i in range(9)}, handle)
         guard = SafetyGuard(self.temp_dir.name)
         ok, message = guard.check_max_combined_bots()
         self.assertFalse(ok)
-        self.assertIn("11", message)
+        self.assertIn("21", message)
 
         class BlockingGuard(PaperDcaGuard):
             def check_can_create_dca(self):
-                return False, "已達最大同時運行策略數 (6 網格 + 5 DCA = 11/10)"
+                return False, "已達最大同時運行策略數 (12 網格 + 9 DCA = 21/20)"
 
         self.dca_route.SafetyGuard = BlockingGuard
         response = self._create(auto_start=True)

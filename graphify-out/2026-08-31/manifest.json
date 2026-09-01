@@ -975,13 +975,13 @@
     "semantic_hash": "651054b19ba250aed932f15cba786aed"
   },
   "tests/test_hermes_api.py": {
-    "mtime": 1788112345.7059731,
-    "ast_hash": "b40d59750d2d627bd0d1283d3b46745e",
+    "mtime": 1788149477.1751227,
+    "ast_hash": "fee979df61bf1da460f57ff297c8ceeb",
     "semantic_hash": ""
   },
   "tests/test_hermes_client.py": {
-    "mtime": 1788112345.706973,
-    "ast_hash": "d59d9f252b37e1f604297218bafae1b4",
+    "mtime": 1788149481.1261227,
+    "ast_hash": "68a0c6edc0e16f23ea52c35be005684d",
     "semantic_hash": ""
   },
   "tests/test_o1exchange.py": {

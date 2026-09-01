@@ -46,7 +46,7 @@ class BinanceRest(BinanceBase):
     #   記憶體 ~200 bytes（deque 最多 3 個 float + Lock + 計數器）
     #   CPU < 10μs/call（比較 3 個時間戳）
     # ---------------------------------------------------------------------------
-    _throttle_max_calls: int = 3
+    _throttle_max_calls: int = 5
     _throttle_window_sec: float = 5.0
     _throttle_timestamps: collections.deque = collections.deque()
     _throttle_lock: Optional[asyncio.Lock] = None

@@ -122,6 +122,8 @@ class TestCoordinatorStatsAndFills(unittest.TestCase):
         self.assertEqual(self.tracker.completed_cycles, 1)
         # Realized PnL should be positive for completed neutral grid cycle
         self.assertGreater(self.tracker.realized_pnl, Decimal("0"))
+        # Volume should be cumulative buy volume + sell volume: 1840*0.01 + 1860*0.01 = 37.00
+        self.assertEqual(self.tracker.total_volume, Decimal("37.00"))
 
     def test_get_statistics_injects_balance_and_pending_orders(self):
         """Verify get_statistics populates non-zero balance and pending counts from engine and balance monitor."""
@@ -145,6 +147,7 @@ class TestCoordinatorStatsAndFills(unittest.TestCase):
         display = stats.to_display_dict()
         self.assertEqual(display["balance"]["total"], 550.0)
         self.assertEqual(display["pending_orders"]["total"], 2)
+        self.assertIn("volume", display)
 
 
 if __name__ == "__main__":

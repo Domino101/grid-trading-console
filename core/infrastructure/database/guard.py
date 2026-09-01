@@ -53,8 +53,9 @@ class EnvironmentGuard:
         normalized = os.path.abspath(path).replace("\\", "/")
         filename = os.path.basename(normalized)
         if filename in cls.PROD_DB_FILENAMES:
-            # Check if it resides in the data directory or repo workspace
-            if "/data/" in normalized or normalized.endswith(f"/data/{filename}"):
+            root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../")).replace("\\", "/")
+            prod_data_dir = f"{root}/data"
+            if normalized.startswith(prod_data_dir + "/") or normalized == f"{prod_data_dir}/{filename}":
                 return True
         return False
 

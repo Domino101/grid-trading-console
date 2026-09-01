@@ -151,6 +151,7 @@ logs/
 out.txt
 .DS_Store
 data/
+backup_*/
 config/active_grids.json
 config/active_dca.json
 config/grid/archived/
