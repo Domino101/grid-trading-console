@@ -63,7 +63,9 @@ TEST_MODULES=(
   tests.services.dca.test_dca_snapshot_recovery
 )
 
-python -m unittest "${TEST_MODULES[@]}"
+PYTHON="${PYTHON_BIN:-$(command -v python3 || command -v python)}"
+
+"$PYTHON" -m unittest "${TEST_MODULES[@]}"
 
 # ── Optional PostgreSQL leg (Phase 2 Gate: rerun the suite against PG). ────
 # Enable with e.g. PG_TEST_URL=postgresql://grid:grid@localhost:5432/grid_test
@@ -74,7 +76,7 @@ if [[ -n "${PG_TEST_URL:-}" ]]; then
   echo "== PostgreSQL leg: ${PG_TEST_URL%%\?*} =="
   # TEST_PG_URL enables the live-PG factory/isolation regressions inside
   # tests.test_phase2_ledger_orchestration (TestPhase2PostgresFactory).
-  GRID_ENV=test DATABASE_URL="$PG_TEST_URL" TEST_PG_URL="$PG_TEST_URL" python -m unittest "${TEST_MODULES[@]}"
+  GRID_ENV=test DATABASE_URL="$PG_TEST_URL" TEST_PG_URL="$PG_TEST_URL" "$PYTHON" -m unittest "${TEST_MODULES[@]}"
 fi
 
 if [[ "${SKIP_FRONTEND:-}" == "1" ]]; then

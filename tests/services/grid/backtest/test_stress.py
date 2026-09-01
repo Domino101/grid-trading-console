@@ -56,6 +56,20 @@ class StressTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             run_stress(_spec(), [])
 
+    def test_stress_handles_candle_objects(self):
+        class DummyCandle:
+            def __init__(self, ts, o, h, l, c, v):
+                self.ts = ts
+                self.open = o
+                self.high = h
+                self.low = l
+                self.close = c
+                self.volume = v
+
+        candles = [DummyCandle(100 + i * 60, 150, 151, 149, 150, 1) for i in range(10)]
+        result = run_stress(_spec(), candles, movements=(15.0,))
+        self.assertEqual(len(result["scenarios"]), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

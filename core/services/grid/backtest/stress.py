@@ -44,6 +44,17 @@ def _normalize_candles(candles: Sequence[Any]) -> List[Dict[str, Any]]:
                 "close": float(c[4]),
                 "volume": float(c[5] if len(c) > 5 else 0),
             })
+        elif hasattr(c, "close"):
+            dt = getattr(c, "timestamp", None)
+            ts = int(dt.timestamp()) if hasattr(dt, "timestamp") else int(getattr(c, "ts", 0))
+            out.append({
+                "ts": ts,
+                "open": float(getattr(c, "open", 0)),
+                "high": float(getattr(c, "high", 0)),
+                "low": float(getattr(c, "low", 0)),
+                "close": float(getattr(c, "close", 0)),
+                "volume": float(getattr(c, "volume", 0)),
+            })
     return out
 
 
