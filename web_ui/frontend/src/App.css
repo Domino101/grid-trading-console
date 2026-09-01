@@ -2866,3 +2866,39 @@
     min-width: 0;
   }
 }
+
+/* ── 網格完整回測（P3）── */
+.backtest-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 100px;
+}
+.backtest-field > span {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+.backtest-field input,
+.backtest-field select {
+  min-width: 96px;
+  padding: 0.42rem 0.55rem;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+}
+.backtest-field input:focus,
+.backtest-field select:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+.notice-success {
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+.notice-info {
+  background: rgba(6, 182, 212, 0.10);
+  border: 1px solid rgba(6, 182, 212, 0.25);
+}

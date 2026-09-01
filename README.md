@@ -126,4 +126,7 @@ cd web_ui/frontend && npm test && npm run lint && npm run build
 - DCA 圖表與回測實作計畫：`docs/dca_chart_backtest_plan_zh-TW.md`
 - DCA 圖表與回測使用手冊：`docs/dca_chart_backtest_user_guide_zh-TW.md`
 - DCA 圖表與回測最終稽核報告：`docs/dca_chart_backtest_audit_report_zh-TW.md`
+- 網格/DCA 回測實作計畫：`docs/grid_backtest_implementation_plan_zh-TW.md`
+- 網格/DCA 回測使用手冊：`docs/grid_backtest_user_guide_zh-TW.md`
+- 網格/DCA 回測稽核報告：`docs/grid_backtest_audit_report_zh-TW.md`
 - 變更紀錄：`CHANGELOG.md`
