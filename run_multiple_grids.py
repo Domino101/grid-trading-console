@@ -247,18 +247,21 @@ class ExchangeAdapterPool:
         if is_dca:
             section = data["dca"]
             exchange = str(section.get("exchange") or "").lower()
+            symbol = str(section.get("symbol") or "").lower()
             if not exchange:
                 raise ValueError(f"{config_path} 缺少 dca.exchange")
             mode = dca_account_mode_from_yaml(data)
-            # 同一交易所的網格與 DCA 共用同一個 adapter（稽核 3.16），
-            # 避免第二套 WS 連線與限速器。
-            key = f"paper:{exchange}" if mode == "paper" else f"live:{exchange}"
+            # 同一交易所的 live 網格與 DCA 共用 adapter（避免多重連線與限速），
+            # 但 paper 模式下依幣種隔離 adapter，避免模擬盤虛擬持倉互相踩踏。
+            key = f"paper:{exchange}:{symbol}" if mode == "paper" else f"live:{exchange}"
         else:
-            exchange = str((data.get("grid_system") or {}).get("exchange") or "").lower()
+            grid_system = data.get("grid_system") or {}
+            exchange = str(grid_system.get("exchange") or "").lower()
+            symbol = str(grid_system.get("symbol") or "").lower()
             if not exchange:
                 raise ValueError(f"{config_path} 缺少 grid_system.exchange")
             mode = account_mode_from_yaml(data)
-            key = f"paper:{exchange}" if mode == "paper" else f"live:{exchange}"
+            key = f"paper:{exchange}:{symbol}" if mode == "paper" else f"live:{exchange}"
         async with self._lock:
             if key not in self._adapters:
                 self._adapters[key] = await create_exchange_adapter(
@@ -444,6 +447,8 @@ async def run_single_grid_task(config_path: str, adapter_pool, logger, running_g
                             },
                         }
                     stats_dict["symbol"] = grid_config.symbol
+                    stats_dict["bot_id"] = grid_bot_id
+                    stats_dict["account_mode"] = _config_account_mode(config_path)
                     stats_dict["source"] = "engine_runtime"
                     try:
                         pending = engine.get_pending_orders()

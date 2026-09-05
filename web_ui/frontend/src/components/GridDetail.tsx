@@ -7,6 +7,8 @@ import {
   Layers,
   Sliders,
   Clock,
+  Play,
+  Square,
 } from 'lucide-react';
 import {
   Area,
@@ -50,7 +52,50 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
   const [rangeHours, setRangeHours] = useState(24);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  const handleStart = async () => {
+    if (item?.start_blocked_reason) {
+      setActionError(item.start_blocked_reason);
+      return;
+    }
+    setActionLoading(true);
+    setActionError(null);
+    try {
+      await api.startGrid(gridId, 'detail');
+      await load();
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.isUnauthorized) {
+        onUnauthorized();
+        return;
+      }
+      setActionError(caught instanceof Error ? caught.message : '啟動策略失敗');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleStop = async () => {
+    if (!window.confirm(`確定要停止策略 ${grid?.symbol ?? gridId} 嗎？`)) {
+      return;
+    }
+    setActionLoading(true);
+    setActionError(null);
+    try {
+      await api.stopGrid(gridId, 'detail');
+      await load();
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.isUnauthorized) {
+        onUnauthorized();
+        return;
+      }
+      setActionError(caught instanceof Error ? caught.message : '停止策略失敗');
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   const load = useCallback(async () => {
     abortRef.current?.abort();
@@ -98,8 +143,17 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
     };
   }, [load]);
 
-  const netPnl = item?.net_pnl;
-  const isPositive = netPnl != null && netPnl >= 0;
+  const grossProfit = item?.grid_profit ?? item?.realized_pnl ?? 0;
+  const unrealized = item?.unrealized_pnl ?? 0;
+  const fees = item?.fees ?? 0;
+  const totalPnl = (item?.total_pnl !== null && item?.total_pnl !== undefined)
+    ? item.total_pnl
+    : (grossProfit + unrealized);
+  const calculatedNetPnl = totalPnl - fees;
+  const netPnl = (item?.net_pnl !== null && item?.net_pnl !== undefined && !(item?.net_pnl === 0 && calculatedNetPnl !== 0))
+    ? item.net_pnl
+    : calculatedNetPnl;
+  const isPositiveTotal = totalPnl != null && totalPnl >= 0;
 
   return (
     <main className="dashboard grid-detail">
@@ -135,23 +189,54 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
           </div>
         </div>
 
-        <button className="btn btn-outline" type="button" onClick={() => void load()} disabled={loading}>
-          <RefreshCcw size={14} className={loading ? 'spin' : ''} />
-          <span>{loading ? '更新中…' : '重新整理'}</span>
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          {item && (item.status === 'stopped' || item.status === 'created' || item.status === 'failed') && (
+            <button
+              className="btn btn-primary"
+              type="button"
+              onClick={() => void handleStart()}
+              disabled={actionLoading || Boolean(item.start_blocked_reason)}
+              title={item.start_blocked_reason ?? '啟動策略'}
+            >
+              <Play size={14} />
+              <span>{actionLoading ? '處理中…' : '啟動策略'}</span>
+            </button>
+          )}
+
+          {item && (item.status === 'running' || item.status === 'starting') && (
+            <button
+              className="btn btn-danger"
+              type="button"
+              onClick={() => void handleStop()}
+              disabled={actionLoading}
+              title="停止策略"
+            >
+              <Square size={14} />
+              <span>{actionLoading ? '處理中…' : '停止策略'}</span>
+            </button>
+          )}
+
+          <button className="btn btn-outline" type="button" onClick={() => void load()} disabled={loading}>
+            <RefreshCcw size={14} className={loading ? 'spin' : ''} />
+            <span>{loading ? '更新中…' : '重新整理'}</span>
+          </button>
+        </div>
       </header>
 
+      {actionError && <div className="notice notice-error" role="alert">{actionError}</div>}
       {error && <div className="notice notice-error" role="alert">{error}</div>}
       {item?.start_blocked_reason && <div className="notice notice-warning" role="status">{item.start_blocked_reason}</div>}
 
       {/* Mini KPI Bar */}
       <section className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
         <article className="kpi-card" style={{ minHeight: 'auto', padding: '1rem' }}>
-          <span className="text-secondary" style={{ fontSize: '0.75rem' }}>策略純淨收益 (Pure Net PnL)</span>
-          <strong className={`font-mono ${netPnl === null ? '' : isPositive ? 'positive' : 'negative'}`} style={{ fontSize: '1.4rem' }}>
-            {money(netPnl)}
+          <span className="text-secondary" style={{ fontSize: '0.75rem' }}>策略總收益 (Total PnL)</span>
+          <strong className={`font-mono ${totalPnl === null ? '' : isPositiveTotal ? 'positive' : 'negative'}`} style={{ fontSize: '1.4rem' }}>
+            {money(totalPnl)}
           </strong>
-          <small className="font-mono">毛利: {money(item?.grid_profit ?? item?.realized_pnl)} · 浮動: {money(item?.unrealized_pnl)}</small>
+          <small className="font-mono">
+            毛利: {money(grossProfit)} · 浮動: {money(unrealized)} · 手續費: {money(fees)} (純淨: {money(netPnl)})
+          </small>
         </article>
 
         <article className="kpi-card" style={{ minHeight: 'auto', padding: '1rem' }}>
@@ -234,8 +319,8 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
         <section className="glass-panel chart-card" style={{ padding: '1.25rem' }}>
           <div className="chart-heading">
             <div>
-              <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>淨盈虧歷史走勢</h3>
-              <p className="muted">即時記錄策略淨盈虧快照走勢與回撤變化</p>
+              <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>策略收益歷史走勢</h3>
+              <p className="muted">展示策略總收益（毛利 + 浮動）與扣除手續費後的純淨收益走勢</p>
             </div>
             <div className="range-tabs" aria-label="查詢時段">
               {[24, 168].map((hours) => (
@@ -259,20 +344,32 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
             <div className="history-chart-wrapper">
               <ResponsiveContainer width="100%" height={280}>
                 <AreaChart
-                  data={history.map((point) => ({
-                    ...point,
-                    time: new Date(point.recorded_at * 1000).toLocaleTimeString('zh-TW', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      hour12: false,
-                    }),
-                  }))}
+                  data={history.map((point) => {
+                    const tPnl = point.total_pnl ?? ((point.realized_pnl ?? 0) + (point.unrealized_pnl ?? 0));
+                    const nPnl = point.net_pnl ?? (tPnl - (point.fees ?? 0));
+                    return {
+                      ...point,
+                      total_pnl: tPnl,
+                      net_pnl: nPnl,
+                      time: rangeHours > 24
+                        ? new Date(point.recorded_at * 1000).toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit' })
+                        : new Date(point.recorded_at * 1000).toLocaleTimeString('zh-TW', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            hour12: false,
+                          }),
+                    };
+                  })}
                   margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
                 >
                   <defs>
-                    <linearGradient id="pnlGradient" x1="0" y1="0" x2="0" y2="1">
+                    <linearGradient id="totalPnlGradient" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="var(--trading-green)" stopOpacity={0.4} />
                       <stop offset="95%" stopColor="var(--trading-green)" stopOpacity={0.0} />
+                    </linearGradient>
+                    <linearGradient id="netPnlGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.25} />
+                      <stop offset="95%" stopColor="#38bdf8" stopOpacity={0.0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
@@ -289,12 +386,23 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
                   />
                   <Area
                     type="monotone"
-                    dataKey="net_pnl"
-                    name="淨盈虧"
+                    dataKey="total_pnl"
+                    name="總收益 (Total PnL)"
                     stroke="var(--trading-green)"
                     strokeWidth={2}
                     fillOpacity={1}
-                    fill="url(#pnlGradient)"
+                    fill="url(#totalPnlGradient)"
+                    connectNulls
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="net_pnl"
+                    name="純淨收益 (Net PnL)"
+                    stroke="#38bdf8"
+                    strokeWidth={1.5}
+                    strokeDasharray="4 4"
+                    fillOpacity={1}
+                    fill="url(#netPnlGradient)"
                     connectNulls
                   />
                 </AreaChart>
@@ -366,6 +474,7 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
                     <th>方向 (Side)</th>
                     <th>成交價格 (Price)</th>
                     <th>成交量 (Amount)</th>
+                    <th>實現盈虧 (PnL)</th>
                     <th>手續費 (Fee)</th>
                     <th>成交時間 (Time)</th>
                   </tr>
@@ -373,6 +482,7 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
                 <tbody>
                   {fills.fills.map((row, idx) => {
                     const isBuy = row.side?.toLowerCase() === 'buy';
+                    const hasProfit = row.profit != null && row.profit !== 0;
                     return (
                       <tr key={`${row.side}-${row.price}-${idx}`}>
                         <td>
@@ -384,6 +494,15 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
                           {number(row.price)}
                         </td>
                         <td className="font-mono">{number(row.amount, 6)}</td>
+                        <td className="font-mono">
+                          {hasProfit ? (
+                            <span className={row.profit! >= 0 ? 'positive' : 'negative'}>
+                              {money(row.profit, 4)}
+                            </span>
+                          ) : (
+                            <span className="text-muted">—</span>
+                          )}
+                        </td>
                         <td className="font-mono text-muted">{money(row.fee, 4)}</td>
                         <td className="font-mono text-muted">{row.time != null ? String(row.time) : '—'}</td>
                       </tr>

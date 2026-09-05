@@ -451,3 +451,107 @@ def test_fallback_profit_inflation_is_eliminated():
     assert stats.grid_profit == Decimal("0")
 
 
+def test_neutral_grid_oscillating_profit_matching():
+    """驗證中性網格在價格反覆震盪與滑動窗口回踩時，格位感知撮合能正確獲利而非錯誤產生負數毛利。"""
+    config = GridConfig(
+        exchange="binance",
+        symbol="SOL/USDC:USDC",
+        grid_type=GridType.NEUTRAL,
+        lower_price=Decimal("80.0"),
+        upper_price=Decimal("120.0"),
+        grid_interval=Decimal("1.0"),
+        order_amount=Decimal("0.05"),
+        fee_rate=Decimal("0.0")
+    )
+    state = GridState()
+    tracker = PositionTrackerImpl(config, state)
+    now = datetime.now()
+
+    # 1. 價格從 100 上漲，依序在 101, 102, 103 賣出開空
+    for grid_id, price in [(51, Decimal("101.0")), (52, Decimal("102.0")), (53, Decimal("103.0"))]:
+        sell = GridOrder(
+            order_id=f"sell_{grid_id}",
+            grid_id=grid_id,
+            side=GridOrderSide.SELL,
+            price=price,
+            amount=Decimal("0.05"),
+            filled_price=price,
+            filled_amount=Decimal("0.05"),
+            status=GridOrderStatus.FILLED,
+            created_at=now,
+            filled_at=now
+        )
+        tracker.record_filled_order(sell)
+
+    assert tracker.sell_count == 3
+    assert tracker.buy_count == 0
+    assert tracker.completed_cycles == 0
+    assert tracker.grid_profit == Decimal("0")
+    assert tracker.virtual_position == Decimal("-0.15")
+
+    # 2. 價格從 103 回踩至 102，買入 0.05 @ 102（平 103 賣單）
+    buy_102 = GridOrder(
+        order_id="buy_52",
+        grid_id=52,
+        side=GridOrderSide.BUY,
+        price=Decimal("102.0"),
+        amount=Decimal("0.05"),
+        filled_price=Decimal("102.0"),
+        filled_amount=Decimal("0.05"),
+        status=GridOrderStatus.FILLED,
+        created_at=now,
+        filled_at=now
+    )
+    tracker.record_filled_order(buy_102)
+
+    # 必須撮合 103.0 賣單：獲利 = (103 - 102) * 0.05 = 0.05 USDC
+    # 絕不可撮合最舊的 101.0 賣單（那樣會導致 -0.05 虧損）
+    assert tracker.completed_cycles == 1
+    assert tracker.loss_cycles == 0
+    assert tracker.grid_profit == Decimal("0.05")
+    assert tracker.virtual_position == Decimal("-0.10")
+
+    # 3. 價格繼續回踩至 101，買入 0.05 @ 101（平 102 賣單）
+    buy_101 = GridOrder(
+        order_id="buy_51",
+        grid_id=51,
+        side=GridOrderSide.BUY,
+        price=Decimal("101.0"),
+        amount=Decimal("0.05"),
+        filled_price=Decimal("101.0"),
+        filled_amount=Decimal("0.05"),
+        status=GridOrderStatus.FILLED,
+        created_at=now,
+        filled_at=now
+    )
+    tracker.record_filled_order(buy_101)
+
+    # 撮合 102.0 賣單：獲利 = 0.05 + (102 - 101) * 0.05 = 0.10 USDC
+    assert tracker.completed_cycles == 2
+    assert tracker.loss_cycles == 0
+    assert tracker.grid_profit == Decimal("0.10")
+    assert tracker.virtual_position == Decimal("-0.05")
+
+    # 4. 價格回踩至 100，買入 0.05 @ 100（平 101 賣單）
+    buy_100 = GridOrder(
+        order_id="buy_50",
+        grid_id=50,
+        side=GridOrderSide.BUY,
+        price=Decimal("100.0"),
+        amount=Decimal("0.05"),
+        filled_price=Decimal("100.0"),
+        filled_amount=Decimal("0.05"),
+        status=GridOrderStatus.FILLED,
+        created_at=now,
+        filled_at=now
+    )
+    tracker.record_filled_order(buy_100)
+
+    # 撮合 101.0 賣單：獲利 = 0.10 + (101 - 100) * 0.05 = 0.15 USDC
+    assert tracker.completed_cycles == 3
+    assert tracker.loss_cycles == 0
+    assert tracker.grid_profit == Decimal("0.15")
+    assert tracker.virtual_position == Decimal("0")
+
+
+

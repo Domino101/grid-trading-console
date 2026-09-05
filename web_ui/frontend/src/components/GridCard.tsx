@@ -16,7 +16,11 @@ const GridCard: React.FC<GridCardProps> = ({ grid, busy, onOpen, onStart, onStop
   const isRunning = grid.status === 'running';
   const isStarting = grid.status === 'starting';
   const isStopping = grid.status === 'stopping';
-  const netPnl = grid.net_pnl;
+  const grossProfit = grid.grid_profit ?? grid.realized_pnl ?? 0;
+  const unrealized = grid.unrealized_pnl ?? 0;
+  const totalPnl = grid.total_pnl ?? (grossProfit + unrealized);
+  const fees = grid.fees ?? 0;
+  const netPnl = grid.net_pnl ?? (totalPnl - fees);
 
   // Calculate position of current price within grid bounds
   let pricePercentage: number | null = null;
@@ -30,7 +34,7 @@ const GridCard: React.FC<GridCardProps> = ({ grid, busy, onOpen, onStart, onStop
     pricePercentage = Math.min(100, Math.max(0, rawPct));
   }
 
-  const isPositivePnl = netPnl != null && netPnl >= 0;
+  const isPositiveTotal = totalPnl >= 0;
 
   return (
     <article className="strategy-card" aria-label={`策略 ${grid.symbol ?? grid.grid_id}`}>
@@ -59,14 +63,22 @@ const GridCard: React.FC<GridCardProps> = ({ grid, busy, onOpen, onStart, onStop
       {/* PnL Hero */}
       <div className="strategy-pnl-hero">
         <div className="pnl-hero-left">
-          <span className="pnl-label">策略純淨收益 (Pure Net PnL)</span>
-          <span className={`pnl-amount font-mono ${netPnl === null ? '' : isPositivePnl ? 'positive' : 'negative'}`}>
-            {money(netPnl)}
+          <span className="pnl-label">策略總收益 (Total PnL)</span>
+          <span className={`pnl-amount font-mono ${totalPnl === null ? '' : isPositiveTotal ? 'positive' : 'negative'}`}>
+            {money(totalPnl)}
           </span>
-          <div className="pnl-breakdown-sub" style={{ fontSize: '0.78rem', color: 'var(--text-muted, #8b949e)', marginTop: '2px' }}>
-            <span>毛利: <strong className="positive">{money(grid.grid_profit ?? grid.realized_pnl)}</strong></span>
+          <div className="pnl-breakdown-sub" style={{ fontSize: '0.78rem', color: 'var(--text-muted, #8b949e)', marginTop: '2px', flexWrap: 'wrap' }}>
+            <span>毛利: <strong className="positive">{money(grossProfit)}</strong></span>
             <span style={{ margin: '0 4px' }}>·</span>
-            <span>浮動: <strong className={(grid.unrealized_pnl ?? 0) >= 0 ? 'positive' : 'negative'}>{money(grid.unrealized_pnl)}</strong></span>
+            <span>浮動: <strong className={unrealized >= 0 ? 'positive' : 'negative'}>{money(unrealized)}</strong></span>
+            {fees > 0 && (
+              <>
+                <span style={{ margin: '0 4px' }}>·</span>
+                <span>手續費: <strong className="text-muted">{money(fees)}</strong></span>
+                <span style={{ margin: '0 4px' }}>·</span>
+                <span title="扣除手續費後的真實到手收益">純淨: <strong className={netPnl >= 0 ? 'positive' : 'negative'}>{money(netPnl)}</strong></span>
+              </>
+            )}
           </div>
         </div>
         {grid.pnl_rate != null && (

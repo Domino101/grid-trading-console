@@ -222,6 +222,69 @@ class DcaOrderExecutor(IDcaOrderExecutor):
             )
             return OrderOutcome(OutcomeKind.PLACED, order=order)
         except Exception as exc:  # 交易所拋錯 —— 由狀態機決定降級或失敗
+            err_msg = str(exc)
+            is_reduce_only_err = "-2022" in err_msg or "ReduceOnly" in err_msg or "reduceonly" in err_msg.lower()
+            if is_close_order and is_reduce_only_err:
+                # 檢查交易所實際持倉
+                pos = await self.fetch_position()
+                if pos is not None and pos["size"] == Decimal("0"):
+                    # 狀況 A：交易所端持倉已歸 0（外部已平倉完畢）
+                    logger.warning(
+                        "平倉單因 ReduceOnly 被拒且交易所持倉已為 0，判定外部已平倉完畢",
+                        extra={
+                            "symbol": self._symbol, "bot_id": self._bot_id,
+                            "action": "place_order", "result": "position_closed_externally",
+                            "role": role.value, "client_order_id": client_id,
+                            "error": err_msg,
+                        },
+                    )
+                    return OrderOutcome(
+                        OutcomeKind.POSITION_CLOSED_EXTERNALLY,
+                        order=order,
+                        reason="exchange position is zero; position closed externally",
+                    )
+                elif pos is not None and pos["size"] > Decimal("0"):
+                    # 狀況 B：交易所端有持倉但方向相反（單向持倉下多空衝突）
+                    # 例如做多機器人想掛 SELL TP，但單向模式下淨持倉為空頭
+                    logger.warning(
+                        "平倉單因 ReduceOnly 被拒但實盤存在反向淨持倉，自動降級為普通限價單重試",
+                        extra={
+                            "symbol": self._symbol, "bot_id": self._bot_id,
+                            "action": "place_order", "result": "fallback_normal_limit",
+                            "role": role.value, "client_order_id": client_id,
+                            "exchange_raw_amount": str(pos.get("raw_amount", 0)),
+                        },
+                    )
+                    order_params.pop("reduce_only", None)
+                    order_params.pop("reduceOnly", None)
+                    try:
+                        raw = await self._exchange.create_order(
+                            self._symbol, order_side, order_type, q_qty, q_price,
+                            params=order_params,
+                        )
+                        order.order_id = str(getattr(raw, "id", getattr(raw, "order_id", "")) or "")
+                        logger.info(
+                            "普通限價平倉單（無 ReduceOnly）已成功送出",
+                            extra={
+                                "symbol": self._symbol, "bot_id": self._bot_id,
+                                "action": "place_order", "result": "placed",
+                                "role": role.value, "client_order_id": client_id,
+                                "price": str(q_price), "quantity": str(q_qty),
+                            },
+                        )
+                        return OrderOutcome(OutcomeKind.PLACED, order=order)
+                    except Exception as fallback_exc:
+                        logger.error(
+                            "普通限價平倉單降級重試失敗",
+                            extra={
+                                "symbol": self._symbol, "bot_id": self._bot_id,
+                                "action": "place_order", "result": "error",
+                                "role": role.value, "client_order_id": client_id,
+                                "error": str(fallback_exc),
+                            },
+                        )
+                        return OrderOutcome(OutcomeKind.ERROR, order=order, reason=str(fallback_exc))
+
             logger.error(
                 "限價單送出失敗",
                 extra={
@@ -402,3 +465,60 @@ class DcaOrderExecutor(IDcaOrderExecutor):
             if value is not None:
                 return Decimal(str(value))
         raise RuntimeError(f"無法從 ticker 取得最新價: {ticker!r}")
+
+    async def fetch_position(self) -> Optional[dict]:
+        """
+        查詢交易所端該標的實際持倉（自癒對帳與單向持倉判定用）。
+        回傳字典包含:
+            size: Decimal (持倉絕對值, >= 0)
+            side: "long" | "short" | "none"
+            raw_amount: Decimal (帶正負號淨額)
+            entry_price: Decimal
+        若交易所適配器無 get_positions 方法，回傳 None。
+        """
+        if not hasattr(self._exchange, "get_positions"):
+            return None
+        try:
+            positions = await self._exchange.get_positions([self._symbol])
+            if not positions:
+                return {
+                    "size": Decimal("0"),
+                    "side": "none",
+                    "raw_amount": Decimal("0"),
+                    "entry_price": Decimal("0"),
+                }
+            target_norm = self._symbol.replace("/", "").replace(":", "").upper()
+            for p in positions:
+                sym = getattr(p, "symbol", "")
+                sym_norm = sym.replace("/", "").replace(":", "").upper()
+                if sym == self._symbol or sym_norm == target_norm:
+                    raw_amt = getattr(p, "amount", getattr(p, "size", 0))
+                    amt_dec = Decimal(str(raw_amt or 0))
+                    side_attr = getattr(p, "side", None)
+                    side_str = str(getattr(side_attr, "value", side_attr or "")).lower()
+                    if "long" in side_str or amt_dec > 0:
+                        pos_side = "long"
+                    elif "short" in side_str or amt_dec < 0:
+                        pos_side = "short"
+                    else:
+                        pos_side = "none"
+                    size_dec = abs(amt_dec)
+                    entry_px = Decimal(str(getattr(p, "entry_price", 0) or 0))
+                    return {
+                        "size": size_dec,
+                        "side": pos_side if size_dec > 0 else "none",
+                        "raw_amount": amt_dec,
+                        "entry_price": entry_px,
+                    }
+            return {
+                "size": Decimal("0"),
+                "side": "none",
+                "raw_amount": Decimal("0"),
+                "entry_price": Decimal("0"),
+            }
+        except Exception as exc:
+            logger.warning(
+                "查詢交易所持倉異常",
+                extra={"symbol": self._symbol, "bot_id": self._bot_id, "error": str(exc)},
+            )
+            return None

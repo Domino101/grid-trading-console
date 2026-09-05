@@ -215,7 +215,7 @@ def _build_dca_read_model(
     bot_id = Path(config_path).stem
     yaml_data = _read_dca_yaml(config_path) or {}
     section = _dca_section(yaml_data)
-    runtime = (runtime_map or {}).get(config_path)
+    runtime = runtime_map.get(config_path) if runtime_map is not None else GridStateStore.instance().get(config_path)
     command = GridCommandRepository.instance().latest_for_grid(bot_id)
     mode = dca_account_mode_from_yaml(yaml_data)
     desired_running = bool(active_dca.get(config_path))
@@ -286,6 +286,22 @@ def _build_dca_read_model(
         if command and command.get("action") == "start" else None
     )
 
+    derived_next_safety_price = _number((runtime or {}).get("next_safety_order_price"))
+    if derived_next_safety_price is None and status in ("averaging", "degraded") and effective_direction:
+        try:
+            from core.services.dca.config_loader import load_dca_config
+            from core.services.dca.ladder import build_ladder
+            cfg = load_dca_config(yaml_data)
+            anchor = _number((runtime or {}).get("entry_price")) or average_cost
+            if anchor:
+                plan = build_ladder(cfg, Decimal(str(anchor)), effective_direction)
+                filled_cnt = _int(ladder.get("filled_safety_orders")) or 0
+                next_level = next((lvl for lvl in plan.levels if lvl.index == filled_cnt + 1), None)
+                if next_level:
+                    derived_next_safety_price = float(next_level.price)
+        except Exception as exc:
+            logger.warning("DCA 導出下一張安全單價失敗 [%s]: %s", bot_id, exc)
+
     return {
         "bot_id": bot_id,
         "config_path": config_path,
@@ -314,6 +330,7 @@ def _build_dca_read_model(
             "take_profit_orders": _int(ladder.get("take_profit_orders")),
         },
         "cycles": _int((runtime or {}).get("cycles")),
+        "total_trades": _int((runtime or {}).get("total_trades")) or (len((runtime or {}).get("fills") or []) if isinstance((runtime or {}).get("fills"), list) else None),
         "profit": {
             "realized": _number(profit.get("realized")),
             "unrealized": _number(profit.get("unrealized")),
@@ -328,7 +345,7 @@ def _build_dca_read_model(
         "entry_timeframe": str(entry_section.get("timeframe")) if isinstance(entry_section, Mapping) and entry_section.get("timeframe") else None,
         "entry_indicators": entry_indicators,
         "entry_price": _number((runtime or {}).get("entry_price")),
-        "next_safety_order_price": _number((runtime or {}).get("next_safety_order_price")),
+        "next_safety_order_price": derived_next_safety_price,
         "take_profit_price": derived_take_profit_price,
         "stop_loss_price": derived_stop_loss_price,
         "armed_since": armed_since,
@@ -619,6 +636,7 @@ async def create_dca(
                              params=_prune_params(params), result="rejected", reason=reason,
                              error_msg=message)
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=message)
+        params["symbol"] = market_info.symbol
         entry_price = params.get("entry_price")
         if entry_price is None:
             entry_price = await asyncio.get_running_loop().run_in_executor(
@@ -646,6 +664,16 @@ async def create_dca(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail={"message": "市場規則驗證失敗", "errors": market_errors},
             )
+    else:
+        try:
+            from web_ui.backend.routes.market import _lookup_market_from_ccxt_sync
+            market_info = await asyncio.get_running_loop().run_in_executor(
+                None, _lookup_market_from_ccxt_sync, params["symbol"], params["exchange"]
+            )
+            if market_info and market_info.symbol:
+                params["symbol"] = market_info.symbol
+        except Exception:
+            pass
 
     # 2. 安全護欄（僅寫 YAML 時不要求引擎存活；auto_start 才走完整啟動檢查）
     wants_start = bool(params.get("auto_start", False))
@@ -777,6 +805,7 @@ async def get_dca_stats(bot_id: str, _token: str = Depends(verify_token)):
         position=DcaPosition(**model["position"]),
         ladder=DcaLadderState(**model["ladder"]),
         cycles=model["cycles"],
+        total_trades=model.get("total_trades"),
         profit=DcaProfit(**model["profit"]),
     )
 
@@ -836,16 +865,35 @@ async def get_dca_ladder(bot_id: str, _token: str = Depends(verify_token)):
     config = load_dca_config(yaml_data)
     direction = model.get("active_direction") or (runtime or {}).get("active_direction")
     if direction in ("long", "short"):
-        plan = build_ladder(config, Decimal(str(current_price)), direction)
-        levels = [
-            DcaLevelView(
-                index=level.index,
-                role="base" if level.index == 0 else "safety",
-                planned_price=float(level.price),
-                planned_quantity=float(level.quantity),
+        anchor_price = _number(model.get("entry_price")) or _number(model.get("avg_price")) or current_price
+        plan = build_ladder(config, Decimal(str(anchor_price)), direction)
+        pos_qty = _number(model.get("position", {}).get("quantity")) or 0
+        filled_count = _int(model.get("ladder", {}).get("filled_safety_orders")) or 0
+        active_count = _int(model.get("ladder", {}).get("active_safety_orders")) or 0
+
+        levels = []
+        for level in plan.levels:
+            if level.index == 0:
+                is_filled = pos_qty > 0 or model.get("status") in ("averaging", "degraded", "completed")
+                status_str = "filled" if is_filled else ("active" if model.get("status") == "triggering" else "waiting")
+            else:
+                if level.index <= filled_count:
+                    status_str = "filled"
+                elif level.index <= filled_count + active_count:
+                    status_str = "active"
+                else:
+                    status_str = "waiting"
+            levels.append(
+                DcaLevelView(
+                    index=level.index,
+                    role="base" if level.index == 0 else "safety",
+                    status=status_str,
+                    planned_price=float(level.price),
+                    planned_quantity=float(level.quantity),
+                    filled_price=float(anchor_price) if level.index == 0 and status_str == "filled" else None,
+                    filled_quantity=float(level.quantity) if level.index == 0 and status_str == "filled" else None,
+                )
             )
-            for level in plan.levels
-        ]
         return DcaLadderResponse(
             bot_id=bot_id,
             available=True,

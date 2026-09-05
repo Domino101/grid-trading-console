@@ -197,6 +197,25 @@ def build_grid_read_model(
     time_info = (runtime or {}).get("time") or {}
     pending = (runtime or {}).get("pending_orders") or {}
     blocked = start_rejection(mode, live_enabled)
+
+    grid_profit = finite_number(profit.get("grid_profit") if "grid_profit" in profit else profit.get("realized"))
+    realized_pnl = finite_number(profit.get("realized"))
+    unrealized_pnl = finite_number(profit.get("unrealized"))
+    account_unrealized_pnl = finite_number(profit.get("account_unrealized"))
+    fees = finite_number(profit.get("fees"))
+    raw_net = finite_number(profit.get("net"))
+    raw_rate = finite_number(profit.get("rate"))
+
+    # 總收益 (Total PnL) = 網格毛利 + 浮動損益 (完全對齊幣安與交易所對帳口徑)
+    total_pnl = (grid_profit or 0.0) + (unrealized_pnl or 0.0)
+    # 純淨收益 (Pure Net PnL) = 總收益 - 手續費
+    net_pnl = total_pnl - (fees or 0.0)
+
+    pnl_rate = raw_rate
+    equity_val = finite_number(balance.get("total"))
+    if (pnl_rate is None or pnl_rate == 0.0) and total_pnl and equity_val and equity_val > 0:
+        pnl_rate = round((total_pnl / equity_val) * 100, 4)
+
     return {
         "grid_id": grid_id,
         "config_path": config_path,
@@ -215,14 +234,15 @@ def build_grid_read_model(
         "current_position": finite_number((runtime or {}).get("current_position")),
         "grid_position": finite_number((runtime or {}).get("grid_position") if "grid_position" in (runtime or {}) else (runtime or {}).get("current_position")),
         "account_position": finite_number((runtime or {}).get("account_position")),
-        "equity": finite_number(balance.get("total")),
-        "grid_profit": finite_number(profit.get("grid_profit") if "grid_profit" in profit else profit.get("realized")),
-        "realized_pnl": finite_number(profit.get("realized")),
-        "unrealized_pnl": finite_number(profit.get("unrealized")),
-        "account_unrealized_pnl": finite_number(profit.get("account_unrealized")),
-        "fees": finite_number(profit.get("fees")),
-        "net_pnl": finite_number(profit.get("net")),
-        "pnl_rate": finite_number(profit.get("rate")),
+        "equity": equity_val,
+        "grid_profit": grid_profit,
+        "realized_pnl": realized_pnl,
+        "unrealized_pnl": unrealized_pnl,
+        "account_unrealized_pnl": account_unrealized_pnl,
+        "total_pnl": total_pnl,
+        "fees": fees,
+        "net_pnl": net_pnl,
+        "pnl_rate": pnl_rate,
         "volume": finite_number((runtime or {}).get("volume")),
         "completed_cycles": optional_int(filled.get("cycles")),
         "filled_buy": optional_int(filled.get("buy")),
@@ -254,6 +274,7 @@ def _roll_aggregate(items: list[dict[str, Any]]) -> dict[str, Any]:
         fees += item.get("fees") or 0.0
         volume += item.get("volume") or 0.0
         cycles += item.get("completed_cycles") or 0
+    total_pnl = grid_profit + unrealized
     return {
         "total_grids": len(items),
         "running_grids": sum(1 for item in items if item.get("status") == "running"),
@@ -262,8 +283,9 @@ def _roll_aggregate(items: list[dict[str, Any]]) -> dict[str, Any]:
         "grid_profit": grid_profit,
         "realized_pnl": realized,
         "unrealized_pnl": unrealized,
+        "total_pnl": total_pnl,
         "fees": fees,
-        "net_pnl": grid_profit + unrealized - fees,
+        "net_pnl": total_pnl - fees,
         "volume": volume,
         "completed_cycles": cycles,
     }

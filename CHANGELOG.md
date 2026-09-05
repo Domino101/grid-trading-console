@@ -3,6 +3,31 @@
 本專案的重要變更記錄於此檔案，遵循 [Semantic Versioning](https://semver.org/lang/zh-TW/) 與 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/) 規範。
 詳細歷史工程記錄請參閱 [CHANGELOG_LEGACY.md](file:///root/grid-trading-console/CHANGELOG_LEGACY.md)。
 
+## [0.3.1] — 2026-09-05
+
+### Fixed
+- **網格機器人 HTTP 非安全上下文啟動按鈕修復 (Safe UUID Fallback)**：
+  - 修復 `web_ui/frontend/src/services/api.ts` 中 `startGrid`、`stopGrid`、`startDca`、`stopDca` 使用 `crypto.randomUUID()` 作為預設參數的問題。
+  - 由於瀏覽器安全規範在非 HTTPS（HTTP IP 存取）環境下禁用 `window.crypto.randomUUID`，點擊按鈕原會拋出 `TypeError` 阻斷請求。新增相容性 `generateUUID()`（支援 RFC4122 v4 降級）解決點擊無反應問題。
+- **網格監控工作台 (GridDetail) 操作按鈕補齊**：
+  - 在 `web_ui/frontend/src/components/GridDetail.tsx` 頁面頂部補齊「啟動策略」（Play）與「停止策略」（Square）控制按鈕，支援執行狀態鎖定、防抖與即時頁面重載。
+- **中文交易對與小數價格配置檔命名防護**：
+  - 優化 `web_ui/backend/yaml_generator.py` 中的 `_build_file_path`：針對中文幣種（如「牛来USDT」）經正則過濾後為純 quote 貨幣或空字串的情況，自動注入短 hash 防止檔名塌陷；支援小於 1 的小數價格格式化（如 `0_06442`），防止 `int()` 強制截斷為 `0-0`。
+- **網格策略會計恆等式與純淨收益 (Pure Net PnL) 校正**：
+  - 修復 `web_ui/backend/runtime_repository.py` 與前端展示邏輯：嚴格貫徹會計恆等式 `net_pnl = grid_profit + unrealized_pnl - total_fees`。
+  - 解決過去重啟或讀取歷史快照時 `net_pnl: 0` 覆蓋計算欄位的問題，前後端同步持久化手續費與純淨收益。
+- **實盤歷史成交流水補回與帳本修復工具**：
+  - 新增 `tools/sync_binance_grid_trades.py`：直連幣安實盤 API 同步各機器人的真實成交單據與扣除手續費。
+  - 新增 `tools/rebuild_grid_history_from_fills.py`：自真實 `trade_fills` 重新核算各機器人累計毛利、手續費與純淨收益，修正受損快照。
+- **DCA 雙向與單向自癒回退優化**：
+  - `DcaCoordinator` 與 `TakeProfitManager`：強化平倉與加倉訂單執行邊界處理，支援自癒與單向回退，防止市價單與限價單競態。
+
+### Added
+- **單元與整合測試套件擴充**：
+  - 新增 `tests/test_binance_symbol_mapping.py`：驗證中文、特殊與常規合約交易對符號正規化。
+  - 新增 `tests/services/grid/test_check_pending_orders_reconcile.py`：驗證網格掛單三路對帳與殘單標記取消機制。
+  - 新增 `tests/test_dca_self_healing_and_oneway_fallback.py`：驗證 DCA 執行自癒保護。
+
 ---
 
 ## [0.3.0] — 2026-09-01

@@ -1,10 +1,12 @@
 import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import {
     AlertTriangle,
+    Check,
     CheckCircle,
     ChevronLeft,
     ChevronRight,
     Info,
+    Layers,
     Loader2,
     Rocket,
     FlaskConical,
@@ -41,6 +43,14 @@ import DcaBacktestPanel from './DcaBacktestPanel';
 
 // 與 DcaDetail 相同的動態匯入，維持圖表函式庫的獨立 chunk（E-6.2）。
 const DcaBacktestResult = lazy(() => import('./DcaBacktestResult'));
+
+// DCA 建立步驟定義
+const DCA_STEPS = [
+    { num: 1, title: '基本設定', en: 'General', desc: '帳戶模式與市場方向' },
+    { num: 2, title: '入場條件', en: 'Entry', desc: '即時進場與指標條件' },
+    { num: 3, title: '攤平參數', en: 'DCA', desc: '網格階梯倍率與風控' },
+    { num: 4, title: '摘要審查', en: 'Summary', desc: '試算預覽與送出' },
+] as const;
 
 // D-11 固定簡化事項（與 DcaDetail 同一份文案）。
 const WIZARD_BACKTEST_DISCLOSURES = [
@@ -375,23 +385,81 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
         );
     }
 
-    const stepper = (n: number, label: string) => (
-        <div className={`step-box ${step >= n ? 'active' : ''}`} aria-current={step === n ? 'step' : undefined}>
-            <div className="step-num">{n}</div>
-            <div className="step-label">{label}</div>
-        </div>
-    );
+    const isStepClickable = (n: number) => {
+        if (n < step) return true;
+        if (n === step + 1 && canAdvance) return true;
+        return false;
+    };
+
+    const handleStepClick = (targetStep: number) => {
+        if (targetStep === step) return;
+        if (targetStep < step) {
+            setStep(targetStep);
+        } else if (targetStep === step + 1 && canAdvance) {
+            setStep(targetStep);
+        }
+    };
+
+    const progressPercent = (step / DCA_STEPS.length) * 100;
 
     return (
         <main className="dca-wizard">
-            <div className="stepper-header" role="navigation" aria-label="建立 DCA 步驟">
-                {stepper(1, 'General 基本')}
-                <div className="step-sep" />
-                {stepper(2, 'Entry 入場')}
-                <div className="step-sep" />
-                {stepper(3, 'DCA 攤平')}
-                <div className="step-sep" />
-                {stepper(4, 'Summary 摘要')}
+            <header className="form-header">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <div className="brand-icon-wrapper" style={{ width: '36px', height: '36px', borderRadius: 'var(--radius-sm)' }}>
+                            <Layers size={20} color="var(--accent-primary)" />
+                        </div>
+                        <div>
+                            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0, letterSpacing: '-0.02em' }}>建立 DCA 馬丁格爾策略</h2>
+                            <p className="muted" style={{ fontSize: '0.8rem', margin: 0 }}>
+                                引導式參數配置。支援立即入場與多指標觸發、固定/口徑等差等比階梯試算與即時回測。
+                            </p>
+                        </div>
+                    </div>
+                    <button className="btn btn-outline" type="button" onClick={onNavigateDashboard} style={{ fontSize: '0.82rem', padding: '0.45rem 0.85rem' }}>
+                        <ChevronLeft size={15} /> 返回 DCA 總覽
+                    </button>
+                </div>
+            </header>
+
+            <div className="stepper-container">
+                <div className="stepper-progress-track" role="progressbar" aria-valuenow={progressPercent} aria-valuemin={0} aria-valuemax={100}>
+                    <div className="stepper-progress-fill" style={{ width: `${progressPercent}%` }} />
+                </div>
+                <div className="dca-stepper-header" role="navigation" aria-label="建立 DCA 步驟">
+                    {DCA_STEPS.map((s) => {
+                        const isCurrent = step === s.num;
+                        const isCompleted = step > s.num;
+                        const clickable = isStepClickable(s.num);
+                        return (
+                            <div
+                                key={s.num}
+                                className={`step-box ${isCurrent ? 'active' : ''} ${isCompleted ? 'completed' : ''} ${clickable ? 'clickable' : ''}`}
+                                aria-current={isCurrent ? 'step' : undefined}
+                                onClick={() => clickable && handleStepClick(s.num)}
+                                role={clickable ? 'button' : undefined}
+                                tabIndex={clickable ? 0 : undefined}
+                                onKeyDown={(e) => {
+                                    if (clickable && (e.key === 'Enter' || e.key === ' ')) {
+                                        e.preventDefault();
+                                        handleStepClick(s.num);
+                                    }
+                                }}
+                            >
+                                <div className="step-num">
+                                    {isCompleted ? <Check size={14} strokeWidth={2.8} /> : s.num}
+                                </div>
+                                <div className="step-text">
+                                    <strong className="step-title">
+                                        {s.num}. {s.title} <span style={{ opacity: 0.65, fontSize: '0.72rem', fontWeight: 500 }}>({s.en})</span>
+                                    </strong>
+                                    <span className="step-sub">{s.desc}</span>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
             </div>
 
             {notice && (

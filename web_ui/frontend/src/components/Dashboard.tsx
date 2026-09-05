@@ -263,10 +263,10 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenGrid, onCreateNew, onUnauth
       {/* Hero KPI Matrix */}
       <section className="kpi-grid" aria-label="網格總覽指標">
         <KpiCard
-          label={snapshot?.account_mode === 'paper' ? 'PAPER 淨盈虧' : 'LIVE 淨盈虧'}
-          value={aggregate ? money(aggregate.net_pnl) : '—'}
-          hint={`網格毛利 ${aggregate ? money(aggregate.grid_profit ?? aggregate.realized_pnl) : '—'} · 浮動 ${aggregate ? money(aggregate.unrealized_pnl) : '—'}`}
-          tone={(aggregate?.net_pnl ?? 0) >= 0 ? 'positive' : 'negative'}
+          label={snapshot?.account_mode === 'paper' ? 'PAPER 總收益' : 'LIVE 總收益 (Total PnL)'}
+          value={aggregate ? money(aggregate.total_pnl ?? ((aggregate.grid_profit ?? aggregate.realized_pnl ?? 0) + (aggregate.unrealized_pnl ?? 0))) : '—'}
+          hint={`毛利 ${aggregate ? money(aggregate.grid_profit ?? aggregate.realized_pnl) : '—'} · 浮動 ${aggregate ? money(aggregate.unrealized_pnl) : '—'} · 純淨 ${aggregate ? money(aggregate.net_pnl) : '—'}`}
+          tone={((aggregate?.total_pnl ?? aggregate?.net_pnl ?? 0)) >= 0 ? 'positive' : 'negative'}
           icon={<DollarSign size={16} />}
         />
 
@@ -300,7 +300,11 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenGrid, onCreateNew, onUnauth
             <span>（獨立運算，不計入上方 LIVE KPI）</span>
           </div>
           <div className="font-mono">
-            淨盈虧: <strong className={snapshot.aggregate_paper.net_pnl >= 0 ? 'positive' : 'negative'}>{money(snapshot.aggregate_paper.net_pnl)}</strong>
+            總收益: <strong className={((snapshot.aggregate_paper.total_pnl ?? ((snapshot.aggregate_paper.grid_profit ?? 0) + (snapshot.aggregate_paper.unrealized_pnl ?? 0)))) >= 0 ? 'positive' : 'negative'}>
+              {money(snapshot.aggregate_paper.total_pnl ?? ((snapshot.aggregate_paper.grid_profit ?? 0) + (snapshot.aggregate_paper.unrealized_pnl ?? 0)))}
+            </strong>
+            {' · '}
+            純淨: <strong className={snapshot.aggregate_paper.net_pnl >= 0 ? 'positive' : 'negative'}>{money(snapshot.aggregate_paper.net_pnl)}</strong>
             {' · '}
             運行: <strong>{snapshot.aggregate_paper.running_grids}/{snapshot.aggregate_paper.total_grids}</strong>
           </div>

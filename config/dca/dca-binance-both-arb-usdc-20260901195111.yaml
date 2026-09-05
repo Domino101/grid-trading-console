@@ -1,14 +1,12 @@
-metadata:
-  bot_id: dca-binance-both-pnut-usdc-usdc-20260831003634
 dca:
   exchange: binance
-  symbol: PNUT/USDC:USDC
+  symbol: ARB/USDC
   direction: both
   account_mode: live
   leverage: 10
   margin_mode: isolated
   quantity_precision: 1
-  price_decimals: 5
+  price_decimals: 4
   fee_rate: '0.0004'
   base_order_amount: '10.0'
   amount_unit: quote
@@ -33,7 +31,7 @@ dca:
   entry:
     mode: indicator
     logic: all
-    timeframe: 15m
+    timeframe: 1h
     fetch_limit: 300
     price_source: close
     confirm_bars: 1
@@ -41,6 +39,8 @@ dca:
     indicators:
     - type: rsi
       period: 14
-      oversold: 15.0
-      overbought: 85.0
+      oversold: 30.0
+      overbought: 70.0
       condition: level
+metadata:
+  bot_id: 68ae6bb66be9426681a5c7a3576d6e97

@@ -64,6 +64,7 @@ LEGAL_TRANSITIONS: Dict[DcaStatus, Set[DcaStatus]] = {
     },
     DcaStatus.DEGRADED: {
         DcaStatus.AVERAGING,   # 下一輪重試成功 → 恢復（稽核 2.6）
+        DcaStatus.COMPLETED,   # 自癒收輪或止盈完成
         DcaStatus.DEGRADED,    # 持續重試（自迴圈）
         DcaStatus.STOPPING,
         DcaStatus.FAILED,

@@ -27,7 +27,7 @@ const GridTable: React.FC<GridTableProps> = ({
           <tr>
             <th>交易對 / 模式</th>
             <th>交易所</th>
-            <th>淨盈虧 (PnL)</th>
+            <th>總盈虧 / 純淨 (PnL)</th>
             <th>現價 / 區間</th>
             <th>權益 / 持倉</th>
             <th>成交 / 套利</th>
@@ -42,8 +42,17 @@ const GridTable: React.FC<GridTableProps> = ({
             const isStarting = grid.status === 'starting';
             const isStopping = grid.status === 'stopping';
             const isBusy = actionGridId === grid.grid_id;
-            const netPnl = grid.net_pnl;
-            const isPositive = netPnl != null && netPnl >= 0;
+            const grossProfit = grid.grid_profit ?? grid.realized_pnl ?? 0;
+            const unrealized = grid.unrealized_pnl ?? 0;
+            const fees = grid.fees ?? 0;
+            const totalPnl = (grid.total_pnl !== null && grid.total_pnl !== undefined)
+              ? grid.total_pnl
+              : (grossProfit + unrealized);
+            const calculatedNetPnl = totalPnl - fees;
+            const netPnl = (grid.net_pnl !== null && grid.net_pnl !== undefined && !(grid.net_pnl === 0 && calculatedNetPnl !== 0))
+              ? grid.net_pnl
+              : calculatedNetPnl;
+            const isPositiveTotal = totalPnl != null && totalPnl >= 0;
 
             return (
               <tr key={grid.grid_id}>
@@ -61,14 +70,13 @@ const GridTable: React.FC<GridTableProps> = ({
 
                 <td>
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <strong className={`font-mono ${netPnl === null ? '' : isPositive ? 'positive' : 'negative'}`}>
-                      {money(netPnl)}
+                    <strong className={`font-mono ${totalPnl === null ? '' : isPositiveTotal ? 'positive' : 'negative'}`}>
+                      {money(totalPnl)}
                     </strong>
-                    {grid.pnl_rate != null && (
-                      <small className={`font-mono ${grid.pnl_rate >= 0 ? 'positive' : 'negative'}`}>
-                        {number(grid.pnl_rate)}%
-                      </small>
-                    )}
+                    <small className="text-muted font-mono" style={{ fontSize: '0.75rem' }}>
+                      純淨: <span className={netPnl >= 0 ? 'positive' : 'negative'}>{money(netPnl)}</span>
+                      {grid.pnl_rate != null ? ` (${number(grid.pnl_rate)}%)` : ''}
+                    </small>
                   </div>
                 </td>
 

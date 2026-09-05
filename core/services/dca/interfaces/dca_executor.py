@@ -21,6 +21,7 @@ class OutcomeKind(Enum):
     PLACED = "placed"                    # 已掛上交易所
     REJECTED_MIN_NOTIONAL = "rejected_min_notional"  # 低於最小名目，未送出（稽核 2.15）
     DEFERRED_CIRCUIT_OPEN = "deferred_circuit_open"  # 熔斷中延後（稽核 2.14）
+    POSITION_CLOSED_EXTERNALLY = "position_closed_externally"  # 交易所持倉已歸零（外部已平倉）
     ERROR = "error"                      # 交易所拋錯
 
 
@@ -78,6 +79,10 @@ class IDcaOrderExecutor(ABC):
     @abstractmethod
     async def last_price(self) -> Decimal:
         """交易對最新成交價（觸發價 / 止損監控用）。"""
+
+    @abstractmethod
+    async def fetch_position(self) -> Optional[dict]:
+        """查詢交易所端該標的實際持倉（自癒對帳與單向持倉判定用）。"""
 
     @abstractmethod
     def circuit_open(self) -> bool:

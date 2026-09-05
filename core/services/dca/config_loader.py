@@ -378,6 +378,25 @@ def auto_fill_dca_precision(config: DcaConfig, exchange_adapter,
         if not markets:
             return
         market = markets.get(config.symbol)
+        if not market and hasattr(exchange, "market"):
+            try:
+                market = exchange.market(config.symbol)
+            except Exception:
+                pass
+        if not market:
+            sym_raw = str(config.symbol).strip()
+            sym_no_settle = sym_raw.split(":")[0].upper()
+            clean = sym_no_settle.replace("/", "").replace("-", "").replace("_", "")
+            for m in markets.values():
+                if isinstance(m, dict):
+                    if m.get("id") == clean or m.get("id") == sym_raw or m.get("id") == sym_no_settle:
+                        market = m
+                        break
+                    m_sym = m.get("symbol")
+                    if m_sym and (m_sym == sym_raw or m_sym.split(":")[0] == sym_no_settle):
+                        market = m
+                        break
+
         if not market:
             return
         precision = market.get("precision", {}) or {}

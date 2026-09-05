@@ -7,8 +7,9 @@ run_grid_trading.py:create_grid_config() 的 30+ 個參數。
 
 import yaml
 import re
+import hashlib
 from pathlib import Path
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Any
 
 from core.infrastructure.identity import generate_bot_id, with_metadata_bot_id
 
@@ -202,15 +203,32 @@ class GridYAMLGenerator:
         - 只允許 a-z, 0-9, -, _ 和 .
         """
         # 清理 symbol（SOL/USDC:USDC → sol-usdc-usdc）
-        symbol_clean = params["symbol"].replace("/", "-").replace(":", "-").lower()
-        symbol_clean = re.sub(r"[^a-z0-9\-]", "", symbol_clean)
+        raw_symbol = params["symbol"].replace("/", "-").replace(":", "-").lower()
+        symbol_clean = re.sub(r"[^a-z0-9\-]", "", raw_symbol)
+        # 若包含非 ASCII（如中文交易對「牛来USDT」），清理後僅剩 quote 或為空時，補入短 hash 避免衝突
+        if not symbol_clean or symbol_clean in ("usdt", "usdc", "usd", "fdusd"):
+            token_hash = hashlib.md5(params["symbol"].encode("utf-8")).hexdigest()[:6]
+            symbol_clean = f"{symbol_clean or 'token'}-{token_hash}"
 
         exchange = re.sub(r"[^a-z0-9]", "", params["exchange"].lower())
         grid_type_str = grid_type.replace("_", "-")
 
+        def _fmt_bound(val: Any) -> str:
+            try:
+                f = float(val or 0)
+                if f <= 0:
+                    return "0"
+                if f.is_integer():
+                    return str(int(f))
+                # 小於 1 或含小數價格，避免 int() 變成 0
+                formatted = f"{f:.6f}".rstrip("0").rstrip(".")
+                return formatted.replace(".", "_")
+            except (ValueError, TypeError):
+                return "0"
+
         if grid_type not in ("follow_long", "follow_short"):
-            lower = int(params.get("lower_price", 0))
-            upper = int(params.get("upper_price", 0))
+            lower = _fmt_bound(params.get("lower_price", 0))
+            upper = _fmt_bound(params.get("upper_price", 0))
             filename = f"{exchange}-{grid_type_str}-perp-{symbol_clean}-{lower}-{upper}.yaml"
         else:
             filename = f"{exchange}-{grid_type_str}-perp-{symbol_clean}.yaml"
