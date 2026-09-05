@@ -348,9 +348,11 @@ class GridEventListResponse(BaseModel):
 class GridHistoryPoint(BaseModel):
     recorded_at: float
     current_price: Optional[float] = None
+    total_pnl: Optional[float] = None
     net_pnl: Optional[float] = None
     realized_pnl: Optional[float] = None
     unrealized_pnl: Optional[float] = None
+    fees: Optional[float] = None
     equity: Optional[float] = None
 
 
@@ -363,14 +365,14 @@ class GridHistoryResponse(BaseModel):
 class GridOrdersResponse(BaseModel):
     grid_id: str
     available: bool
-    orders: List[Dict[str, Any]] = []
+    orders: List[Dict[str, Any]]
     message: Optional[str] = None
 
 
 class GridFillsResponse(BaseModel):
     grid_id: str
     available: bool
-    fills: List[Dict[str, Any]] = []
+    fills: List[Dict[str, Any]]
     message: Optional[str] = None
 
 
@@ -408,6 +410,7 @@ class DashboardAggregate(BaseModel):
     grid_profit: float = 0.0
     realized_pnl: float
     unrealized_pnl: float
+    total_pnl: float = 0.0
     fees: float
     net_pnl: float
     volume: float
@@ -436,6 +439,7 @@ class DashboardGridItem(BaseModel):
     realized_pnl: Optional[float] = None
     unrealized_pnl: Optional[float] = None
     account_unrealized_pnl: Optional[float] = None
+    total_pnl: Optional[float] = None
     fees: Optional[float] = None
     net_pnl: Optional[float] = None
     pnl_rate: Optional[float] = None
@@ -725,6 +729,7 @@ class DcaSnapshotItem(BaseModel):
     position: Optional[DcaPosition] = None
     ladder: Optional[DcaLadderState] = None
     cycles: Optional[int] = None
+    total_trades: Optional[int] = None
     profit: Optional[DcaProfit] = None
     base_order_amount: Optional[float] = None
     max_safety_orders: Optional[int] = None
@@ -779,6 +784,7 @@ class DcaStatsResponse(BaseModel):
     position: Optional[DcaPosition] = None
     ladder: Optional[DcaLadderState] = None
     cycles: Optional[int] = None
+    total_trades: Optional[int] = None
     profit: Optional[DcaProfit] = None
 
 

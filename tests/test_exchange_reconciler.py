@@ -73,6 +73,49 @@ class TestExchangeReconciler(unittest.TestCase):
         self.assertIsNotNone(coordinator._tp_client_id)
         self.assertIn(coordinator._tp_client_id, coordinator._active)
 
+    def test_dca_reconciler_recognizes_existing_tp_without_redeploying(self):
+        from core.services.dca.models.dca_order import bot_id_hash8
+        executor = MagicMock()
+        executor._bot_id = self.bot_id
+        executor._symbol = "PNUT/USDC:USDC"
+        
+        my_hash = bot_id_hash8(self.bot_id)
+        existing_tp = DcaOrder(
+            client_order_id=f"dca_{my_hash}_long_tp",
+            symbol="PNUT/USDC:USDC",
+            side="sell",
+            role=DcaOrderRole.TAKE_PROFIT,
+            price=Decimal("0.05075"),
+            quantity=Decimal("100"),
+            status=DcaOrderStatus.PLACED,
+        )
+        executor.fetch_open_orders = AsyncMock(return_value=[existing_tp])
+        executor.last_price = AsyncMock(return_value=Decimal("0.051"))
+        executor.place_limit = AsyncMock()
+
+        # Mock exchange position = 100.0 @ 0.05
+        mock_exchange = MagicMock()
+        mock_exchange.get_positions = AsyncMock(return_value=[DummyPosition("PNUT/USDC:USDC", 100.0, 0.05)])
+        executor._exchange = mock_exchange
+
+        coordinator = DcaCoordinator(self.config, self.bot_id, executor)
+        coordinator.state.position_quantity = Decimal("100")
+        coordinator.state.total_cost = Decimal("5.0")
+        coordinator.state.status = DcaStatus.DEGRADED
+
+        # Run Reconciler
+        res = asyncio.run(ExchangeReconciler.reconcile_dca(coordinator))
+
+        # Assertions: Should NOT deploy duplicate TP, should recognize existing TP and restore to AVERAGING
+        self.assertEqual(res["status"], "success")
+        self.assertFalse(res["tp_deployed"])
+        executor.place_limit.assert_not_called()
+
+        self.assertEqual(coordinator.state.status, DcaStatus.AVERAGING)
+        self.assertEqual(coordinator._tp_client_id, existing_tp.client_order_id)
+        self.assertIsNotNone(coordinator._tp_manager)
+        self.assertEqual(coordinator._tp_manager.current_tp, existing_tp)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -88,27 +88,58 @@ class ExchangeReconciler:
                 from core.services.dca.models import DcaStatus
                 coordinator.state.status = DcaStatus.AVERAGING
                 result["rehydrated"] = True
+            elif local_qty > Decimal("0") and exchange_pos_qty == Decimal("0"):
+                logger.warning(
+                    f"🚨 [Reconciler {symbol}] 檢測到狀態不一致！本地記錄持倉 {local_qty} 但交易所端已無持倉（外部已平倉）。啟動自癒收輪！",
+                    extra={"bot_id": bot_id, "symbol": symbol, "local_qty": str(local_qty)},
+                )
+                from core.services.dca.models import DcaStatus
+                coordinator._flag_round_finished = True
+                await coordinator._finish_round()
+                result["rehydrated"] = True
 
             # 4. Critical TP Protection Check: If position > 0, make sure Take-Profit order is deployed
-            if coordinator.state.position_quantity > Decimal("0"):
-                has_active_tp = any(
-                    getattr(o, "role", None) and str(getattr(o.role, "value", o.role)) == "tp"
-                    and getattr(o, "is_active_on_exchange", lambda: True)()
-                    for o in coordinator._active.values()
+            from core.services.dca.models import DcaOrderRole, DcaStatus
+            if coordinator.state.position_quantity > Decimal("0") and coordinator.state.status not in (DcaStatus.COMPLETED, DcaStatus.COOLING, DcaStatus.ARMED):
+                from core.services.dca.coordinator.take_profit_manager import TakeProfitManager
+
+                direction = coordinator.state.active_direction or getattr(coordinator._config, "direction", "long")
+                if direction not in ("long", "short"):
+                    direction = "long"
+                coordinator.state.active_direction = direction
+                anchor_px = coordinator.state.entry_price or coordinator.state.average_cost
+                if not coordinator.state.safety_slots and anchor_px:
+                    from core.services.dca.ladder import build_ladder
+                    plan = build_ladder(coordinator._config, anchor_px, direction)
+                    coordinator.state.init_slots(plan.levels)
+                    for o in coordinator._active.values():
+                        if getattr(o, "role", None) is DcaOrderRole.SAFETY and getattr(o, "slot_index", None):
+                            for s in coordinator.state.safety_slots:
+                                if s.index == o.slot_index:
+                                    s.mark_active(o.price)
+                if not getattr(coordinator, "_tp_manager", None):
+                    coordinator._tp_manager = TakeProfitManager(executor, direction)
+
+                active_tp = next(
+                    (o for o in coordinator._active.values()
+                     if (getattr(o, "role", None) in (DcaOrderRole.TAKE_PROFIT, "take_profit", "tp")
+                         or str(getattr(getattr(o, "role", None), "value", getattr(o, "role", ""))) in ("take_profit", "tp"))
+                     and getattr(o, "is_active_on_exchange", lambda: True)()),
+                    None
                 )
-                if not has_active_tp or not coordinator._tp_client_id:
+                if active_tp:
+                    coordinator._tp_manager.current_tp = active_tp
+                    coordinator._tp_client_id = active_tp.client_order_id
+                    if coordinator.state.status == DcaStatus.DEGRADED:
+                        if hasattr(coordinator, "_transition"):
+                            coordinator._transition(DcaStatus.AVERAGING)
+                        else:
+                            coordinator.state.status = DcaStatus.AVERAGING
+                else:
                     logger.warning(
                         f"🛡️ [Reconciler {symbol}] 持倉中且無在世 TP 單，即刻執行 Take-Profit 原子補掛！",
                         extra={"bot_id": bot_id, "symbol": symbol, "qty": str(coordinator.state.position_quantity)},
                     )
-                    from core.services.dca.coordinator.take_profit_manager import TakeProfitManager
-                    direction = coordinator.state.active_direction or getattr(coordinator._config, "direction", "long")
-                    if direction not in ("long", "short"):
-                        direction = "long"
-                    coordinator.state.active_direction = direction
-                    if not coordinator._tp_manager:
-                        coordinator._tp_manager = TakeProfitManager(executor, direction)
-
                     await coordinator._attempt_tp_replace()
                     result["tp_deployed"] = True
 

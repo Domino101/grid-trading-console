@@ -549,14 +549,8 @@ class GridCoordinator:
                 else:
                     recovered_volume = Decimal('0')
 
-                # 判斷手續費率 (優先檢測配置與交易對規則，避免恢復歷史錯誤手續費)
-                fee_rate = getattr(self.config, 'fee_rate', None)
-                exchange = str(getattr(self.config, 'exchange', '')).lower()
-                symbol = str(getattr(self.config, 'symbol', '')).upper()
-                if fee_rate == 0 or (fee_rate is None and exchange == 'binance' and 'USDC' in symbol):
-                    fees = Decimal('0')
-                else:
-                    fees = Decimal(str(profit.get("fees", 0) or 0))
+                # 讀取真實歷史手續費（忠實使用快照記錄）
+                fees = Decimal(str(profit.get("fees", 0) or 0))
 
                 saved_pos_raw = matched.get("grid_position") if "grid_position" in matched else matched.get("current_position")
                 if saved_pos_raw is not None and Decimal(str(saved_pos_raw)) != 0:

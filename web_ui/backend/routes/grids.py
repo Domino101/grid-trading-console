@@ -355,12 +355,21 @@ async def get_grid_history(
     for payload, recorded_at in history:
         profit = payload.get("profit") or {}
         balance = payload.get("balance") or {}
+        gp = profit.get("grid_profit") if "grid_profit" in profit else profit.get("realized")
+        up = profit.get("unrealized") or 0.0
+        fees = profit.get("fees") or 0.0
+        total_pnl = (float(gp) if gp is not None else 0.0) + float(up)
+        net_pnl = profit.get("net")
+        if net_pnl is None:
+            net_pnl = total_pnl - float(fees)
         points.append({
             "recorded_at": recorded_at,
             "current_price": payload.get("current_price"),
-            "net_pnl": profit.get("net"),
+            "total_pnl": total_pnl,
+            "net_pnl": net_pnl,
             "realized_pnl": profit.get("realized"),
             "unrealized_pnl": profit.get("unrealized"),
+            "fees": fees,
             "equity": balance.get("total"),
         })
     return {"grid_id": grid_id, "range_hours": hours, "points": points}
@@ -383,10 +392,30 @@ async def get_grid_fills(grid_id: str, _token: str = Depends(verify_token)):
     config_path = GridYAMLGenerator.path_from_grid_id(grid_id)
     if not os.path.exists(os.path.join(_get_project_root(), config_path)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"網格 {grid_id} 不存在")
+    from core.infrastructure.identity import resolve_bot_id
+    from datetime import datetime, timezone
+    bot_id = resolve_bot_id(config_path)
+
+    # 優先從持久化真實帳本 trade_fills 讀取（支援歷史與回填成交）
+    fills_records = RuntimeSnapshotRepository.instance().get_fills(bot_id, limit=300, order_desc=True)
+    if fills_records:
+        fills = [
+            {
+                "side": f.side,
+                "price": f.price,
+                "amount": f.quantity,
+                "fee": f.fee,
+                "time": datetime.fromtimestamp(f.executed_at, tz=timezone.utc).astimezone().isoformat() if f.executed_at else None,
+                "profit": f.realized_pnl,
+            }
+            for f in fills_records
+        ]
+        return {"grid_id": grid_id, "available": True, "fills": fills, "message": None}
+
     runtime = GridStateStore.instance().get(config_path) or {}
     fills = runtime.get("recent_fills")
     if not isinstance(fills, list):
-        return {"grid_id": grid_id, "available": False, "fills": [], "message": "引擎尚未提供成交明細"}
+        return {"grid_id": grid_id, "available": False, "fills": [], "message": "尚未有成交明細"}
     return {"grid_id": grid_id, "available": True, "fills": fills, "message": None}
 
 

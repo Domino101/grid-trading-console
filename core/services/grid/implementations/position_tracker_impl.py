@@ -133,15 +133,22 @@ class PositionTrackerImpl(IPositionTracker):
             fee = filled_price * filled_amount * fee_rate
         self.total_fees += fee
 
-        # 3. 🔥 真實 FIFO 訂單配對撮合（計算真實套利輪迴數與真實價差毛利）
+        # 3. 🔥 真實格位/價格感知套利撮合（Price-Aware Level Matching）
+        # 取代天真 FIFO，在中性網格震盪與滑動窗口下優先撮合相鄰獲利格位，避免高位買單錯配低位舊賣單產生假性負毛利。
         matched_profit = Decimal('0')
         matched_any = False
         rem_amount = filled_amount
 
         if order.is_buy_order():
-            # 買單成交：若有未撮合的賣單（空頭網格或中性網格先賣後買），以 FIFO 撮合
+            # 買單成交：在未撮合的賣單中，優先尋找價格高於當前買價的獲利賣單 (price > filled_price)，按 FIFO 順序撮合
             while rem_amount > Decimal('1e-8') and self._unmatched_sells:
-                sell_lot = self._unmatched_sells[0]
+                profitable_sells = [lot for lot in self._unmatched_sells if lot['price'] > filled_price]
+                if profitable_sells:
+                    sell_lot = profitable_sells[0]
+                else:
+                    # 若皆無獲利單（例如追高平倉或底倉平倉），按 FIFO 順序撮合
+                    sell_lot = self._unmatched_sells[0]
+
                 match_qty = min(rem_amount, sell_lot['amount'])
                 lot_profit = (sell_lot['price'] - filled_price) * match_qty
                 matched_profit += lot_profit
@@ -156,7 +163,7 @@ class PositionTrackerImpl(IPositionTracker):
                 sell_lot['amount'] -= match_qty
                 rem_amount -= match_qty
                 if sell_lot['amount'] <= Decimal('1e-8'):
-                    self._unmatched_sells.popleft()
+                    self._unmatched_sells.remove(sell_lot)
 
             if rem_amount > Decimal('1e-8'):
                 self._unmatched_buys.append({
@@ -166,9 +173,15 @@ class PositionTrackerImpl(IPositionTracker):
                     'time': order.filled_at or datetime.now()
                 })
         else:
-            # 賣單成交：若有未撮合的買單（多頭網格或中性網格先買後賣），以 FIFO 撮合
+            # 賣單成交：在未撮合的買單中，優先尋找價格低於當前賣價的獲利買單 (price < filled_price)，按 FIFO 順序撮合
             while rem_amount > Decimal('1e-8') and self._unmatched_buys:
-                buy_lot = self._unmatched_buys[0]
+                profitable_buys = [lot for lot in self._unmatched_buys if lot['price'] < filled_price]
+                if profitable_buys:
+                    buy_lot = profitable_buys[0]
+                else:
+                    # 若皆無獲利單（例如殺跌平倉或底倉平倉），按 FIFO 順序撮合
+                    buy_lot = self._unmatched_buys[0]
+
                 match_qty = min(rem_amount, buy_lot['amount'])
                 lot_profit = (filled_price - buy_lot['price']) * match_qty
                 matched_profit += lot_profit
@@ -183,7 +196,7 @@ class PositionTrackerImpl(IPositionTracker):
                 buy_lot['amount'] -= match_qty
                 rem_amount -= match_qty
                 if buy_lot['amount'] <= Decimal('1e-8'):
-                    self._unmatched_buys.popleft()
+                    self._unmatched_buys.remove(buy_lot)
 
             if rem_amount > Decimal('1e-8'):
                 self._unmatched_sells.append({
@@ -235,7 +248,11 @@ class PositionTrackerImpl(IPositionTracker):
                     strategy_type="grid",
                     symbol=self.config.symbol,
                     exchange=self.config.exchange,
-                    account_mode=getattr(self.config, "account_mode", "paper") or "paper",
+                    account_mode=(
+                        self.config.account_mode
+                        if getattr(self.config, "account_mode", None) in ("live", "paper")
+                        else "live"
+                    ),
                     status="running",
                     created_at=time.time(),
                 ))
@@ -393,13 +410,10 @@ class PositionTrackerImpl(IPositionTracker):
         # 获取当前价格
         current_price = self.state.current_price or self.config.get_first_order_price()
 
-        # 若當前交易對為 0 手續費率（如幣安 USDC 合約），確保手續費為 0
-        if self.resolve_fee_rate() == Decimal('0'):
-            self.total_fees = Decimal('0')
-
         # 计算未实现盈亏与净收益
         unrealized_pnl = self.calculate_unrealized_pnl(current_price)
-        total_pnl = self.grid_profit + unrealized_pnl
+        effective_profit = self.grid_profit if self.grid_profit != Decimal('0') else self.realized_pnl
+        total_pnl = effective_profit + unrealized_pnl
         net_profit = total_pnl - self.total_fees
 
         # 计算收益率

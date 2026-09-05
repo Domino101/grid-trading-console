@@ -57,12 +57,28 @@ class RuntimeSnapshotRepository:
         bot_id = stats.get("bot_id") or resolve_bot_id(config_path)
 
         # 1. Update bot registration
+        acc_mode = stats.get("account_mode")
+        if not acc_mode or acc_mode not in ("live", "paper"):
+            try:
+                import yaml
+                from web_ui.backend.lifecycle import account_mode_from_yaml, dca_account_mode_from_yaml
+                with open(config_path, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f)
+                if "dca" in config_path or isinstance((data or {}).get("dca"), dict):
+                    acc_mode = dca_account_mode_from_yaml(data)
+                else:
+                    acc_mode = account_mode_from_yaml(data)
+            except Exception:
+                acc_mode = "live"
+        if acc_mode not in ("live", "paper"):
+            acc_mode = "live"
+
         bot_record = BotRecord(
             bot_id=bot_id,
             strategy_type=stats.get("strategy_type", "dca" if "dca" in config_path else "grid"),
             symbol=stats.get("symbol", "unknown"),
-            exchange=stats.get("exchange", "unknown"),
-            account_mode=stats.get("account_mode", "paper"),
+            exchange=stats.get("exchange", "binance"),
+            account_mode=acc_mode,
             config_path=config_path,
             status=stats.get("status", "running"),
             created_at=timestamp,
@@ -136,6 +152,9 @@ class RuntimeSnapshotRepository:
 
     def history(self, config_path: str, since: float, limit: int = 1000) -> list[tuple[dict, float]]:
         return self._ledger.load_snapshot_history(config_path, since, limit)
+
+    def get_fills(self, bot_id: str, limit: int = 500, since: float = 0.0, order_desc: bool = False):
+        return self._ledger.get_fills(bot_id, limit=limit, since=since, order_desc=order_desc)
 
     def remove(self, config_path: str) -> None:
         self._ledger.remove_snapshot(config_path)

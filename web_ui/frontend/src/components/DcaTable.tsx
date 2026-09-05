@@ -43,9 +43,9 @@ const DcaTable: React.FC<DcaTableProps> = ({
                         <th>入場</th>
                         <th>安全單進度</th>
                         <th>均價 / 現價</th>
-                        <th>未實現 / ROI</th>
+                        <th>純淨盈虧 (實現/浮動)</th>
                         <th>止盈價</th>
-                        <th>循環</th>
+                        <th>循環 / 成交</th>
                         <th style={{ textAlign: 'right' }}>操作</th>
                     </tr>
                 </thead>
@@ -58,6 +58,12 @@ const DcaTable: React.FC<DcaTableProps> = ({
                         const isBusy = actionBotId === bot.bot_id;
                         const progress = dcaLadderProgress(bot);
                         const unrealized = bot.profit?.unrealized ?? null;
+                        const realized = bot.profit?.realized ?? 0;
+                        const fees = bot.profit?.fees ?? 0;
+                        const netRealized = realized - fees;
+                        const netPnl = (bot.profit?.realized != null || bot.profit?.unrealized != null)
+                            ? (realized + (unrealized ?? 0) - fees)
+                            : null;
                         const roi = dcaRoiPercent(bot);
                         const notional = dcaPositionNotional(bot);
 
@@ -129,19 +135,22 @@ const DcaTable: React.FC<DcaTableProps> = ({
 
                                 <td>
                                     <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                        <span className="font-mono">{number(bot.position?.average_cost ?? null)}</span>
-                                        <small className="text-muted font-mono">{number(bot.current_price)}</small>
+                                        <span className="font-mono">{(bot.position?.quantity ?? 0) > 0 ? number(bot.position?.average_cost ?? null) : '—'}</span>
+                                        <small className="text-muted font-mono">
+                                            {number(bot.current_price)}
+                                            {notional != null && notional > 0 ? ` · ${money(notional)}` : ''}
+                                        </small>
                                     </div>
                                 </td>
 
                                 <td>
                                     <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                        <strong className={`font-mono ${unrealized == null ? '' : unrealized >= 0 ? 'positive' : 'negative'}`}>
-                                            {money(unrealized)}
+                                        <strong className={`font-mono ${netPnl == null ? '' : netPnl >= 0 ? 'positive' : 'negative'}`}>
+                                            {money(netPnl)}
                                         </strong>
-                                        <small className={`font-mono ${roi == null ? '' : roi >= 0 ? 'positive' : 'negative'}`}>
-                                            {roi == null ? '—' : `${roi >= 0 ? '+' : ''}${roi.toFixed(2)}%`}
-                                            <span className="text-muted"> · {money(notional)}</span>
+                                        <small className="font-mono text-muted" style={{ fontSize: '0.74rem' }}>
+                                            實現 {money(netRealized)} · 浮動 {money(unrealized)}
+                                            {roi != null && ` (${roi >= 0 ? '+' : ''}${roi.toFixed(1)}%)`}
                                         </small>
                                     </div>
                                 </td>
@@ -157,7 +166,16 @@ const DcaTable: React.FC<DcaTableProps> = ({
                                     )}
                                 </td>
 
-                                <td className="font-mono">{number(bot.cycles, 0)} 輪</td>
+                                <td>
+                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                        <span className="font-mono" style={{ fontWeight: 600 }}>{number(bot.cycles, 0)} 輪</span>
+                                        {bot.total_trades != null ? (
+                                            <small className="font-mono text-muted">{bot.total_trades} 筆成交</small>
+                                        ) : (
+                                            <small className="font-mono text-muted">{armed ? '空倉待命' : '持倉中'}</small>
+                                        )}
+                                    </div>
+                                </td>
 
                                 <td style={{ textAlign: 'right' }}>
                                     <div style={{ display: 'inline-flex', gap: '0.4rem', justifyContent: 'flex-end' }}>

@@ -43,6 +43,13 @@ const DcaCard: React.FC<DcaCardProps> = ({ bot, busy, now, onOpen, onStart, onSt
     const isStarting = bot.status === 'starting';
     const progress = dcaLadderProgress(bot);
     const unrealized = bot.profit?.unrealized ?? null;
+    const realized = bot.profit?.realized ?? 0;
+    const fees = bot.profit?.fees ?? 0;
+    const netRealized = realized - fees;
+    const netPnl = (bot.profit?.realized != null || bot.profit?.unrealized != null)
+        ? (realized + (unrealized ?? 0) - fees)
+        : null;
+    const isPositivePnl = netPnl != null && netPnl >= 0;
     const roi = dcaRoiPercent(bot);
     const notional = dcaPositionNotional(bot);
     const waitText = armed ? armedWaitText(bot.armed_since, now) : null;
@@ -77,6 +84,43 @@ const DcaCard: React.FC<DcaCardProps> = ({ bot, busy, now, onOpen, onStart, onSt
                     <DcaStatusBadge status={bot.status} />
                 </div>
             </header>
+
+            {/* PnL Hero: 核心收益與套利戰果看板（常駐展示，不因 armed 隱藏） */}
+            <div className="strategy-pnl-hero dca-pnl-hero">
+                <div className="pnl-hero-left">
+                    <span className="pnl-label">策略純淨收益 (Net PnL)</span>
+                    <span className={`pnl-amount font-mono ${netPnl === null ? '' : isPositivePnl ? 'positive' : 'negative'}`}>
+                        {money(netPnl)}
+                    </span>
+                    <div className="pnl-breakdown-sub" style={{ fontSize: '0.78rem', color: 'var(--text-muted, #8b949e)', marginTop: '2px' }}>
+                        <span>實現: <strong className={netRealized >= 0 ? 'positive' : 'negative'}>{money(netRealized)}</strong></span>
+                        <span style={{ margin: '0 4px' }}>·</span>
+                        <span>浮動: <strong className={(unrealized ?? 0) >= 0 ? 'positive' : 'negative'}>{money(unrealized)}</strong></span>
+                        {roi != null && (
+                            <span style={{ marginLeft: '4px' }}>
+                                ({roi >= 0 ? '+' : ''}{roi.toFixed(2)}%)
+                            </span>
+                        )}
+                    </div>
+                </div>
+
+                <div className="dca-hero-right" style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
+                    <span className="pnl-label">套利戰果</span>
+                    <span className="font-mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>
+                        {number(bot.cycles, 0)} <span style={{ fontSize: '0.8rem', fontWeight: 400, color: 'var(--text-muted)' }}>輪循環</span>
+                    </span>
+                    <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                        {bot.total_trades != null ? (
+                            <span><strong>{bot.total_trades}</strong> 筆成交</span>
+                        ) : hasPosition ? (
+                            <span>持倉中</span>
+                        ) : (
+                            <span>空倉待命中</span>
+                        )}
+                        {fees > 0 && <span> · 費 {money(fees)}</span>}
+                    </div>
+                </div>
+            </div>
 
             {/* armed 專屬提示（稽核 5.7：明確告知尚未掛單，避免誤以為故障） */}
             {armed && (
@@ -176,37 +220,49 @@ const DcaCard: React.FC<DcaCardProps> = ({ bot, busy, now, onOpen, onStart, onSt
                 <div className="metric-cell">
                     <dt>均價 / 現價</dt>
                     <dd className="font-mono">
-                        {number(bot.position?.average_cost ?? null)}
+                        {hasPosition ? number(bot.position?.average_cost ?? null) : '—'}
                         <span className="text-muted"> / {number(bot.current_price)}</span>
                     </dd>
                 </div>
                 <div className="metric-cell">
                     <dt>持倉量 / 名目</dt>
                     <dd className="font-mono">
-                        {number(bot.position?.quantity ?? null, 6)}
-                        <span className="text-muted"> · {money(notional)}</span>
+                        {hasPosition ? (
+                            <>
+                                {number(bot.position?.quantity ?? null, 6)}
+                                <span className="text-muted"> · {money(notional)}</span>
+                            </>
+                        ) : (
+                            <span className="text-muted">空倉待命</span>
+                        )}
                     </dd>
                 </div>
                 <div className="metric-cell">
                     <dt>未實現盈虧 / ROI</dt>
                     <dd className={`font-mono ${unrealized == null ? '' : unrealized >= 0 ? 'positive' : 'negative'}`}>
-                        {money(unrealized)}
-                        <span className="text-muted">
-                            {' '}· {roi == null ? '—' : `${roi >= 0 ? '+' : ''}${roi.toFixed(2)}%`}
-                        </span>
+                        {hasPosition ? (
+                            <>
+                                {money(unrealized)}
+                                <span className="text-muted">
+                                    {' '}· {roi == null ? '—' : `${roi >= 0 ? '+' : ''}${roi.toFixed(2)}%`}
+                                </span>
+                            </>
+                        ) : (
+                            <span className="text-muted">$0.00 (空倉)</span>
+                        )}
                     </dd>
                 </div>
                 <div className="metric-cell">
                     <dt>入場價 / 每筆金額</dt>
                     <dd className="font-mono">
-                        {number(bot.entry_price)}
+                        {hasPosition ? number(bot.entry_price) : '—'}
                         <span className="text-muted"> · {money(bot.base_order_amount)}</span>
                     </dd>
                 </div>
             </dl>
 
-            {/* 出場區塊（armed 時依 5.7 隱藏止盈價） */}
-            {!armed && (
+            {/* 出場與循環區塊（armed 時顯示目標%與歷史循環，averaging 時顯示確切價格與距離） */}
+            {!armed ? (
                 <dl className="strategy-metrics-matrix">
                     <div className="metric-cell">
                         <dt>止盈價（{number(bot.take_profit_percent)}%）</dt>
@@ -222,8 +278,31 @@ const DcaCard: React.FC<DcaCardProps> = ({ bot, busy, now, onOpen, onStart, onSt
                         </dd>
                     </div>
                     <div className="metric-cell">
-                        <dt>完成循環</dt>
-                        <dd className="font-mono">{number(bot.cycles, 0)} 輪</dd>
+                        <dt>完成循環 / 成交</dt>
+                        <dd className="font-mono">
+                            {number(bot.cycles, 0)} 輪
+                            {bot.total_trades != null && <span className="text-muted"> · {bot.total_trades} 筆</span>}
+                        </dd>
+                    </div>
+                </dl>
+            ) : (
+                <dl className="strategy-metrics-matrix">
+                    <div className="metric-cell">
+                        <dt>止盈目標</dt>
+                        <dd className="font-mono">+{number(bot.take_profit_percent)}%</dd>
+                    </div>
+                    <div className="metric-cell">
+                        <dt>止損保護</dt>
+                        <dd className="font-mono">
+                            {bot.stop_loss_percent != null ? `-${number(bot.stop_loss_percent)}%` : '—（未啟用）'}
+                        </dd>
+                    </div>
+                    <div className="metric-cell">
+                        <dt>完成循環 / 成交</dt>
+                        <dd className="font-mono">
+                            {number(bot.cycles, 0)} 輪
+                            {bot.total_trades != null && <span className="text-muted"> · {bot.total_trades} 筆</span>}
+                        </dd>
                     </div>
                 </dl>
             )}

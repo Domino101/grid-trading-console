@@ -23,6 +23,11 @@ class TpReplaceError(Exception):
         super().__init__(f"TP 重掛失敗（{'無 TP 保護中' if tp_missing else '舊 TP 仍在'}）: {reason}")
 
 
+class TpPositionClosedExternallyError(Exception):
+    """TP 掛單失敗且交易所持倉已歸零（外部已平倉）。coordinator 據此直接收輪完成。"""
+    pass
+
+
 class TakeProfitManager:
     """管理一台 bot 的止盈單生命週期。"""
 
@@ -50,6 +55,8 @@ class TakeProfitManager:
             DcaOrderRole.TAKE_PROFIT, self._close_side, price, position_qty,
             leg=self._direction,
         )
+        if outcome.kind is OutcomeKind.POSITION_CLOSED_EXTERNALLY:
+            raise TpPositionClosedExternallyError(outcome.reason or "position closed externally")
         if outcome.kind is not OutcomeKind.PLACED:
             raise TpReplaceError(outcome.reason or outcome.kind.value, tp_missing=True)
         self.current_tp = outcome.order
@@ -75,6 +82,8 @@ class TakeProfitManager:
             DcaOrderRole.TAKE_PROFIT, self._close_side, new_price, position_qty,
             leg=self._direction,
         )
+        if outcome.kind is OutcomeKind.POSITION_CLOSED_EXTERNALLY:
+            raise TpPositionClosedExternallyError(outcome.reason or "position closed externally")
         if outcome.kind is not OutcomeKind.PLACED:
             raise TpReplaceError(outcome.reason or outcome.kind.value, tp_missing=True)
         self.current_tp = outcome.order

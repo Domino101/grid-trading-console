@@ -125,6 +125,7 @@ export interface DashboardAggregate {
     grid_profit?: number;
     realized_pnl: number;
     unrealized_pnl: number;
+    total_pnl?: number;
     fees: number;
     net_pnl: number;
     volume: number;
@@ -152,6 +153,7 @@ export interface DashboardGridItem {
     realized_pnl: number | null;
     unrealized_pnl: number | null;
     account_unrealized_pnl?: number | null;
+    total_pnl?: number | null;
     fees: number | null;
     net_pnl: number | null;
     pnl_rate: number | null;
@@ -340,9 +342,11 @@ export interface GridBacktestSweepResponse {
 export interface GridHistoryPoint {
     recorded_at: number;
     current_price: number | null;
+    total_pnl?: number | null;
     net_pnl: number | null;
     realized_pnl: number | null;
     unrealized_pnl: number | null;
+    fees?: number | null;
     equity: number | null;
 }
 
@@ -369,6 +373,7 @@ export interface GridFillRow {
     amount?: number | null;
     fee?: number | null;
     time?: string | number | null;
+    profit?: number | null;
 }
 
 export interface GridFillsResponse {
@@ -528,6 +533,7 @@ export interface DcaSnapshotItem {
     position: DcaPosition | null;
     ladder: DcaLadderState | null;
     cycles: number | null;
+    total_trades?: number | null;
     profit: DcaProfit | null;
     base_order_amount: number | null;
     max_safety_orders: number | null;
@@ -613,6 +619,7 @@ export interface DcaStatsResponse {
     position: DcaPosition | null;
     ladder: DcaLadderState | null;
     cycles: number | null;
+    total_trades?: number | null;
     profit: DcaProfit | null;
 }
 
@@ -1002,6 +1009,18 @@ export interface MarketIndicatorsResponse {
     cached: boolean;
 }
 
+export const generateUUID = (): string => {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+    }
+    // Fallback for non-secure contexts (e.g. HTTP access by IP)
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = (Math.random() * 16) | 0;
+        const v = c === 'x' ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+    });
+};
+
 const authHeaders = (idempotencyKey?: string): Headers => {
     const headers = new Headers();
     headers.set('Content-Type', 'application/json');
@@ -1187,18 +1206,20 @@ export const api = {
         );
     },
 
-    async startGrid(gridId: string, source: string = 'dashboard', idempotencyKey = crypto.randomUUID()): Promise<GridActionResponse> {
+    async startGrid(gridId: string, source: string = 'dashboard', idempotencyKey?: string): Promise<GridActionResponse> {
+        const key = idempotencyKey || generateUUID();
         return requestJson(
             `/v1/grids/${encodeURIComponent(gridId)}/start?source=${encodeURIComponent(source)}`,
-            { method: 'POST', headers: authHeaders(idempotencyKey) },
+            { method: 'POST', headers: authHeaders(key) },
             `Failed to start grid ${gridId}`,
         );
     },
 
-    async stopGrid(gridId: string, source: string = 'dashboard', idempotencyKey = crypto.randomUUID()): Promise<GridActionResponse> {
+    async stopGrid(gridId: string, source: string = 'dashboard', idempotencyKey?: string): Promise<GridActionResponse> {
+        const key = idempotencyKey || generateUUID();
         return requestJson(
             `/v1/grids/${encodeURIComponent(gridId)}/stop?source=${encodeURIComponent(source)}`,
-            { method: 'POST', headers: authHeaders(idempotencyKey) },
+            { method: 'POST', headers: authHeaders(key) },
             `Failed to stop grid ${gridId}`,
         );
     },
@@ -1244,18 +1265,20 @@ export const api = {
         return requestJson(`/v1/dca/${encodeURIComponent(botId)}/events`, { headers: authHeaders(), signal }, `無法讀取 DCA ${botId} 事件`);
     },
 
-    async startDca(botId: string, source: string = 'dashboard', idempotencyKey = crypto.randomUUID()): Promise<DcaActionResponse> {
+    async startDca(botId: string, source: string = 'dashboard', idempotencyKey?: string): Promise<DcaActionResponse> {
+        const key = idempotencyKey || generateUUID();
         return requestJson(
             `/v1/dca/${encodeURIComponent(botId)}/start?source=${encodeURIComponent(source)}`,
-            { method: 'POST', headers: authHeaders(idempotencyKey) },
+            { method: 'POST', headers: authHeaders(key) },
             `無法啟動 DCA ${botId}`,
         );
     },
 
-    async stopDca(botId: string, source: string = 'dashboard', idempotencyKey = crypto.randomUUID()): Promise<DcaActionResponse> {
+    async stopDca(botId: string, source: string = 'dashboard', idempotencyKey?: string): Promise<DcaActionResponse> {
+        const key = idempotencyKey || generateUUID();
         return requestJson(
             `/v1/dca/${encodeURIComponent(botId)}/stop?source=${encodeURIComponent(source)}`,
-            { method: 'POST', headers: authHeaders(idempotencyKey) },
+            { method: 'POST', headers: authHeaders(key) },
             `無法停止 DCA ${botId}`,
         );
     },

@@ -33,7 +33,11 @@ from ..models.dca_state import DcaState, DcaStatus, SlotStatus
 from ..models.dca_statistics import DcaStatistics
 from .direction_lock import DirectionLock
 from .entry_monitor import EntryMonitor, OhlcvProvider
-from .take_profit_manager import TakeProfitManager, TpReplaceError
+from .take_profit_manager import (
+    TakeProfitManager,
+    TpPositionClosedExternallyError,
+    TpReplaceError,
+)
 from core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -153,11 +157,15 @@ class DcaCoordinator:
                     self.state.total_cost = total_cost
                     self.state.entry_price = entry_px
                     self.state.active_direction = direction
-                    if status_val in ("triggering", "averaging", "degraded"):
-                        self.state.status = DcaStatus(status_val)
+                    if status_val == "triggering":
+                        self.state.status = DcaStatus.TRIGGERING
                     else:
                         self.state.status = DcaStatus.AVERAGING
                     self._lock.active = direction
+                    if not self.state.safety_slots and entry_px:
+                        from ..ladder import build_ladder
+                        plan = build_ladder(self._config, entry_px, direction)
+                        self.state.init_slots(plan.levels)
                 
                 logger.info(
                     f"🔄 [DCA {self._config.symbol}] 已從快照恢復歷史數據: 輪數={self.state.cycle_count}, "
@@ -205,10 +213,15 @@ class DcaCoordinator:
                 elif slot == "tp":
                     order.role = DcaOrderRole.TAKE_PROFIT
                     self._tp_client_id = cid
+                    if self._tp_manager is not None:
+                        self._tp_manager.current_tp = order
                 elif slot.startswith("so"):
                     order.role = DcaOrderRole.SAFETY
                     try:
                         order.slot_index = int(slot[2:])
+                        for s in self.state.safety_slots:
+                            if s.index == order.slot_index:
+                                s.mark_active(order.price)
                     except ValueError:
                         pass
                 elif slot == "sl":
@@ -434,6 +447,21 @@ class DcaCoordinator:
         if self._flag_round_finished:
             await self._finish_round()
             return
+
+        # 持倉真值自癒巡檢（方案 1-A）：
+        # 若本機記錄有持倉，但向交易所反查持倉已歸 0（外部已平倉完畢），自動收輪完成
+        if self.state.position_quantity > Decimal("0"):
+            pos = await self._executor.fetch_position()
+            if pos is not None and pos.get("size") == Decimal("0"):
+                logger.info(
+                    "降級巡檢偵測到交易所持倉已歸零（外部已平倉），自動收輪完成並推進至下一輪",
+                    extra={"symbol": self._config.symbol, "bot_id": self._bot_id,
+                           "action": "degraded_reconcile_self_healing"},
+                )
+                self._flag_round_finished = True
+                await self._finish_round()
+                return
+
         # TP 重掛持續重試（稽核 2.6：不可靜默留在無 TP 狀態）
         await self._attempt_tp_replace()
 
@@ -471,6 +499,14 @@ class DcaCoordinator:
             )
             self._tp_client_id = tp.client_order_id
             self._active[tp.client_order_id] = tp
+        except TpPositionClosedExternallyError:
+            logger.info(
+                "首次 TP 掛單檢測到交易所持倉已為 0，本輪直接完成",
+                extra={"symbol": self._config.symbol, "bot_id": self._bot_id},
+            )
+            self._flag_round_finished = True
+            await self._finish_round()
+            return
         except TpReplaceError:
             self._pending_tp_replace = True
             logger.warning(
@@ -600,12 +636,29 @@ class DcaCoordinator:
         avg = self.state.average_cost
         if avg is None or self.state.position_quantity <= 0:
             return
+        if self._tp_manager is None:
+            from .take_profit_manager import TakeProfitManager
+            direction = self.state.active_direction or getattr(self._config, "direction", "long")
+            if direction not in ("long", "short"):
+                direction = "long"
+            self._tp_manager = TakeProfitManager(self._executor, direction)
+            if self._tp_client_id and self._tp_client_id in self._active:
+                self._tp_manager.current_tp = self._active[self._tp_client_id]
         old_id = self._tp_client_id
         try:
             new_tp = await self._tp_manager.replace(
                 avg, self._config.take_profit_percent,
                 self.state.position_quantity,
             )
+        except TpPositionClosedExternallyError:
+            logger.info(
+                "TP 重掛檢測到交易所持倉已為 0，本輪自動完成",
+                extra={"symbol": self._config.symbol, "bot_id": self._bot_id,
+                       "action": "tp_replace", "result": "completed_externally"},
+            )
+            self._flag_round_finished = True
+            await self._finish_round()
+            return
         except TpReplaceError as exc:
             self._pending_tp_replace = True
             if exc.tp_missing:
@@ -805,12 +858,26 @@ class DcaCoordinator:
                            "client_order_id": client_id},
                 )
 
+        # 持倉真值巡檢（方案 1-A）：當本機有持倉且處於 AVERAGING 或 DEGRADED 時，若交易所持倉已歸零，自動標記本輪完成
+        if self.state.position_quantity > Decimal("0") and self.state.status in (DcaStatus.AVERAGING, DcaStatus.DEGRADED):
+            pos = await self._executor.fetch_position()
+            if pos is not None and pos.get("size") == Decimal("0"):
+                logger.info(
+                    "對帳巡檢偵測到交易所持倉已歸零（外部已平倉），自動標記本輪完成",
+                    extra={"symbol": self._config.symbol, "bot_id": self._bot_id,
+                           "action": "reconcile_self_healing"},
+                )
+                self._flag_round_finished = True
+
     # ══════════════════ 收輪 / 停止 ══════════════════
 
     async def _finish_round(self) -> None:
         self._flag_round_finished = False
         await self._cancel_all_tracked()   # 撤殘餘安全單（稽核 2.9：掛單數歸 0）
-        self._transition(DcaStatus.COMPLETED)
+        self.state.position_quantity = Decimal("0")
+        self.state.total_cost = Decimal("0")
+        if self.state.status != DcaStatus.COMPLETED:
+            self._transition(DcaStatus.COMPLETED)
 
     async def _cancel_all_tracked(self) -> None:
         for client_id, order in list(self._active.items()):
@@ -884,6 +951,13 @@ class DcaCoordinator:
             if s.status in (SlotStatus.ACTIVE, SlotStatus.WAITING)
         ]
         if not pending:
+            active_so_prices = [
+                o.price for o in self._active.values()
+                if getattr(o, "role", None) is DcaOrderRole.SAFETY and getattr(o, "price", None) is not None
+                and getattr(o, "is_active_on_exchange", lambda: True)()
+            ]
+            if active_so_prices:
+                return max(active_so_prices) if state.active_direction == "long" else min(active_so_prices)
             return None
         return max(pending) if state.active_direction == "long" else min(pending)
 
@@ -909,34 +983,21 @@ class DcaCoordinator:
         snapshots = []
         for i, res in enumerate(results_for_dir):
             cfg = indicators_cfg[i] if i < len(indicators_cfg) else None
-            ind_type = getattr(cfg, "type", None)
-            if ind_type is None and cfg is not None:
-                from ..indicators import _indicator_type
-                try:
-                    ind_type = _indicator_type(cfg).value
-                except Exception:
-                    ind_type = type(cfg).__name__.lower().replace("config", "")
-            elif hasattr(ind_type, "value"):
-                ind_type = ind_type.value
-
-            long_res = (self._entry_monitor.last_indicator_results.get("long") or [])
-            short_res = (self._entry_monitor.last_indicator_results.get("short") or [])
-            trig_long = long_res[i].triggered if i < len(long_res) else None
-            trig_short = short_res[i].triggered if i < len(short_res) else None
-
+            t = getattr(cfg, "type", "unknown") if cfg else "unknown"
             snapshots.append({
-                "type": str(ind_type) if ind_type else None,
-                "value": res.value,
+                "type": t,
+                "value": float(res.value) if res.value is not None else None,
                 "triggered": res.triggered,
-                "triggered_long": trig_long,
-                "triggered_short": trig_short,
-                "insufficient_data": res.insufficient_data,
-                "warmup_have": res.warmup_have,
-                "warmup_need": res.warmup_need,
-                "as_of": res.as_of,
-                "details": res.details if isinstance(res.details, dict) else {},
+                "triggered_long": getattr(res, "triggered_long", None),
+                "triggered_short": getattr(res, "triggered_short", None),
+                "insufficient_data": getattr(res, "insufficient_data", False),
+                "warmup_have": getattr(res, "warmup_have", 0),
+                "warmup_need": getattr(res, "warmup_need", 0),
+                "details": getattr(res, "details", None),
             })
         return snapshots
+
+    # ══════════════════ 統計導出 ══════════════════
 
     def build_statistics(self, last_price: Optional[Decimal] = None) -> DcaStatistics:
         state = self.state
@@ -960,6 +1021,7 @@ class DcaCoordinator:
             active_safety_orders=self._active_safety_count(),
             take_profit_orders=active_tp,
             cycle_count=state.cycle_count,
+            total_trades=len(self._fills),
             realized_profit=self._realized_profit,
             total_fees=self._total_fees,
             indicator_results=self.indicator_results_snapshot(),
@@ -1006,18 +1068,40 @@ class DcaCoordinator:
         index 0 為基礎單，其後為安全單槽位；狀態三態：已成交/掛單中/未觸及。
         """
         rows: List[dict] = []
-        base_filled = self._base_order is not None and self._base_order.is_filled()
-        if self._base_order is not None:
+        base_filled = (
+            (self._base_order is not None and self._base_order.is_filled())
+            or (self.state.position_quantity > 0 and self.state.entry_price is not None)
+            or (self.state.status in (DcaStatus.AVERAGING, DcaStatus.DEGRADED, DcaStatus.COMPLETED))
+        )
+        base_price = (
+            float(self._base_order.price)
+            if self._base_order is not None and self._base_order.price is not None
+            else (float(self.state.entry_price) if self.state.entry_price is not None else None)
+        )
+        base_qty = (
+            float(self._base_order.quantity)
+            if self._base_order is not None and self._base_order.quantity is not None
+            else None
+        )
+        base_filled_price = (
+            float(self._base_order.average_fill_price)
+            if self._base_order is not None and self._base_order.average_fill_price is not None
+            else (float(self.state.entry_price) if self.state.entry_price is not None else None)
+        )
+        base_filled_qty = (
+            float(self._base_order.filled_quantity)
+            if self._base_order is not None and self._base_order.filled_quantity
+            else None
+        )
+        if base_price is not None or self._base_order is not None:
             rows.append({
                 "index": 0,
                 "role": "base",
-                "status": "filled" if base_filled else "active",
-                "planned_price": float(self._base_order.price),
-                "planned_quantity": float(self._base_order.quantity),
-                "filled_price": float(self._base_order.average_fill_price)
-                if self._base_order.average_fill_price is not None else None,
-                "filled_quantity": float(self._base_order.filled_quantity)
-                if self._base_order.filled_quantity else None,
+                "status": "filled" if base_filled else ("active" if self._base_order is not None else "waiting"),
+                "planned_price": base_price,
+                "planned_quantity": base_qty,
+                "filled_price": base_filled_price if base_filled else None,
+                "filled_quantity": base_filled_qty if base_filled else None,
             })
         for slot in self.state.safety_slots:
             if slot.status is SlotStatus.FILLED:

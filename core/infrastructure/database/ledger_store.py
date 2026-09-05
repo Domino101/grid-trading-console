@@ -91,7 +91,7 @@ class LedgerStore(typing.Protocol):
     def get_bot_by_config(self, config_path: str) -> Optional[BotRecord]: ...
     def get_all_bots(self) -> List[BotRecord]: ...
     def record_fill(self, fill: TradeFill) -> None: ...
-    def get_fills(self, bot_id: str, limit: int = 500, since: float = 0.0) -> List[TradeFill]: ...
+    def get_fills(self, bot_id: str, limit: int = 500, since: float = 0.0, order_desc: bool = False) -> List[TradeFill]: ...
     def append_event(
         self,
         bot_id: str,
@@ -673,12 +673,13 @@ class SQLAlchemyLedgerStore:
             )
             conn.execute(stmt)
 
-    def get_fills(self, bot_id: str, limit: int = 500, since: float = 0.0) -> List[TradeFill]:
+    def get_fills(self, bot_id: str, limit: int = 500, since: float = 0.0, order_desc: bool = False) -> List[TradeFill]:
+        order = trade_fills.c.executed_at.desc() if order_desc else trade_fills.c.executed_at.asc()
         with self._lock, self._ro() as conn:
             rows = conn.execute(
                 select(trade_fills)
                 .where(trade_fills.c.bot_id == bot_id, trade_fills.c.executed_at >= since)
-                .order_by(trade_fills.c.executed_at.asc())
+                .order_by(order)
                 .limit(limit)
             ).all()
         return [self._fill_from_row(r) for r in rows]
@@ -941,11 +942,11 @@ class SQLAlchemyLedgerStore:
             rows = conn.execute(
                 select(grid_runtime_history.c.payload, grid_runtime_history.c.recorded_at)
                 .where(grid_runtime_history.c.config_path == config_path, grid_runtime_history.c.recorded_at >= since)
-                .order_by(grid_runtime_history.c.recorded_at.asc())
+                .order_by(grid_runtime_history.c.recorded_at.desc())
                 .limit(limit)
             ).all()
         result: List[Tuple[dict, float]] = []
-        for row in rows:
+        for row in reversed(rows):
             try:
                 payload = json.loads(row.payload)
                 if isinstance(payload, dict):

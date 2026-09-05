@@ -46,6 +46,7 @@ class DcaStatistics:
 
     # 循環與損益
     cycle_count: int = 0
+    total_trades: int = 0
     realized_profit: Decimal = Decimal("0")
     total_fees: Decimal = Decimal("0")
     unrealized_profit: Optional[Decimal] = None
@@ -74,6 +75,7 @@ class DcaStatistics:
                 "take_profit_orders": self.take_profit_orders,
             },
             "cycles": self.cycle_count,
+            "total_trades": self.total_trades,
             "profit": {
                 "realized": float(self.realized_profit),
                 "unrealized": _to_float(self.unrealized_profit),

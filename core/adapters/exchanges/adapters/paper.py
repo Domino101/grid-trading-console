@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import os
 import random as _random
+import time
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -144,6 +145,7 @@ class PaperExchangeAdapter(ExchangeInterface):
         self._cash = self._starting_equity
         self._fee_rate = _as_decimal(os.getenv("PAPER_FEE_RATE", "0.0002"), "0.0002")
         self._last: Dict[str, Decimal] = {}
+        self._last_price_fetch_time: Dict[str, float] = {}
         self._orders: Dict[str, OrderData] = {}
         self._all_orders: Dict[str, OrderData] = {}
         self._position_size = Decimal("0")
@@ -228,17 +230,26 @@ class PaperExchangeAdapter(ExchangeInterface):
     def _resolve_price(self, symbol: str) -> Decimal:
         if self._ticker_provider is not None:
             return _as_decimal(self._ticker_provider(symbol))
-        if symbol in self._last:
+        now = time.time()
+        last_fetch = getattr(self, '_last_price_fetch_time', {})
+        if symbol in self._last and (now - last_fetch.get(symbol, 0)) < 2.0:
             return self._last[symbol]
         try:
             import ccxt
-            exchange_id = (self.config.extra_params or {}).get("venue") or "binance"
+            exchange_id = (self.config.extra_params or {}).get("venue") or self.config.exchange_id or "binance"
+            if str(exchange_id).lower() == "paper":
+                exchange_id = "binance"
             klass = getattr(ccxt, str(exchange_id).lower(), None)
             if klass is None:
-                raise RuntimeError("unsupported venue")
+                raise RuntimeError(f"unsupported venue {exchange_id}")
             client = klass({"enableRateLimit": True, "options": {"defaultType": "swap"}})
             ticker = client.fetch_ticker(symbol)
-            return _as_decimal(ticker.get("last") or ticker.get("close"))
+            price = _as_decimal(ticker.get("last") or ticker.get("close"))
+            self._last[symbol] = price
+            if not hasattr(self, '_last_price_fetch_time'):
+                self._last_price_fetch_time = {}
+            self._last_price_fetch_time[symbol] = now
+            return price
         except Exception as exc:
             if symbol in self._last:
                 return self._last[symbol]
@@ -574,9 +585,18 @@ class PaperExchangeAdapter(ExchangeInterface):
     async def cancel_order(self, order_id: str, symbol: str) -> OrderData:
         order = self._orders.pop(order_id, None)
         if order is None:
-            raise Exception("Unknown order sent")
+            order = self._all_orders.get(order_id)
+            if order is None:
+                raise Exception("Unknown order sent")
         order.status = OrderStatus.CANCELED
         order.updated = datetime.now()
+        for callback in list(self._user_callbacks):
+            try:
+                res = callback(order)
+                if asyncio.iscoroutine(res):
+                    await res
+            except Exception:
+                pass
         return order
 
     async def cancel_all_orders(self, symbol: Optional[str] = None) -> List[OrderData]:
@@ -588,6 +608,13 @@ class PaperExchangeAdapter(ExchangeInterface):
             order.updated = datetime.now()
             self._orders.pop(order_id, None)
             cancelled.append(order)
+            for callback in list(self._user_callbacks):
+                try:
+                    res = callback(order)
+                    if asyncio.iscoroutine(res):
+                        await res
+                except Exception:
+                    pass
         return cancelled
 
     async def get_order(self, order_id: str, symbol: str) -> OrderData:

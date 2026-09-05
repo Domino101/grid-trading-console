@@ -149,8 +149,8 @@ class LedgerRepository:
     def record_fill(self, fill: TradeFill) -> None:
         self._store.record_fill(fill)
 
-    def get_fills(self, bot_id: str, limit: int = 500, since: float = 0.0) -> List[TradeFill]:
-        return self._store.get_fills(bot_id, limit, since)
+    def get_fills(self, bot_id: str, limit: int = 500, since: float = 0.0, order_desc: bool = False) -> List[TradeFill]:
+        return self._store.get_fills(bot_id, limit=limit, since=since, order_desc=order_desc)
 
     # ══════════════════ P3-1 事件流 ══════════════════
     def append_event(

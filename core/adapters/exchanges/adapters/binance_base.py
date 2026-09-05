@@ -193,47 +193,108 @@ class BinanceBase:
         return symbol.upper()
     
     def map_symbol_to_binance(self, symbol: str) -> str:
-        """映射通用符号到Binance格式"""
-        mapped = self._symbol_mapping.get(symbol)
+        """映射通用符号到Binance格式（支援原生ID、斜線對、小寫、CCXT永續格式、分隔符等）"""
+        if not symbol:
+            return ""
+
+        s = symbol.strip()
+        s_upper = s.upper()
+
+        mapped = self._symbol_mapping.get(symbol) or self._symbol_mapping.get(s_upper)
         if mapped:
+            markets = self._market_info or {}
+            if markets:
+                if mapped in markets and isinstance(markets[mapped], dict) and markets[mapped].get("id"):
+                    return markets[mapped]["id"]
+                clean_mapped = mapped.split(":")[0].replace("/", "").replace("-", "").replace("_", "")
+                for m in markets.values():
+                    if isinstance(m, dict) and m.get("id") == clean_mapped:
+                        return m["id"]
+            if ":" in mapped or "/" in mapped:
+                return mapped.split(":")[0].replace("/", "").replace("-", "").replace("_", "")
             return mapped
 
         try:
-            s = symbol.upper()
-            base = s.split("/")[0]
-
-            # 首選：根據報價幣種組裝候選
-            prefer_usdc = (":USDC" in s) or s.endswith("/USDC")
-
-            candidate_usdc = f"{base}USDC"
-            candidate_usdt = f"{base}USDT"
-
-            # 若市場信息可用，優先選擇存在的合約ID
             markets = self._market_info or {}
-            market_ids = set(markets.keys())
+            if markets:
+                if s in markets and isinstance(markets[s], dict) and markets[s].get("id"):
+                    return markets[s]["id"]
+                if s_upper in markets and isinstance(markets[s_upper], dict) and markets[s_upper].get("id"):
+                    return markets[s_upper]["id"]
 
-            # ccxt市場鍵通常包含統一符號，如 "BASE/USDT:USDT"，但我們向fetch_ticker傳遞ID
-            # 使用存在性判斷回退到USDT
-            if prefer_usdc:
-                if candidate_usdc in market_ids:
-                    return candidate_usdc
-                if candidate_usdt in market_ids:
-                    return candidate_usdt
-                return candidate_usdc
+                s_no_settle = s_upper.split(":")[0]
+                clean = s_no_settle.replace("/", "").replace("-", "").replace("_", "")
+
+                for m in markets.values():
+                    if not isinstance(m, dict):
+                        continue
+                    m_id = m.get("id")
+                    if not m_id:
+                        continue
+                    if clean == m_id or s_upper == m_id or s == m_id:
+                        return m_id
+                    m_low = m.get("lowercaseId")
+                    if m_low and (clean.lower() == m_low or s.lower() == m_low):
+                        return m_id
+                    m_sym = m.get("symbol")
+                    if m_sym and (s == m_sym or s_upper == m_sym or s_no_settle == m_sym.split(":")[0]):
+                        return m_id
+
+            prefer_usdc = (":USDC" in s_upper) or s_upper.endswith("/USDC") or s_upper.endswith("-USDC") or s_upper.endswith("_USDC")
+            s_clean_base = s_upper.split(":")[0]
+
+            if "/" in s_clean_base:
+                parts = s_clean_base.split("/")
+                base, quote = parts[0].strip(), parts[1].strip()
+            elif "-" in s_clean_base:
+                parts = s_clean_base.split("-")
+                base, quote = parts[0].strip(), parts[1].strip()
+            elif "_" in s_clean_base:
+                parts = s_clean_base.split("_")
+                base, quote = parts[0].strip(), parts[1].strip()
             else:
-                if candidate_usdt in market_ids:
-                    return candidate_usdt
-                if candidate_usdc in market_ids:
-                    return candidate_usdc
-                return candidate_usdt
+                found_quote = None
+                for q in ("USDT", "USDC", "BUSD", "FDUSD", "TUSD", "BTC", "ETH", "BNB"):
+                    if s_clean_base.endswith(q) and len(s_clean_base) > len(q):
+                        found_quote = q
+                        base = s_clean_base[:-len(q)]
+                        quote = q
+                        break
+                if not found_quote:
+                    base = s_clean_base
+                    quote = "USDC" if prefer_usdc else "USDT"
+
+            candidate = f"{base}{quote}"
+            if prefer_usdc and not candidate.endswith("USDC"):
+                candidate_usdc = f"{base}USDC"
+                if markets:
+                    for m in markets.values():
+                        if isinstance(m, dict) and m.get("id") == candidate_usdc:
+                            return candidate_usdc
+            return candidate
         except Exception:
             pass
         return symbol
     
     def map_symbol_from_binance(self, binance_symbol: str) -> str:
         """反向映射Binance符号到通用格式"""
+        if not binance_symbol:
+            return ""
         reverse_mapping = {v: k for k, v in self._symbol_mapping.items()}
-        return reverse_mapping.get(binance_symbol, binance_symbol)
+        if binance_symbol in reverse_mapping:
+            return reverse_mapping[binance_symbol]
+
+        markets = self._market_info or {}
+        if markets:
+            for sym, m in markets.items():
+                if isinstance(m, dict) and m.get("id") == binance_symbol:
+                    return m.get("symbol", sym)
+
+        s = binance_symbol.upper()
+        for q in ("USDT", "USDC", "BUSD", "FDUSD", "TUSD"):
+            if s.endswith(q) and len(s) > len(q):
+                return f"{s[:-len(q)]}/{q}"
+        return binance_symbol
     
     def _safe_decimal(self, value: Any) -> Optional[Decimal]:
         """安全转换为Decimal"""
@@ -413,24 +474,50 @@ class BinanceBase:
         )
     
     def parse_position(self, position_info: Dict[str, Any]) -> PositionData:
-        """解析持仓数据"""
-        symbol = self.map_symbol_from_binance(position_info.get('symbol', ''))
-        side = PositionSide.LONG if float(position_info.get('positionAmt', 0)) > 0 else PositionSide.SHORT
+        """解析持仓数据，兼容 CCXT 统一结构及 Binance 原始结构"""
+        raw_info = position_info.get('info', position_info) if isinstance(position_info, dict) else position_info
         
+        # 符号解析：CCXT 的 symbol 已经是标准格式（如 ETH/USDC:USDC），若无则自原始 symbol 映射
+        symbol = position_info.get('symbol')
+        if not symbol or (':' not in symbol and '/' not in symbol):
+            symbol = self.map_symbol_from_binance(raw_info.get('symbol', ''))
+            
+        # 仓位大小与方向解析
+        raw_amt = raw_info.get('positionAmt')
+        if raw_amt is not None:
+            amt_float = float(raw_amt)
+            side = PositionSide.LONG if amt_float > 0 else PositionSide.SHORT
+            size = self._safe_decimal(abs(amt_float))
+        else:
+            contracts = position_info.get('contracts') or position_info.get('contractSize') or 0
+            amt_float = float(contracts)
+            side_str = str(position_info.get('side', '')).lower()
+            side = PositionSide.LONG if side_str == 'long' else PositionSide.SHORT
+            size = self._safe_decimal(abs(amt_float))
+
+        entry_px = raw_info.get('entryPrice') or position_info.get('entryPrice')
+        mark_px = raw_info.get('markPrice') or position_info.get('markPrice')
+        unrealized = raw_info.get('unRealizedProfit') or position_info.get('unrealizedPnl')
+        roe = raw_info.get('roe') or position_info.get('percentage')
+        lev = raw_info.get('leverage') or position_info.get('leverage', 1)
+        margin_type = raw_info.get('marginType') or position_info.get('marginMode')
+        isolated_margin = raw_info.get('isolatedMargin') or position_info.get('initialMargin')
+        liq_px = raw_info.get('liquidationPrice') or position_info.get('liquidationPrice')
+
         return PositionData(
-            symbol=symbol,
+            symbol=symbol or '',
             side=side,
-            size=self._safe_decimal(abs(float(position_info.get('positionAmt', 0)))),
-            entry_price=self._safe_decimal(position_info.get('entryPrice')),
-            mark_price=self._safe_decimal(position_info.get('markPrice')),
-            current_price=self._safe_decimal(position_info.get('markPrice')),
-            unrealized_pnl=self._safe_decimal(position_info.get('unRealizedProfit')),
-            realized_pnl=None,  # Binance position数据中不直接包含
-            percentage=self._safe_decimal(position_info.get('roe')),
-            leverage=self._safe_int(position_info.get('leverage', 1)),
-            margin_mode=MarginMode.CROSS if position_info.get('marginType') == 'cross' else MarginMode.ISOLATED,
-            margin=self._safe_decimal(position_info.get('isolatedMargin')),
-            liquidation_price=self._safe_decimal(position_info.get('liquidationPrice')),
+            size=size or Decimal('0'),
+            entry_price=self._safe_decimal(entry_px),
+            mark_price=self._safe_decimal(mark_px),
+            current_price=self._safe_decimal(mark_px),
+            unrealized_pnl=self._safe_decimal(unrealized),
+            realized_pnl=None,
+            percentage=self._safe_decimal(roe),
+            leverage=self._safe_int(lev or 1),
+            margin_mode=MarginMode.CROSS if margin_type == 'cross' else MarginMode.ISOLATED,
+            margin=self._safe_decimal(isolated_margin),
+            liquidation_price=self._safe_decimal(liq_px),
             timestamp=datetime.now(),
             raw_data=position_info
         )

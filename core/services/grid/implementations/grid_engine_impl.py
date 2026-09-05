@@ -1284,6 +1284,8 @@ class GridEngineImpl(IGridEngine):
 
     def _remove_order_from_pending(self, order_id: str) -> int:
         if order_id not in self._pending_orders:
+            if order_id in self._pending_orders_by_client_id:
+                del self._pending_orders_by_client_id[order_id]
             return 0
         order_obj = self._pending_orders[order_id]
         order_obj_id = id(order_obj)
@@ -1293,6 +1295,8 @@ class GridEngineImpl(IGridEngine):
         ]
         for key in keys_to_remove:
             del self._pending_orders[key]
+        if getattr(order_obj, 'client_id', None) and order_obj.client_id in self._pending_orders_by_client_id:
+            del self._pending_orders_by_client_id[order_obj.client_id]
         return len(keys_to_remove)
 
     async def cancel_order(self, order_id: str) -> bool:
@@ -1893,23 +1897,74 @@ class GridEngineImpl(IGridEngine):
                 return 0
             open_orders = await self.exchange.get_open_orders(self.config.symbol)
             open_order_ids = {order.id for order in open_orders if order.id}
+            open_client_ids = {order.client_id for order in open_orders if order.client_id}
             filled_orders = []
+
             for order_id, grid_order in list(self._pending_orders.items()):
-                if order_id not in open_order_ids:
+                # 1. 仍在交易所 open_orders 中：跳過
+                if order_id in open_order_ids or (grid_order.client_id and grid_order.client_id in open_client_ids):
+                    continue
+
+                # 2. 屬於預期主動撤單（如窗口刷新、手動撤單）：清理並移出 pending
+                is_expected = (
+                    order_id in self._expected_cancellations
+                    or (grid_order.client_id and grid_order.client_id in self._expected_cancellations)
+                )
+                if is_expected:
+                    self.logger.info(f"ℹ️ 主動撤單確認已自掛單中消失: {order_id}，移出 pending")
+                    self._expected_cancellations.discard(order_id)
+                    if grid_order.client_id:
+                        self._expected_cancellations.discard(grid_order.client_id)
+                    grid_order.mark_cancelled()
+                    self._remove_order_from_pending(order_id)
+                    continue
+
+                # 3. 既不在 open_orders，亦非已知主動撤單：調用 get_order 反查真實狀態，絕不武斷推定成交！
+                try:
+                    ex_order = await self.exchange.get_order(order_id, self.config.symbol)
+                except Exception as query_err:
+                    self.logger.warning(
+                        f"⚠️ 反查訂單 {order_id} 狀態失敗（保留 pending 待下輪重試）: {query_err}"
+                    )
+                    continue
+
+                if ex_order is None:
+                    self.logger.warning(f"⚠️ 交易所無訂單 {order_id} 記錄，保留 pending 待下輪重試")
+                    continue
+
+                status_val = (
+                    getattr(ex_order.status, "value", str(ex_order.status))
+                    if ex_order.status else ""
+                ).lower()
+
+                if status_val in ("filled", "closed"):
+                    filled_price = Decimal(str(ex_order.average or ex_order.price or grid_order.price))
+                    filled_amount = Decimal(str(ex_order.filled if (ex_order.filled and ex_order.filled > 0) else grid_order.amount))
+                    grid_order.filled_price = filled_price
+                    grid_order.filled_amount = filled_amount
                     filled_orders.append((order_id, grid_order))
+                elif status_val in ("canceled", "cancelled", "rejected", "expired"):
+                    self.logger.info(
+                        f"ℹ️ REST輪詢確認訂單 {order_id} 狀態為 {status_val.upper()}，移出 pending（不計入成交）"
+                    )
+                    grid_order.mark_cancelled()
+                    self._remove_order_from_pending(order_id)
+                elif status_val in ("open", "pending"):
+                    self.logger.debug(f"訂單 {order_id} 交易所狀態仍為 {status_val}，保留 pending")
+                    continue
+                else:
+                    self.logger.warning(
+                        f"⚠️ 訂單 {order_id} 狀態未知 ({status_val})，保留 pending 待觀察"
+                    )
+                    continue
 
             for order_id, grid_order in filled_orders:
                 self.logger.info(
-                    f"📊 REST轮询检测到订单成交: {grid_order.side.value} "
+                    f"📊 REST轮询检测到订单真实成交: {grid_order.side.value} "
                     f"{grid_order.amount}@{grid_order.price} (Grid {grid_order.grid_id})"
                 )
                 grid_order.mark_filled(grid_order.price, grid_order.amount)
-                del self._pending_orders[order_id]
-                try:
-                    if grid_order.client_id and grid_order.client_id in self._pending_orders_by_client_id:
-                        del self._pending_orders_by_client_id[grid_order.client_id]
-                except Exception:
-                    pass
+                self._remove_order_from_pending(order_id)
                 for callback in self._order_callbacks:
                     try:
                         if asyncio.iscoroutinefunction(callback):
@@ -1920,7 +1975,7 @@ class GridEngineImpl(IGridEngine):
                         self.logger.error(f"订单回调执行失败: {e}")
 
             if filled_orders:
-                self.logger.info(f"✅ REST轮询处理了 {len(filled_orders)} 个成交订单")
+                self.logger.info(f"✅ REST轮询处理了 {len(filled_orders)} 个真实成交订单")
                 self._last_order_fill_time = time.time()
 
             return len(filled_orders)
@@ -2444,10 +2499,10 @@ class GridEngineImpl(IGridEngine):
                 oid = getattr(o, 'id', '') or getattr(o, 'order_id', '') or ''
                 if not oid:
                     continue
-                self._expected_cancellations.add(oid)
-                await self.exchange.cancel_order(oid, self.config.symbol)
+                await self.cancel_order(oid)
                 await asyncio.sleep(0.1)
-            except Exception:
+            except Exception as cancel_err:
+                self.logger.warning(f"窗口刷新撤單異常 {oid}: {cancel_err}")
                 await asyncio.sleep(0.5)
 
         if to_cancel or place_orders:

@@ -628,6 +628,12 @@ class BinanceRest(BinanceBase):
                 # 过滤指定符号
                 if symbols is None or position.symbol in symbols:
                     result.append(position)
+                elif symbols:
+                    norm_sym = position.symbol.replace('/', '').replace(':', '').upper()
+                    for s in symbols:
+                        if s.replace('/', '').replace(':', '').upper() == norm_sym:
+                            result.append(position)
+                            break
             
             # 🔥 新增：更新快取
             self._positions_cache[cache_key] = (result, now)

@@ -1,0 +1,27 @@
+grid_system:
+  exchange: binance
+  symbol: 牛来USDT
+  grid_type: neutral
+  price_range:
+    lower_price: 0.06442
+    upper_price: 0.14492
+  grid_interval: 0.00067
+  order_amount: 57.3
+  quantity_precision: 1
+  price_decimals: 5
+  leverage: 10
+  margin_mode: cross
+  account_mode: live
+  limit_only: true
+  active_window_each_side: 2
+  active_window_refresh_interval: 60
+  order_health_check_enabled: true
+  order_health_check_interval: 3000
+  health_check_adjust_position_enabled: false
+  rest_position_query_interval: 120
+  fee_rate: 0.0
+  reverse_order_grid_distance: 1
+  ws_only_mode: true
+  rest_backup_enabled: false
+metadata:
+  bot_id: f8cdd840c9754c3d92a73826fc49a737
