@@ -201,12 +201,28 @@ export interface GridEvent { grid_id: string; event_type: string; status: string
 export interface MarketInfo {
     symbol: string;
     exchange: string;
+    canonical_symbol?: string | null;
     price_precision: number | null;
     quantity_precision: number | null;
     min_order_amount: number | null;
     min_notional: number | null;
     contract_size: number | null;
     cached: boolean;
+}
+
+export interface MarketSymbolItem {
+    symbol: string;
+    id: string;
+    base: string;
+    quote: string;
+    market_type: string;
+}
+
+export interface MarketSymbolsResponse {
+    exchange: string;
+    symbols: MarketSymbolItem[];
+    total: number;
+    cached?: boolean;
 }
 
 export interface GridRecommendationPeriod {
@@ -1116,6 +1132,14 @@ export const api = {
         return requestJson('/v1/grids/summary', { headers: authHeaders() }, 'Failed to get grids summary');
     },
 
+    async getMarketSymbols(exchange: string, signal?: AbortSignal): Promise<MarketSymbolsResponse> {
+        return requestJson(
+            `/v1/market/symbols?exchange=${encodeURIComponent(exchange)}`,
+            { headers: authHeaders(), signal },
+            '無法讀取交易所交易對清單',
+        );
+    },
+
     async getMarketInfo(symbol: string, exchange: string): Promise<MarketInfo> {
         return requestJson(
             `/v1/market/info/${encodeURIComponent(symbol)}?exchange=${encodeURIComponent(exchange)}`,
@@ -1390,7 +1414,190 @@ export const api = {
             signal,
         }, '無法執行參數掃描');
     },
+
+    // ── CoinFull Prime 每日截面多空 ──
+    async getCoinFullPrimeStatus(signal?: AbortSignal): Promise<CoinFullPrimeStatus> {
+        return requestJson('/v1/coinfull-prime/status', { headers: authHeaders(), signal }, '無法獲取 CoinFull Prime 狀態');
+    },
+
+    async getCoinFullPrimeAccounts(signal?: AbortSignal): Promise<CoinFullPrimeAccountsResponse> {
+        return requestJson('/v1/coinfull-prime/accounts', { headers: authHeaders(), signal }, '無法獲取交易帳號列表');
+    },
+
+    async getCoinFullPrimePositions(accountId = 'paper', signal?: AbortSignal): Promise<CoinFullPrimePositionsResponse> {
+        return requestJson(`/v1/coinfull-prime/positions?account_id=${encodeURIComponent(accountId)}`, { headers: authHeaders(), signal }, '無法獲取合約持倉列表');
+    },
+
+    async getCoinFullPrimeRankings(refresh = false, signal?: AbortSignal): Promise<UniverseRankResult> {
+        return requestJson(`/v1/coinfull-prime/rankings?refresh=${refresh}`, { headers: authHeaders(), signal }, '無法獲取 CoinFull Prime 排名');
+    },
+
+    async triggerCoinFullPrimeRebalance(
+        dryRun = true,
+        accountId = 'paper',
+        options?: { capital?: number; leverage?: number; balancePct?: number },
+        signal?: AbortSignal
+    ): Promise<Record<string, unknown>> {
+        const params = new URLSearchParams();
+        params.set('dry_run', String(dryRun));
+        params.set('account_id', accountId);
+        if (options?.capital !== undefined && options.capital > 0) {
+            params.set('capital', String(options.capital));
+        }
+        if (options?.leverage !== undefined && options.leverage > 0) {
+            params.set('leverage', String(options.leverage));
+        }
+        if (options?.balancePct !== undefined && options.balancePct > 0) {
+            params.set('balance_pct', String(options.balancePct));
+        }
+        return requestJson(`/v1/coinfull-prime/rebalance?${params.toString()}`, {
+            method: 'POST',
+            headers: authHeaders(),
+            signal,
+        }, '無法執行 CoinFull Prime 換倉');
+    },
+
+    async controlCoinFullPrimeScheduler(
+        action: 'start' | 'stop',
+        options?: { accountId?: string; dryRun?: boolean; capital?: number; leverage?: number; balancePct?: number },
+        signal?: AbortSignal
+    ): Promise<Record<string, unknown>> {
+        const params = new URLSearchParams();
+        if (options?.accountId) params.set('account_id', options.accountId);
+        if (options?.dryRun !== undefined) params.set('dry_run', String(options.dryRun));
+        if (options?.capital !== undefined && options.capital > 0) params.set('capital', String(options.capital));
+        if (options?.leverage !== undefined && options.leverage > 0) params.set('leverage', String(options.leverage));
+        if (options?.balancePct !== undefined && options.balancePct > 0) params.set('balance_pct', String(options.balancePct));
+        return requestJson(`/v1/coinfull-prime/scheduler/${action}?${params.toString()}`, {
+            method: 'POST',
+            headers: authHeaders(),
+            signal,
+        }, `無法${action === 'start' ? '啟動' : '停止'}排程器`);
+    },
+
+    async updateCoinFullPrimeSchedulerTarget(
+        options: { accountId: string; dryRun?: boolean; capital?: number; leverage?: number; balancePct?: number },
+        signal?: AbortSignal
+    ): Promise<Record<string, unknown>> {
+        const params = new URLSearchParams({ account_id: options.accountId });
+        if (options.dryRun !== undefined) params.set('dry_run', String(options.dryRun));
+        if (options.capital !== undefined && options.capital > 0) params.set('capital', String(options.capital));
+        if (options.leverage !== undefined && options.leverage > 0) params.set('leverage', String(options.leverage));
+        if (options.balancePct !== undefined && options.balancePct > 0) params.set('balance_pct', String(options.balancePct));
+        return requestJson(`/v1/coinfull-prime/scheduler/target?${params.toString()}`, {
+            method: 'POST',
+            headers: authHeaders(),
+            signal,
+        }, '無法更新排程器目標帳號');
+    },
 };
+
+export interface RawMetrics {
+    price: number;
+    price_change_pct: number;
+    taker_flow_ratio: number;
+    funding_rate_pct: number;
+    top_trader_ratio: number;
+}
+
+export interface ParameterEvaluations {
+    momentum_eval: string;
+    flow_eval: string;
+    funding_eval: string;
+    liquidation_eval: string;
+    overall_eval: string;
+}
+
+export interface SignalZScores {
+    mom_z: number;
+    flow_z: number;
+    fund_z: number;
+    liq_z: number;
+}
+
+export interface RankedItem {
+    symbol: string;
+    score: number;
+    rank: number;
+    signals: SignalZScores;
+    raw_params: RawMetrics;
+    evaluations: ParameterEvaluations;
+    side?: 'long' | 'short' | null;
+    target_weight?: number;
+    target_notional?: number;
+}
+
+export interface UniverseRankResult {
+    version: string;
+    timestamp: string;
+    strategy: string;
+    universe_size: number;
+    prices?: Record<string, number>;
+    long_list: RankedItem[];
+    short_list: RankedItem[];
+    all_rankings: RankedItem[];
+    status: string;
+    message?: string;
+}
+
+export interface CoinFullPrimeStatus {
+    service: string;
+    initialized: boolean;
+    is_running: boolean;
+    last_run_timestamp: string | null;
+    next_scheduled_run_utc: string | null;
+    seconds_until_next_run: number | null;
+    hours_until_next_run?: number | null;
+    scheduler_config?: Record<string, unknown>;
+    current_portfolio: {
+        long_top8: Array<{ symbol: string; score: number; rank: number }>;
+        short_bottom8: Array<{ symbol: string; score: number; rank: number }>;
+    };
+    last_rebalance_status: string;
+    dry_run: boolean;
+    exchange: string;
+    selected_account?: string;
+    managed_symbols?: string[];
+    protected_bot_symbols?: string[];
+}
+
+export interface TradingAccountProfile {
+    id: string;
+    name: string;
+    environment: 'paper' | 'testnet' | 'live';
+    is_ready: boolean;
+    balance_usdt: number | null;
+    error?: string | null;
+    missing_keys: string[];
+    description: string;
+    endpoint: string;
+}
+
+export interface CoinFullPrimeAccountsResponse {
+    accounts: TradingAccountProfile[];
+    selected_account: string;
+}
+
+export interface CoinFullPrimePosition {
+    symbol: string;
+    raw_symbol: string;
+    side: 'long' | 'short';
+    size: number;
+    signed_size: number;
+    entry_price: number;
+    mark_price: number;
+    unrealized_pnl: number;
+    notional_usdt: number;
+    is_managed?: boolean;
+    is_protected?: boolean;
+    role?: 'coinfull_prime' | 'external_bot' | 'unmanaged';
+}
+
+export interface CoinFullPrimePositionsResponse {
+    account_id: string;
+    positions: CoinFullPrimePosition[];
+    total_count: number;
+}
 
 export const getWsBase = () => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';

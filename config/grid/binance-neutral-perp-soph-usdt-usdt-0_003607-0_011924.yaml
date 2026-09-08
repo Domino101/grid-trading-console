@@ -1,17 +1,17 @@
 grid_system:
   exchange: binance
-  symbol: SUI/USDT:USDT
+  symbol: SOPH/USDT:USDT
   grid_type: neutral
   price_range:
-    lower_price: 0.63
-    upper_price: 0.91
-  grid_interval: 0.005
-  order_amount: 10.0
+    lower_price: 0.003607
+    upper_price: 0.011924
+  grid_interval: 6.9e-05
+  order_amount: 772.6
   quantity_precision: 1
-  price_decimals: 4
-  leverage: 10
-  margin_mode: isolated
-  account_mode: paper
+  price_decimals: 6
+  leverage: 20
+  margin_mode: cross
+  account_mode: live
   limit_only: true
   active_window_each_side: 2
   active_window_refresh_interval: 60
@@ -24,4 +24,4 @@ grid_system:
   ws_only_mode: true
   rest_backup_enabled: false
 metadata:
-  bot_id: f8ec8207ded847e5846599d3ea9a65fb
+  bot_id: bc0eaad24cd745d9b851fc6038835352

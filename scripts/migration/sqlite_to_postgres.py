@@ -34,9 +34,9 @@ from core.logging import get_logger  # noqa: E402
 logger = get_logger(__name__)
 
 
-def migrate(sqlite_path: str, postgres_url: str, dry_run: bool = False) -> Dict[str, int]:
+def migrate(sqlite_path: str, postgres_url: Optional[str] = None, dry_run: bool = False) -> Dict[str, int]:
     src = SqliteLedgerStore(sqlite_path)
-    dst = PostgresLedgerStore(postgres_url)
+    dst = PostgresLedgerStore(postgres_url) if (postgres_url and not dry_run) else None
 
     bots = src.get_all_bots()
     stats = {
@@ -49,7 +49,15 @@ def migrate(sqlite_path: str, postgres_url: str, dry_run: bool = False) -> Dict[
 
     for bot in bots:
         if dry_run:
+            stats["identity_events"] += len(src.get_identity_events(bot.bot_id, limit=100_000))
+            stats["fills"] += len(src.get_fills(bot.bot_id, limit=1_000_000))
+            if src.get_position(bot.bot_id) is not None:
+                stats["positions"] += 1
+            if src.load_snapshot_by_bot_id(bot.bot_id):
+                stats["snapshots"] += 1
             continue
+
+        assert dst is not None
         dst.register_or_update_bot(bot)
 
         # F8 fix: preserve the audit trail (created/config_linked/renamed) so a
@@ -102,7 +110,7 @@ def main() -> int:
     args = parser.parse_args()
 
     postgres_url = args.postgres_url or os.getenv("DATABASE_URL")
-    if not postgres_url:
+    if not postgres_url and not args.dry_run:
         print("❌ 未指定 postgres-url，也未設定 DATABASE_URL。", file=sys.stderr)
         return 2
 

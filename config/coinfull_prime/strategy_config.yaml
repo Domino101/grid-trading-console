@@ -1,0 +1,48 @@
+# =====================================================================
+# CoinFull Prime (市場中性截面多空 Alpha 策略) 設定檔
+# =====================================================================
+
+strategy:
+  id: "coinfull_prime"
+  name: "CoinFull Prime Market Neutral"
+  description: "Cross-Sectional Market Neutral Multi-Factor Alpha Strategy (Top 8 Long + Bottom 8 Short)"
+  version: "1.0.0"
+
+# 標的池（Universe 79）過濾設定
+universe:
+  top_n: 79
+  quote_asset: "USDT"
+  exclude_stables:
+    - "USDCUSDT"
+    - "FDUSDUSDT"
+    - "TUSDUSDT"
+    - "USDPUSDT"
+    - "EURUSDT"
+    - "BUSDUSDT"
+    - "AEURUSDT"
+    - "USDEUSDT"
+    - "BFDUSDUSDT"
+
+# 四大客觀信號加權設定 (加總必須為 1.0)
+weights:
+  momentum: 0.35     # 短期與中期動能複合評分
+  flow: 0.35         # Taker 買賣流比例 (Taker Buy / Taker Sell)
+  funding: 0.20      # 資金費率反向 (反向因子: 多頭擁擠度反轉)
+  liquidation: 0.10   # 大戶帳戶多空比 (Top Trader Long/Short Ratio)
+
+# 投資組合與換倉設定
+portfolio:
+  long_count: 8                # 做多標的數量
+  short_count: 8               # 做空標的數量
+  total_capital_usdt: 1000.0   # 總投入名義本金 (USDT)
+  leverage: 1.0                # 槓桿倍數 (建議 1.0x ~ 1.5x)
+  exchange: "paper"            # 目標交易所: paper (模擬撮合), binance (幣安實盤), okx, hyperliquid
+  dry_run: true                # true: 僅計算日誌，不發真實訂單; false: 實際發單
+  max_slippage_pct: 0.005      # 最大允許市價滑點 (0.5%)
+  execution_style: "batch"     # batch: 批次限速發單; twap: 時間加權分批
+
+# 排程與運行設定
+schedule:
+  cron: "0 0 * * *"            # 每日 UTC 00:00 執行
+  timezone: "UTC"
+  timeout_seconds: 60          # 整個計算與換倉流程逾時時間 (秒)

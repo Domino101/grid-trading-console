@@ -100,6 +100,10 @@ class BinanceRest(BinanceBase):
         try:
             # 创建ccxt交易所实例
             self.exchange = ccxt.binance(self.ccxt_config)
+            if self.testnet:
+                self.exchange.set_sandbox_mode(True)
+                if self.logger:
+                    self.logger.info("🧪 Binance REST 已啟用測試網模式 (Sandbox Mode -> testnet.binancefuture.com)")
             
             # 加载市场信息（經過限速器）
             await BinanceRest._throttle_acquire(self.logger, 'load_markets')
@@ -346,9 +350,29 @@ class BinanceRest(BinanceBase):
                     self._positions_cache.clear()
                     raise  # 直接抛出，让 PositionMonitor 的 BAN 冷却逻辑处理
 
-                # 🔥 -2015 特殊檢查（可能不在 rate_limit 分支但仍需熔斷）
+                # 🔥 -2015 特殊檢查（避免單一幣種權限不足誤殺全域 API Key）
                 if '-2015' in err_str:
-                    BinanceRest._update_adapter_circuit(str(e), self.logger)
+                    is_order_func = any(k in func_name.lower() for k in ('order', 'batch'))
+                    should_trip_circuit = True
+                    if is_order_func and self.exchange:
+                        try:
+                            # 輕量探針檢查帳戶權限（直接調用單次驗證，繞過重試機制）
+                            await asyncio.get_event_loop().run_in_executor(None, self.exchange.fetch_balance)
+                            # 若 fetch_balance 成功，代表 API Key 與 IP 均有效，僅該標的或操作權限受限
+                            should_trip_circuit = False
+                            if self.logger:
+                                self.logger.warning(
+                                    f"⚠️ [BinanceRest] 下單時收到 -2015，但帳戶驗證成功！"
+                                    f"判定為特定標的或合約權限不足，不觸發全域熔斷: {str(e)}"
+                                )
+                        except Exception as probe_err:
+                            if '-2015' in str(probe_err).lower():
+                                should_trip_circuit = True
+                            else:
+                                should_trip_circuit = False
+
+                    if should_trip_circuit:
+                        BinanceRest._update_adapter_circuit(str(e), self.logger)
                     raise
 
                 if attempt < self.max_retries - 1:
@@ -767,8 +791,17 @@ class BinanceRest(BinanceBase):
                 err_str = str(e)
                 if self.logger:
                     self.logger.error(f"❌ 批量下單失敗 (batch {i // batch_size + 1}): {err_str}")
-                # 更新熔斷器
-                BinanceRest._update_adapter_circuit(err_str, self.logger)
+                # 檢查熔斷器（若為 -2015 先探針確認是否為全域金鑰無效）
+                if '-2015' in err_str and self.exchange:
+                    try:
+                        await asyncio.get_event_loop().run_in_executor(None, self.exchange.fetch_balance)
+                        if self.logger:
+                            self.logger.warning(f"⚠️ [BinanceRest] 批量下單收到 -2015 但帳戶資訊驗證正常，不觸發全域熔斷")
+                    except Exception as probe_err:
+                        if '-2015' in str(probe_err).lower():
+                            BinanceRest._update_adapter_circuit(err_str, self.logger)
+                else:
+                    BinanceRest._update_adapter_circuit(err_str, self.logger)
                 # 本批全部標記為 None
                 results.extend([None] * len(batch))
 

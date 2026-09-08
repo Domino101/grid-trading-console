@@ -206,10 +206,15 @@ def build_grid_read_model(
     raw_net = finite_number(profit.get("net"))
     raw_rate = finite_number(profit.get("rate"))
 
-    # 總收益 (Total PnL) = 網格毛利 + 浮動損益 (完全對齊幣安與交易所對帳口徑)
-    total_pnl = (grid_profit or 0.0) + (unrealized_pnl or 0.0)
-    # 純淨收益 (Pure Net PnL) = 總收益 - 手續費
-    net_pnl = total_pnl - (fees or 0.0)
+    has_pnl_data = (grid_profit is not None) or (unrealized_pnl is not None) or (raw_net is not None)
+    if has_pnl_data:
+        # 總收益 (Total PnL) = 網格毛利 + 浮動損益 (完全對齊幣安與交易所對帳口徑)
+        total_pnl = (grid_profit or 0.0) + (unrealized_pnl or 0.0)
+        # 純淨收益 (Pure Net PnL) = 總收益 - 手續費 (優先以 raw_net 為準，若無則依公式計算)
+        net_pnl = raw_net if raw_net is not None else (total_pnl - (fees or 0.0))
+    else:
+        total_pnl = None
+        net_pnl = None
 
     pnl_rate = raw_rate
     equity_val = finite_number(balance.get("total"))

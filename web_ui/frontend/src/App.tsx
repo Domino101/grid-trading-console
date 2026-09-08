@@ -1,11 +1,12 @@
 import React, { lazy, Suspense, useState, useEffect } from 'react';
-import { Activity, Menu, PlusCircle, BarChart3, Trophy, X, LogOut, Terminal, Repeat, Wand2, Gauge } from 'lucide-react';
+import { Activity, Menu, PlusCircle, BarChart3, Trophy, X, LogOut, Terminal, Repeat, Wand2, Gauge, TrendingUp } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import DcaDashboard from './components/DcaDashboard';
 import DcaForm from './components/DcaForm';
 import GridForm, { type InitialGridConfig } from './components/GridForm';
 import GridBacktestPage, { type GridBacktestInitialConfig } from './components/GridBacktestPage';
 import MarketRankings from './components/MarketRankings';
+import { CoinFullPrimePage } from './components/CoinFullPrimePage';
 import LoginPage from './components/LoginPage';
 import { api, type MarketRankingItem } from './services/api';
 import { clearStoredToken, getStoredToken, storeToken } from './utils/auth';
@@ -76,7 +77,7 @@ const App: React.FC = () => {
     setAuthError(message ?? null);
   };
 
-  const go = (tab: 'dashboard' | 'market' | 'configs' | 'dca' | 'dca-create' | 'grid-backtest') => {
+  const go = (tab: 'dashboard' | 'market' | 'configs' | 'dca' | 'dca-create' | 'grid-backtest' | 'coinfull-prime') => {
     if (tab !== 'configs') {
       setPrefilledGridConfig(null);
     }
@@ -215,6 +216,16 @@ const App: React.FC = () => {
             <span>網格回測</span>
           </button>
 
+          {/* CoinFull Prime 每日多空截面排行 */}
+          <button
+            className={`btn ${activeTab === 'coinfull-prime' ? 'active' : ''}`}
+            type="button"
+            onClick={() => go('coinfull-prime')}
+          >
+            <TrendingUp size={17} />
+            <span>多空截面排行</span>
+          </button>
+
           <button
             className={`btn ${activeTab === 'configs' ? 'active' : ''}`}
             type="button"
@@ -328,6 +339,12 @@ const App: React.FC = () => {
 
         {activeTab === 'dca-create' && (
           <DcaForm onNavigateDashboard={() => go('dca')} />
+        )}
+
+        {activeTab === 'coinfull-prime' && (
+          <CoinFullPrimePage
+            onUnauthorized={() => lock('Token 無效或已過期，請重新登入。')}
+          />
         )}
       </div>
     </div>

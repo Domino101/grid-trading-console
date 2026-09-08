@@ -119,14 +119,14 @@ class SupervisorPoolTests(unittest.IsolatedAsyncioTestCase):
                         "grid_system:\n"
                         "  exchange: binance\n"
                         "  symbol: BTC/USDT\n"
-                        "  account_mode: paper\n"
+                        "  account_mode: live\n"
                     )
                 with open(dca_path, "w", encoding="utf-8") as f:
                     f.write(
                         "dca:\n"
                         "  exchange: binance\n"
                         "  symbol: ETH/USDC:USDC\n"
-                        "  account_mode: paper\n"
+                        "  account_mode: live\n"
                     )
                 pool = mg.ExchangeAdapterPool()
                 grid_adapter = await pool.get(grid_path)

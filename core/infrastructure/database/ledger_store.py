@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import math
 import os
 import re
 import threading
@@ -104,11 +105,19 @@ class LedgerStore(typing.Protocol):
     def get_position(self, bot_id: str) -> Optional[BotPosition]: ...
     def update_position_occ(self, bot_id: str, position: BotPosition, expected_version: int) -> bool: ...
     def rehydrate_position_from_fills(self, bot_id: str) -> BotPosition: ...
-    def save_snapshot(self, bot_id: str, config_path: str, stats: dict, timestamp: Optional[float] = None) -> float: ...
+    def save_snapshot(
+        self,
+        bot_id: str,
+        config_path: str,
+        stats: dict,
+        timestamp: Optional[float] = None,
+        force_history: bool = False,
+    ) -> float: ...
     def load_all_snapshots(self) -> Dict[str, Tuple[dict, float]]: ...
     def load_snapshot_by_bot_id(self, bot_id: str) -> Optional[Tuple[dict, float]]: ...
     def load_all_snapshots_by_bot_id(self) -> Dict[str, Tuple[dict, float]]: ...
     def load_snapshot_history(self, config_path: str, since: float, limit: int = 1000) -> List[Tuple[dict, float]]: ...
+    def load_history(self, bot_id_or_config: str, limit: int = 1000) -> List[Tuple[dict, float]]: ...
     def remove_snapshot(self, config_path: str) -> None: ...
 
 
@@ -231,6 +240,8 @@ Index("idx_snapshot_history_bot_time", bot_snapshot_history.c.bot_id, bot_snapsh
 Index("idx_snapshot_history_path_time", bot_snapshot_history.c.config_path, bot_snapshot_history.c.recorded_at.desc())
 Index("idx_identity_events_bot_time", bot_identity_events.c.bot_id, bot_identity_events.c.recorded_at.desc())
 Index("idx_legacy_runtime_history", grid_runtime_history.c.config_path, grid_runtime_history.c.recorded_at.desc())
+Index("idx_snapshot_history_recorded_at", bot_snapshot_history.c.recorded_at.desc())
+Index("idx_legacy_runtime_history_recorded_at", grid_runtime_history.c.recorded_at.desc())
 Index("idx_bot_events_bot_seq", bot_events.c.bot_id, bot_events.c.seq, unique=True)
 Index("idx_bot_events_bot_time", bot_events.c.bot_id, bot_events.c.created_at.desc())
 Index(
@@ -248,7 +259,10 @@ def _num(value: Any) -> Optional[float]:
     if value is None or isinstance(value, bool):
         return None
     try:
-        return float(value)
+        v = float(value)
+        if math.isnan(v) or math.isinf(v):
+            return None
+        return v
     except (TypeError, ValueError):
         return None
 
@@ -280,7 +294,22 @@ def _monotonic_metrics(payload: dict) -> Dict[str, Optional[float]]:
     fees = _num(profit.get("fees"))
     if fees is None:
         fees = _num(payload.get("total_fees"))
-    return {"cycles": cycles, "buy": buy, "sell": sell, "fees": fees}
+    grid_profit = _num(profit.get("grid_profit"))
+    if grid_profit is None:
+        grid_profit = _num(payload.get("grid_profit"))
+    realized = _num(profit.get("realized"))
+    if realized is None:
+        realized = _num(payload.get("realized_pnl"))
+    if realized is None:
+        realized = _num(payload.get("realized_profit"))
+    return {
+        "cycles": cycles,
+        "buy": buy,
+        "sell": sell,
+        "fees": fees,
+        "grid_profit": grid_profit,
+        "realized": realized,
+    }
 
 
 def _monotonic_regression(old: dict, new: dict) -> List[str]:
@@ -289,10 +318,32 @@ def _monotonic_regression(old: dict, new: dict) -> List[str]:
     regressed: List[str] = []
     for key, old_value in old_m.items():
         new_value = new_m.get(key)
+        # DEF-02: 舊值存在而新值為 None / 非法型別，視為非法抹除倒退
+        if old_value is not None and new_value is None:
+            regressed.append(key)
+            continue
         if old_value is None or new_value is None:
             continue
-        if new_value < old_value - 1e-9:
+        # DEF-06: 計數與累計手續費指標嚴禁為負數
+        if key in ("cycles", "buy", "sell", "fees") and new_value < 0:
             regressed.append(key)
+            continue
+
+        # DEF-01: 數值倒退防護
+        # realized (淨實現收益) 允許在手續費增加或成交量增加 (表示真實交易產生虧損) 時下降；
+        # 但若無成交/手續費未增且 cycles 未增，或者 grid_profit (純套利利潤) 倒退，則屬異常抹除
+        if key == "realized":
+            old_fees = old_m.get("fees") or 0.0
+            new_fees = new_m.get("fees") or 0.0
+            old_cycles = old_m.get("cycles") or 0.0
+            new_cycles = new_m.get("cycles") or 0.0
+            if (new_fees > old_fees + 1e-9) or (new_cycles > old_cycles):
+                continue
+            if new_value < old_value - 1e-9:
+                regressed.append(key)
+        else:
+            if new_value < old_value - 1e-9:
+                regressed.append(key)
     return regressed
 
 
@@ -363,10 +414,18 @@ class SQLAlchemyLedgerStore:
         self._lock = threading.Lock()
         self.monotonic_guard_enabled = True
         self._initialized = False
+        self._last_history_ts: Dict[str, float] = {}
+        self._last_pruned_at: float = time.time()
 
     # ── schema / lifecycle ──────────────────────────────────────────────────
     def initialize(self) -> None:
         meta.create_all(self._engine)
+        with self._engine.begin() as conn:
+            try:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_snapshot_history_recorded_at ON bot_snapshot_history(recorded_at DESC)"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_legacy_runtime_history_recorded_at ON grid_runtime_history(recorded_at DESC)"))
+            except Exception:
+                pass
         self._engine.dispose(close=False)
         self._initialized = True
 
@@ -826,7 +885,14 @@ class SQLAlchemyLedgerStore:
         )
 
     # ── snapshots / monotonic / legacy dual-write ──────────────────────────
-    def save_snapshot(self, bot_id: str, config_path: str, stats: dict, timestamp: Optional[float] = None) -> float:
+    def save_snapshot(
+        self,
+        bot_id: str,
+        config_path: str,
+        stats: dict,
+        timestamp: Optional[float] = None,
+        force_history: bool = False,
+    ) -> float:
         ts = timestamp if timestamp is not None else time.time()
         clean_stats = {k: v for k, v in stats.items() if k != "_monotonic_bypass"}
         payload_str = json.dumps(clean_stats, ensure_ascii=False, separators=(",", ":"), default=str)
@@ -872,11 +938,6 @@ class SQLAlchemyLedgerStore:
             )
             conn.execute(snapshot_insert)
 
-            conn.execute(
-                bot_snapshot_history.insert().values(
-                    bot_id=bot_id, config_path=config_path, payload=payload_str, recorded_at=ts
-                )
-            )
             legacy_update = {"payload": _literal(payload_str), "updated_at": _literal(ts)}
             legacy_insert = _upsert_insert(
                 grid_runtime_snapshots,
@@ -886,13 +947,53 @@ class SQLAlchemyLedgerStore:
                 legacy_update,
             )
             conn.execute(legacy_insert)
-            conn.execute(
-                grid_runtime_history.insert().values(
-                    config_path=config_path, payload=payload_str, recorded_at=ts
-                )
+
+            # P0-1: 歷史表限頻與事件驅動落盤（重大事件 force_history，常態 300s 抽樣）
+            try:
+                history_interval = float(os.getenv("GRID_HISTORY_SNAPSHOT_INTERVAL", "300.0") or 300.0)
+            except (TypeError, ValueError):
+                history_interval = 300.0
+
+            def _is_truthy(val: Any) -> bool:
+                if isinstance(val, bool):
+                    return val
+                if isinstance(val, str):
+                    return val.strip().lower() in ("true", "1", "yes")
+                return bool(val)
+
+            should_save_history = (
+                _is_truthy(force_history)
+                or _is_truthy(stats.get("force_history"))
+                or (bot_id not in self._last_history_ts)
+                or (ts - self._last_history_ts[bot_id] >= history_interval)
             )
-            conn.execute(delete(grid_runtime_history).where(grid_runtime_history.c.recorded_at < ts - 7 * 86400))
-            conn.execute(delete(bot_snapshot_history).where(bot_snapshot_history.c.recorded_at < ts - 7 * 86400))
+
+            if should_save_history:
+                conn.execute(
+                    bot_snapshot_history.insert().values(
+                        bot_id=bot_id, config_path=config_path, payload=payload_str, recorded_at=ts
+                    )
+                )
+                conn.execute(
+                    grid_runtime_history.insert().values(
+                        config_path=config_path, payload=payload_str, recorded_at=ts
+                    )
+                )
+                self._last_history_ts[bot_id] = ts
+                self._last_history_ts[config_path] = ts
+
+        # P0-3: 寫入 Redis L1 快照快取
+        try:
+            from core.infrastructure.database.redis_support import RedisStateCache
+            RedisStateCache().set(bot_id, config_path, clean_stats, ts)
+        except Exception:
+            pass
+
+        # Low-frequency throttled history pruning (at most once per hour)
+        try:
+            self.prune_snapshot_history(retention_days=7, min_interval_seconds=3600.0)
+        except Exception as prune_err:
+            logger.debug("Prune history exception (ignored): %s", prune_err)
         return ts
 
     def load_all_snapshots(self) -> Dict[str, Tuple[dict, float]]:
@@ -955,12 +1056,66 @@ class SQLAlchemyLedgerStore:
                 continue
         return result
 
+    def load_history(self, bot_id_or_config: str, limit: int = 1000) -> List[Tuple[dict, float]]:
+        """P0-1: 載入時序歷史快照（支援 bot_id 或 config_path）。"""
+        with self._lock, self._ro() as conn:
+            rows = conn.execute(
+                select(bot_snapshot_history.c.payload, bot_snapshot_history.c.recorded_at)
+                .where(
+                    (bot_snapshot_history.c.bot_id == bot_id_or_config)
+                    | (bot_snapshot_history.c.config_path == bot_id_or_config)
+                )
+                .order_by(bot_snapshot_history.c.recorded_at.desc())
+                .limit(limit)
+            ).all()
+            if not rows:
+                rows = conn.execute(
+                    select(grid_runtime_history.c.payload, grid_runtime_history.c.recorded_at)
+                    .where(grid_runtime_history.c.config_path == bot_id_or_config)
+                    .order_by(grid_runtime_history.c.recorded_at.desc())
+                    .limit(limit)
+                ).all()
+        result: List[Tuple[dict, float]] = []
+        for row in reversed(rows):
+            try:
+                payload = json.loads(row.payload)
+                if isinstance(payload, dict):
+                    result.append((payload, float(row.recorded_at)))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+        return result
+
     def remove_snapshot(self, config_path: str) -> None:
         with self._lock, self._begin() as conn:
             conn.execute(delete(grid_runtime_snapshots).where(grid_runtime_snapshots.c.config_path == config_path))
             conn.execute(delete(grid_runtime_history).where(grid_runtime_history.c.config_path == config_path))
             conn.execute(delete(bot_snapshots).where(bot_snapshots.c.config_path == config_path))
             conn.execute(delete(bot_snapshot_history).where(bot_snapshot_history.c.config_path == config_path))
+
+    def prune_snapshot_history(
+        self,
+        retention_days: int = 7,
+        min_interval_seconds: float = 3600.0,
+        force: bool = False,
+    ) -> Tuple[int, int]:
+        """Prune historical snapshots older than retention_days with throttle."""
+        now = time.time()
+        last_pruned = getattr(self, "_last_pruned_at", None)
+        if last_pruned is None:
+            self._last_pruned_at = now
+            return (0, 0)
+        if not force and (now - last_pruned) < min_interval_seconds:
+            return (0, 0)
+        cutoff = now - (retention_days * 86400)
+        with self._lock, self._begin() as conn:
+            r1 = conn.execute(
+                delete(grid_runtime_history).where(grid_runtime_history.c.recorded_at < cutoff)
+            )
+            r2 = conn.execute(
+                delete(bot_snapshot_history).where(bot_snapshot_history.c.recorded_at < cutoff)
+            )
+            self._last_pruned_at = now
+            return (r1.rowcount or 0, r2.rowcount or 0)
 
 
 def _literal(value: Any):
@@ -992,8 +1147,17 @@ class SqliteLedgerStore(SQLAlchemyLedgerStore):
             engine = create_engine(
                 f"sqlite:///{safe_path}",
                 poolclass=NullPool,
-                connect_args={"check_same_thread": False},
+                connect_args={"check_same_thread": False, "timeout": 15.0},
             )
+            from sqlalchemy import event
+
+            @event.listens_for(engine, "connect")
+            def set_sqlite_pragma(dbapi_connection, connection_record):
+                cursor = dbapi_connection.cursor()
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA busy_timeout=15000")
+                cursor.execute("PRAGMA synchronous=NORMAL")
+                cursor.close()
         super().__init__(engine)
         self.initialize()
 
@@ -1023,12 +1187,17 @@ class PostgresLedgerStore(SQLAlchemyLedgerStore):
         if not is_postgres_url(url):
             raise LedgerStoreError("PostgresLedgerStore requires a postgresql:// DATABASE_URL.")
         engine_kwargs: dict = {
-            "pool_size": max(2, int(os.getenv("GRID_PG_POOL_SIZE", "5") or 5)),
-            "max_overflow": max(1, int(os.getenv("GRID_PG_MAX_OVERFLOW", "10") or 10)),
+            "pool_size": max(2, int(os.getenv("GRID_PG_POOL_SIZE", "10") or 10)),
+            "max_overflow": max(1, int(os.getenv("GRID_PG_MAX_OVERFLOW", "20") or 20)),
+            "pool_recycle": int(os.getenv("GRID_PG_POOL_RECYCLE", "1800") or 1800),
             "pool_pre_ping": True,
         }
+        connect_args: dict = {}
         if schema:
-            engine_kwargs["connect_args"] = {"options": f"-csearch_path={schema},public"}
+            connect_args["options"] = f"-csearch_path={schema},public"
+        timeout = int(os.getenv("GRID_PG_CONNECT_TIMEOUT", "5") or 5)
+        connect_args["connect_timeout"] = timeout
+        engine_kwargs["connect_args"] = connect_args
         engine = create_engine(normalize_postgres_url(url), **engine_kwargs)
         self.schema = schema
         if schema:
@@ -1052,6 +1221,11 @@ def create_ledger_store(database_path: Optional[str] = None, database_url: Optio
     semantics as SQLite files.  Production deployments (default path / no
     path) share the ``public`` schema, matching Alembic migrations.
     """
+    # DEF-07: 若第一個參數傳入 PostgreSQL URL，自動識別為 database_url，避免污染 SQLite 路徑
+    if database_path and is_postgres_url(database_path) and not database_url:
+        database_url = database_path
+        database_path = None
+
     url = get_database_url(database_url)
     if is_postgres_url(url):
         schema: Optional[str] = None
@@ -1059,5 +1233,10 @@ def create_ledger_store(database_path: Optional[str] = None, database_url: Optio
             database_path = EnvironmentGuard.get_safe_database_path(None)
         if database_path and os.path.abspath(database_path) != os.path.abspath(EnvironmentGuard.default_database_path()):
             schema = postgres_schema_for_path(database_path)
-        return PostgresLedgerStore(database_url=url, schema=schema)
+        try:
+            return PostgresLedgerStore(database_url=url, schema=schema)
+        except Exception as exc:
+            logger.error(f"❌ [LedgerStore] PostgreSQL 連線失敗，自動降級回退至 SQLite: {exc}")
+            safe_sqlite_path = database_path if (database_path and not is_postgres_url(database_path)) else None
+            return SqliteLedgerStore(database_path=safe_sqlite_path)
     return SqliteLedgerStore(database_path=database_path)

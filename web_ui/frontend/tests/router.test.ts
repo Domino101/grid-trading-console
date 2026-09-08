@@ -59,3 +59,9 @@ test('parseHash handles grid-backtest tab', () => {
   assert.deepEqual(parseHash('#grid-backtest'), { tab: 'grid-backtest', gridId: null, dcaBotId: null });
   assert.equal(formatHash({ tab: 'grid-backtest' }), '#/grid-backtest');
 });
+
+test('parseHash handles coinfull-prime tab', () => {
+  assert.deepEqual(parseHash('#/coinfull-prime'), { tab: 'coinfull-prime', gridId: null, dcaBotId: null });
+  assert.deepEqual(parseHash('#coinfull-prime'), { tab: 'coinfull-prime', gridId: null, dcaBotId: null });
+  assert.equal(formatHash({ tab: 'coinfull-prime' }), '#/coinfull-prime');
+});

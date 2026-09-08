@@ -1,0 +1,36 @@
+# Install after replacing /opt/grid-trading-console and crypto-runner with real paths/user if customized.
+# sudo install -m 0644 scripts/deployment/crypto-engine.service /etc/systemd/system/crypto-engine.service
+# sudo systemctl daemon-reload && sudo systemctl enable --now crypto-engine.service
+[Unit]
+Description=Crypto Multi-Grid Trading Engine & Worker Supervisor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=crypto-runner
+Group=crypto-runner
+WorkingDirectory=/opt/grid-trading-console
+EnvironmentFile=-/opt/grid-trading-console/.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/grid-trading-console
+ExecStart=/opt/grid-trading-console/venv/bin/python3 run_multiple_grids.py --mode multi-process
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+# === Security Sandbox Isolation ===
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictRealtime=true
+ReadWritePaths=/opt/grid-trading-console/config /opt/grid-trading-console/data /opt/grid-trading-console/logs
+
+[Install]
+WantedBy=multi-user.target

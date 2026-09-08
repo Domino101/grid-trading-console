@@ -13,6 +13,7 @@ from typing import Optional
 from core.infrastructure.database.guard import EnvironmentGuard
 from core.infrastructure.database.ledger_repository import LedgerRepository
 from core.infrastructure.database.models import BotPosition, BotRecord, TradeFill
+from core.infrastructure.database.redis_support import RedisStateCache
 from core.infrastructure.identity import resolve_bot_id
 from web_ui.backend.lifecycle import connect_sqlite
 
@@ -21,11 +22,17 @@ class RuntimeSnapshotRepository:
     _instance: Optional["RuntimeSnapshotRepository"] = None
     _instance_lock = threading.Lock()
 
-    def __init__(self, database_path: Optional[str] = None):
+    def __init__(self, database_path: Optional[str] = None, cache: Optional[RedisStateCache] = None):
         self.database_path = EnvironmentGuard.get_safe_database_path(database_path)
         if self.database_path != ":memory:":
             os.makedirs(os.path.dirname(self.database_path), exist_ok=True)
         self._ledger = LedgerRepository(self.database_path)
+        if cache is not None:
+            self._redis_cache = cache
+        elif EnvironmentGuard.is_production_database_path(self.database_path):
+            self._redis_cache = RedisStateCache()
+        else:
+            self._redis_cache = None
         self._lock = threading.Lock()
         self._initialize()
 
@@ -51,7 +58,7 @@ class RuntimeSnapshotRepository:
     def _initialize(self) -> None:
         pass
 
-    def save(self, config_path: str, stats: dict, updated_at: Optional[float] = None) -> float:
+    def save(self, config_path: str, stats: dict, updated_at: Optional[float] = None, force_history: bool = False) -> float:
         timestamp = updated_at if updated_at is not None else time.time()
         # P1-1: 帳本 key 使用穩定 bot_id（優先 stats.bot_id → YAML metadata.bot_id → 檔名 stem）
         bot_id = stats.get("bot_id") or resolve_bot_id(config_path)
@@ -137,14 +144,45 @@ class RuntimeSnapshotRepository:
         self._ledger.update_position_occ(bot_id, pos, expected_ver)
 
         # 4. Save snapshots & history
-        return self._ledger.save_snapshot(bot_id, config_path, stats, timestamp)
+        ts = self._ledger.save_snapshot(bot_id, config_path, stats, timestamp, force_history=force_history)
+        if self._redis_cache is not None:
+            self._redis_cache.set(bot_id, config_path, stats, ts)
+        return ts
 
     def load_all(self) -> dict[str, tuple[dict, float]]:
-        return self._ledger.load_all_snapshots()
+        # P0-3/DEF-05/DEF-08: 讀取全部快照
+        # 以資料庫 snapshot 為基底，若 Redis 快取齊全且包含資料庫中所有 bots，可直接返回快取；
+        # 若快取有缺漏或存在不一致，以 DB 為底、以 Redis 最新時間戳覆蓋，保證零機器人遺失。
+        db_snapshots = self._ledger.load_all_snapshots()
+        if self._redis_cache is not None:
+            cached = self._redis_cache.get_all()
+            if cached:
+                # DEF-08: 只有當 cached 完整包含 db_snapshots 的全部 key 時才可直接返回 cached
+                if db_snapshots and set(db_snapshots.keys()).issubset(cached.keys()):
+                    return cached
+                merged = dict(db_snapshots)
+                for k, (stats, ts) in cached.items():
+                    if k in merged:
+                        if ts >= merged[k][1]:
+                            merged[k] = (stats, ts)
+                    else:
+                        merged[k] = (stats, ts)
+                return merged
+        return db_snapshots
 
     def load_by_bot_id(self, bot_id: str) -> Optional[tuple[dict, float]]:
-        """P1-2: 以穩定 bot_id 讀取最新快照（bot_snapshots 表，bot_id 為 key）。"""
-        return self._ledger.load_snapshot_by_bot_id(bot_id)
+        """P1-2/P0-3: 以穩定 bot_id 讀取最新快照（優先 Redis L1，miss 則回退 DB 並回填）。"""
+        if self._redis_cache is not None:
+            cached = self._redis_cache.get("", bot_id=bot_id)
+            if cached is not None:
+                return cached
+        result = self._ledger.load_snapshot_by_bot_id(bot_id)
+        if result is not None and self._redis_cache is not None:
+            stats, ts = result
+            bot = self._ledger.get_bot(bot_id)
+            cfg = bot.config_path if bot and bot.config_path else ""
+            self._redis_cache.set(bot_id, cfg, stats, ts)
+        return result
 
     def load_all_by_bot_id(self) -> dict[str, tuple[dict, float]]:
         """P1-2: 以 bot_id 為 key 讀取全部最新快照。"""
@@ -157,4 +195,7 @@ class RuntimeSnapshotRepository:
         return self._ledger.get_fills(bot_id, limit=limit, since=since, order_desc=order_desc)
 
     def remove(self, config_path: str) -> None:
+        bot_id = resolve_bot_id(config_path)
+        if self._redis_cache is not None:
+            self._redis_cache.delete(config_path, bot_id=bot_id)
         self._ledger.remove_snapshot(config_path)

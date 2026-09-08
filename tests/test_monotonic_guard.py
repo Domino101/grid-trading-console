@@ -79,6 +79,27 @@ class TestMonotonicGuard(unittest.TestCase):
         payload, _ = self.repo.load_by_bot_id("bot-1")
         self.assertEqual(payload["filled_orders"]["cycles"], 0)
 
+    def test_corrupted_restart_realized_wipe_is_blocked(self):
+        # DEF-01: 模擬引擎重啟後記憶體未恢復，若無新交易發生 (fees 未增)，試圖將累積獲利抹除為 0 → 必須拒絕
+        self._save(_snapshot(cycles=5, buy=5, sell=5, fees=1.0, realized=1250.0), updated_at=1.0)
+        self._save(_snapshot(cycles=5, buy=5, sell=5, fees=1.0, realized=0.0), updated_at=2.0)
+
+        payload, _ = self.repo.load_by_bot_id("bot-1")
+        self.assertEqual(payload["profit"]["realized"], 1250.0)
+
+    def test_none_injection_is_blocked(self):
+        # DEF-02: 傳入 None 或損毀型別，不得繞過單調檢查抹除原有計數
+        self._save(_snapshot(cycles=5, buy=5, sell=5, fees=1.0), updated_at=1.0)
+        corrupted_payload = {
+            "filled_orders": {"buy": None, "sell": None, "cycles": None},
+            "profit": {"fees": None},
+        }
+        self._save(corrupted_payload, updated_at=2.0)
+
+        payload, _ = self.repo.load_by_bot_id("bot-1")
+        self.assertEqual(payload["filled_orders"]["cycles"], 5)
+        self.assertEqual(payload["filled_orders"]["buy"], 5)
+
 
 if __name__ == "__main__":
     unittest.main()

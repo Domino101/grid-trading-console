@@ -158,7 +158,7 @@ class AsyncDatabaseWriter:
         while self._running:
             try:
                 await asyncio.sleep(self.flush_interval)
-                self.flush_sync()
+                await asyncio.to_thread(self.flush_sync)
             except asyncio.CancelledError:
                 break
             except Exception as e:

@@ -390,9 +390,30 @@ async def auto_fill_precision(grid_config: GridConfig, exchange_adapter, logger=
 
         symbol = grid_config.symbol
         if symbol not in markets:
-            if callable(log):
-                log(f"   ⚠️ 交易對 {symbol} 未在 markets 中找到，使用默認精度")
-            return
+            # 🔥 交易對自適應容錯校正：嘗試透過 ID 或標準映射反查
+            resolved_sym = None
+            if hasattr(exchange_adapter, 'map_symbol_from_binance'):
+                try:
+                    cand = exchange_adapter.map_symbol_from_binance(symbol)
+                    if cand in markets:
+                        resolved_sym = cand
+                except Exception:
+                    pass
+            if not resolved_sym:
+                clean_s = symbol.upper().replace('/', '').replace(':', '').replace('-', '').replace('_', '')
+                for m_k, m_v in markets.items():
+                    if isinstance(m_v, dict) and (m_v.get('id') == clean_s or m_v.get('id') == symbol):
+                        resolved_sym = m_k
+                        break
+            if resolved_sym:
+                if callable(log):
+                    log(f"   🔄 交易對自適應校正: {symbol} -> {resolved_sym}")
+                grid_config.symbol = resolved_sym
+                symbol = resolved_sym
+            else:
+                if callable(log):
+                    log(f"   ⚠️ 交易對 {symbol} 未在 markets 中找到，使用默認精度")
+                return
 
         market = markets[symbol]
         precision = market.get('precision', {})

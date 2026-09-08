@@ -35,6 +35,7 @@ from web_ui.backend.routes.dashboard import router as dashboard_router
 from web_ui.backend.routes.commands import router as commands_router
 from web_ui.backend.routes.market import router as market_router
 from web_ui.backend.routes.grid_backtest import router as grid_backtest_router
+from web_ui.backend.routes.coinfull_prime import router as coinfull_prime_router
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -109,9 +110,23 @@ async def lifespan(app: FastAPI):
     # Startup: Start process monitoring + optional Redis event subscription.
     monitor_task = asyncio.create_task(monitor_processes())
     _start_redis_subscriber()
+
+    # Startup CoinFull Prime 每日定時換倉排程器 (零輪詢休眠，每日 UTC 00:00 自動喚醒)
+    try:
+        from core.services.coinfull_prime.service import CoinFullPrimeService
+        prime_service = CoinFullPrimeService.instance()
+        prime_service.start_scheduler(account_id="binance_testnet", dry_run=False)
+    except Exception as e:
+        logger.warning(f"CoinFull Prime 排程開機自啟異常: {e}")
+
     yield
     # Shutdown: Stop monitoring and Redis subscriber.
     _stop_redis_subscriber()
+    try:
+        from core.services.coinfull_prime.service import CoinFullPrimeService
+        CoinFullPrimeService.instance().stop_scheduler()
+    except Exception:
+        pass
     monitor_task.cancel()
     try:
         await monitor_task
@@ -157,6 +172,7 @@ app.include_router(dashboard_router)
 app.include_router(commands_router)
 app.include_router(market_router)
 app.include_router(grid_backtest_router)
+app.include_router(coinfull_prime_router)
 
 async def monitor_processes():
     """Background task to monitor processes and update their status."""

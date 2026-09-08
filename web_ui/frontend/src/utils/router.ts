@@ -1,4 +1,4 @@
-export type AppTab = 'dashboard' | 'market' | 'configs' | 'detail' | 'dca' | 'dca-create' | 'grid-backtest';
+export type AppTab = 'dashboard' | 'market' | 'configs' | 'detail' | 'dca' | 'dca-create' | 'grid-backtest' | 'coinfull-prime';
 
 export interface RouteState {
   tab: AppTab;
@@ -6,7 +6,7 @@ export interface RouteState {
   dcaBotId: string | null;
 }
 
-const VALID_TABS = new Set<AppTab>(['dashboard', 'market', 'configs', 'detail', 'dca', 'dca-create', 'grid-backtest']);
+const VALID_TABS = new Set<AppTab>(['dashboard', 'market', 'configs', 'detail', 'dca', 'dca-create', 'grid-backtest', 'coinfull-prime']);
 
 function safeDecode(val: string): string {
   try {
@@ -55,6 +55,11 @@ export function parseHash(rawHash: string): RouteState {
   // 0. 網格回測分頁（必須先於 startsWith('grid') 判斷，避免被當成 Grid Detail）
   if (pathPart === 'grid-backtest') {
     return { tab: 'grid-backtest', gridId: null, dcaBotId: null };
+  }
+
+  // 0.1 CoinFull Prime 截面多空排行分頁
+  if (pathPart === 'coinfull-prime') {
+    return { tab: 'coinfull-prime', gridId: null, dcaBotId: null };
   }
 
   // 1. Grid Detail 路由判斷
@@ -119,6 +124,8 @@ export function formatHash(state: { tab: AppTab; gridId?: string | null; dcaBotI
       return '#/dca-create';
     case 'grid-backtest':
       return '#/grid-backtest';
+    case 'coinfull-prime':
+      return '#/coinfull-prime';
     case 'detail':
       return state.gridId ? `#/detail?id=${encodeURIComponent(state.gridId)}` : '#/dashboard';
     default:

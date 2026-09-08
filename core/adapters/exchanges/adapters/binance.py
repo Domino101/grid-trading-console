@@ -34,6 +34,15 @@ class BinanceAdapter(ExchangeAdapter):
         # 🔥 确保WebSocket使用相同的logger
         self._websocket = BinanceWebSocket(config, self.logger)
         self._position_cache = self._websocket._position_cache
+        self.testnet = getattr(config, 'testnet', False)
+
+        # 验证logger设置
+        if self.logger:
+            self.logger.info(f"📝 BinanceAdapter logger: {self.logger.name}")
+
+        # 设置基础URL
+        self.base_url = getattr(config, 'base_url', None) or self._base.base_url
+        self.ws_url = getattr(config, 'ws_url', None) or self._base.ws_url
 
     @property
     def rest(self) -> BinanceRest:
@@ -44,14 +53,6 @@ class BinanceAdapter(ExchangeAdapter):
     def websocket(self) -> BinanceWebSocket:
         """获取 WebSocket 适配器"""
         return self._websocket
-        
-        # 验证logger设置
-        if self.logger:
-            self.logger.info(f"📝 BinanceAdapter logger: {self.logger.name}")
-        
-        # 设置基础URL
-        self.base_url = getattr(config, 'base_url', None) or self._base.base_url
-        self.ws_url = getattr(config, 'ws_url', None) or self._base.ws_url
         
         # 符号映射
         self._symbol_mapping = getattr(config, 'symbol_mapping', {})

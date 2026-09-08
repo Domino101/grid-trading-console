@@ -58,6 +58,7 @@ from core.services.grid.implementations.grid_engine_impl import (
     read_persisted_circuit_state, clear_persisted_circuit_state
 )
 from core.logging import get_system_logger
+from core.security.vault import decrypt_dict_secrets
 
 # 導入單網格啟動腳本中的配置解析和適配器創建函數
 from run_grid_trading import create_grid_config, detect_market_type, create_exchange_adapter, auto_fill_precision
@@ -65,7 +66,12 @@ from run_grid_trading import create_grid_config, detect_market_type, create_exch
 from web_ui.backend.control_plane import publish_lifecycle, publish_runtime
 from web_ui.backend.lifecycle import account_mode_from_yaml, iter_hotplug_starts, live_trading_enabled, start_rejection
 from core.infrastructure.database.async_writer import AsyncDatabaseWriter
-from core.infrastructure.database.redis_support import RedisLeaderElection, leader_election_enabled
+from core.infrastructure.database.redis_support import (
+    RedisLeaderElection,
+    leader_election_enabled,
+    RedisCommandQueue,
+    redis_enabled,
+)
 from core.infrastructure.identity import resolve_bot_id
 
 # 優化的日誌系統
@@ -199,7 +205,8 @@ def _abs_config(path: str) -> Path:
 
 def _load_grid_yaml(path: str) -> dict:
     with open(_abs_config(path), "r", encoding="utf-8") as handle:
-        return yaml.safe_load(handle) or {}
+        data = yaml.safe_load(handle) or {}
+    return decrypt_dict_secrets(data)
 
 
 def _config_account_mode(path: str) -> str:
@@ -211,7 +218,8 @@ def _config_account_mode(path: str) -> str:
 
 def _load_dca_yaml(path: str) -> dict:
     with open(_abs_config(path), "r", encoding="utf-8") as handle:
-        return yaml.safe_load(handle) or {}
+        data = yaml.safe_load(handle) or {}
+    return decrypt_dict_secrets(data)
 
 
 def _dca_config_account_mode(path: str) -> str:
@@ -334,6 +342,18 @@ async def run_single_grid_task(config_path: str, adapter_pool, logger, running_g
 
         # 🔥 自動獲取精度信息（若 YAML 中省略了 quantity_precision / price_decimals）
         await auto_fill_precision(grid_config, shared_adapter, logger)
+
+        # 啟動前交易對有效性守衛門禁 (Pre-flight Symbol Validation Gate)
+        exchange_instance = getattr(shared_adapter, 'exchange', None)
+        loaded_markets = getattr(exchange_instance, 'markets', None) if exchange_instance else None
+        if loaded_markets:
+            if grid_config.symbol not in loaded_markets:
+                err_msg = f"交易對 {grid_config.symbol} 未在交易所 {grid_config.exchange} 市場列表中，禁止啟動以防異常運行！"
+                logger.error(f"❌ [{grid_config.symbol}] 啟動防呆攔截: {err_msg}")
+                _emit_lifecycle(config_path, "failed", err_msg)
+                if starting_grids is not None:
+                    starting_grids.discard(config_path)
+                return
 
         # 2. 建立該網格專有的網格組件，注入共享適配器
         strategy = GridStrategyImpl()
@@ -573,6 +593,17 @@ async def run_single_dca_task(config_path: str, adapter_pool, logger,
         # 不可 await（Phase 5 live 驗證捕獲：await None → TypeError）。
         auto_fill_dca_precision(config, adapter, logger)
 
+        # 啟動前交易對有效性守衛門禁 (Pre-flight Symbol Validation Gate)
+        dca_ex = getattr(adapter, 'exchange', None)
+        dca_markets = getattr(dca_ex, 'markets', None) if dca_ex else None
+        if dca_markets and config.symbol not in dca_markets:
+            err_msg = f"DCA 交易對 {config.symbol} 未在交易所 {config.exchange} 市場列表中，禁止啟動！"
+            logger.error(f"❌ [DCA {config.symbol}] 啟動防呆攔截: {err_msg}")
+            _emit_dca_lifecycle(config_path, "failed", err_msg)
+            if starting_dca is not None:
+                starting_dca.discard(config_path)
+            return
+
         # 每 exchange 一個共享 OhlcvCache：同 symbol+timeframe 去重（稽核 3.6）
         cache = dca_ohlcv_caches.get(exchange)
         if cache is None:
@@ -681,7 +712,15 @@ async def main():
     parser.add_argument('configs', metavar='CONFIG_PATH', type=str, nargs='*',
                         help='網格配置檔案路徑（例如：config/grid/binance-neutral-perp-sol.yaml）')
     parser.add_argument('--debug', action='store_true', help='啟用 DEBUG 級別日誌輸出')
+    parser.add_argument('--mode', choices=['single-process', 'multi-process'], default='single-process',
+                        help='進程執行模式：單進程多工 (single-process) 或 主監督者+子進程池 (multi-process)')
     args = parser.parse_args()
+
+    # 若指定多進程模式，交由 MasterSupervisor 接管
+    if args.mode == "multi-process":
+        from core.supervisor.master_daemon import run_master_daemon
+        run_master_daemon(args)
+        return
 
     # 設置日誌級別
     logger = get_system_logger()
@@ -814,6 +853,101 @@ async def main():
     starting_grids = set()
     starting_dca = set()
     dca_ohlcv_caches = {}
+
+    # 定義 Redis Streams 即時控制監控協程 (P1-1)
+    async def redis_commands_monitor():
+        if os.getenv("GRID_FORCE_FILE_MONITOR", "0") in ("1", "true", "yes") or not redis_enabled():
+            logger.info("ℹ️ [RedisCommandQueue] Redis 未啟用或強制檔案輪詢，略過即時指令監聽器")
+            return
+
+        cmd_queue = RedisCommandQueue()
+        consumer_id = f"supervisor_{os.getpid()}"
+        cmd_queue.ensure_group()
+        logger.info(f"⚡ [RedisCommandQueue] 即時指令監聽器已啟動 (consumer={consumer_id})")
+
+        while True:
+            try:
+                commands = await asyncio.to_thread(
+                    cmd_queue.read_commands,
+                    consumer_id=consumer_id,
+                    count=10,
+                    block_ms=1000,
+                )
+                for cmd in commands:
+                    msg_id = cmd.get("_msg_id")
+                    action = cmd.get("action", "").upper()
+                    target_type = cmd.get("target_type", "").lower()
+                    path = cmd.get("config_path", "")
+                    cmd_id = cmd.get("command_id")
+                    logger.info(f"⚡ [即時指令] 收到 {action} {target_type} {path} (command_id={cmd_id})")
+
+                    if target_type == "grid":
+                        if action == "START":
+                            if path in running_grids_ref or path in starting_grids:
+                                logger.info(f"ℹ️ [即時指令] 網格 {path} 已在運行或啟動中，略過等冪請求")
+                            elif not _abs_config(path).exists():
+                                logger.error(f"❌ [即時指令] 找不到網格配置: {path}")
+                                _emit_lifecycle(path, "failed", f"找不到配置檔案: {path}")
+                            else:
+                                blocked = start_rejection(_config_account_mode(path), live_trading_enabled())
+                                if blocked:
+                                    logger.error(f"❌ [即時指令] {path} 啟動被拒絕: {blocked}")
+                                    _emit_lifecycle(path, "failed", blocked)
+                                else:
+                                    starting_grids.add(path)
+                                    logger.info(f"▶️ [即時指令] 正在立即啟動網格: {path}")
+                                    asyncio.create_task(run_single_grid_task(path, adapter_pool, logger, running_grids_ref, starting_grids))
+                        elif action == "STOP":
+                            if path in running_grids_ref:
+                                logger.info(f"🛑 [即時指令] 正在立即停止網格: {path}")
+                                grid_info = running_grids_ref.get(path)
+                                if grid_info:
+                                    try:
+                                        await grid_info["coordinator"].stop()
+                                    except Exception as stop_err:
+                                        logger.error(f"⚠️ [即時指令] 停止 {path} 失敗: {stop_err}")
+                                    grid_info["task"].cancel()
+                                logger.info(f"✅ [即時指令] {path} 已成功停止並清空掛單。")
+                            else:
+                                logger.info(f"ℹ️ [即時指令] 網格 {path} 未處於運行狀態，略過停止")
+
+                    elif target_type == "dca":
+                        if action == "START":
+                            if path in running_dca_ref or path in starting_dca:
+                                logger.info(f"ℹ️ [即時指令] DCA {path} 已在運行或啟動中，略過等冪請求")
+                            elif not _abs_config(path).exists():
+                                logger.error(f"❌ [即時指令] 找不到 DCA 配置: {path}")
+                                _emit_dca_lifecycle(path, "failed", f"找不到配置檔案: {path}")
+                            else:
+                                blocked = start_rejection(_dca_config_account_mode(path), live_trading_enabled())
+                                if blocked:
+                                    logger.error(f"❌ [即時指令] {path} DCA 啟動被拒絕: {blocked}")
+                                    _emit_dca_lifecycle(path, "failed", blocked)
+                                else:
+                                    starting_dca.add(path)
+                                    logger.info(f"▶️ [即時指令] 正在立即啟動 DCA: {path}")
+                                    asyncio.create_task(run_single_dca_task(path, adapter_pool, logger, running_dca_ref, dca_ohlcv_caches, starting_dca))
+                        elif action == "STOP":
+                            if path in running_dca_ref:
+                                logger.info(f"🛑 [即時指令] 正在立即停止 DCA: {path}")
+                                dca_info = running_dca_ref.get(path)
+                                if dca_info:
+                                    try:
+                                        await dca_info["coordinator"].stop()
+                                    except Exception as stop_err:
+                                        logger.error(f"⚠️ [即時指令] 停止 DCA {path} 失敗: {stop_err}")
+                                    dca_info["task"].cancel()
+                                logger.info(f"✅ [即時指令] {path} DCA 已成功停止。")
+                            else:
+                                logger.info(f"ℹ️ [即時指令] DCA {path} 未處於運行狀態，略過停止")
+
+                    if msg_id:
+                        cmd_queue.ack(msg_id)
+            except asyncio.CancelledError:
+                break
+            except Exception as loop_err:
+                logger.warning(f"⚠️ [RedisCommandQueue] 監聽循環異常: {loop_err}")
+                await asyncio.sleep(2)
 
     # 定義熱插拔控制監控協程
     async def active_grids_monitor():
@@ -965,6 +1099,7 @@ async def main():
         )
 
     # 啟動監控協程
+    redis_monitor_task = asyncio.create_task(redis_commands_monitor())
     monitor_task = asyncio.create_task(active_grids_monitor())
     dca_monitor_task = asyncio.create_task(active_dca_monitor())
 
@@ -976,6 +1111,7 @@ async def main():
         logger.info("🛑 主進程任務已被取消，系統正在關閉...")
     finally:
         # 取消監控
+        redis_monitor_task.cancel()
         monitor_task.cancel()
         dca_monitor_task.cancel()
         # 清理所有運行中的網格

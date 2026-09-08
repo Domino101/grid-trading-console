@@ -40,6 +40,7 @@ import {
 import IndicatorConfigPanel from './IndicatorConfigPanel';
 import DcaLadderPreview from './DcaLadderPreview';
 import DcaBacktestPanel from './DcaBacktestPanel';
+import { SymbolSelect } from './SymbolSelect';
 
 // 與 DcaDetail 相同的動態匯入，維持圖表函式庫的獨立 chunk（E-6.2）。
 const DcaBacktestResult = lazy(() => import('./DcaBacktestResult'));
@@ -205,6 +206,9 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                     api.getMarketIndicators(symbol, form.exchange, form.entry.timeframe, form.entry.fetch_limit, controller.signal),
                 ]);
                 if (controller.signal.aborted) return;
+                if (info.canonical_symbol && info.canonical_symbol !== form.symbol) {
+                    setForm((prev) => ({ ...prev, symbol: info.canonical_symbol || prev.symbol }));
+                }
                 setMarketState({ kind: 'ready', scope: { ...scope }, info, data: indicators });
             } catch (e) {
                 if (controller.signal.aborted) return;
@@ -539,11 +543,12 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
 
                             <label className="input-label">
                                 <span>交易對 (Symbol)</span>
-                                <input
+                                <SymbolSelect
                                     value={form.symbol}
-                                    onChange={(e) => update('symbol', e.target.value.toUpperCase())}
-                                    placeholder="例如: ETH/USDC:USDC"
-                                    aria-describedby="dca-market-info"
+                                    exchange={form.exchange}
+                                    onChange={(val) => update('symbol', val)}
+                                    placeholder="例如: ETH/USDC:USDC 或 牛来USDT"
+                                    ariaDescribedBy="dca-market-info"
                                 />
                             </label>
 

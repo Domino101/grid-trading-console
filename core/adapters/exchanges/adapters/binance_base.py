@@ -179,7 +179,6 @@ class BinanceBase:
 
             if self.testnet:
                 config['sandbox'] = True
-                config['urls'] = {'api': self.base_url}
 
         return config
     
@@ -286,14 +285,24 @@ class BinanceBase:
 
         markets = self._market_info or {}
         if markets:
+            if binance_symbol in markets:
+                return markets[binance_symbol].get("symbol", binance_symbol)
+            clean_b = binance_symbol.upper().replace('/', '').replace(':', '').replace('-', '').replace('_', '')
             for sym, m in markets.items():
-                if isinstance(m, dict) and m.get("id") == binance_symbol:
-                    return m.get("symbol", sym)
+                if isinstance(m, dict):
+                    if m.get("id") == binance_symbol or m.get("id") == clean_b:
+                        return m.get("symbol", sym)
+                    if m.get("lowercaseId") and m.get("lowercaseId") in (binance_symbol.lower(), clean_b.lower()):
+                        return m.get("symbol", sym)
+                    if m.get("symbol") == binance_symbol:
+                        return m.get("symbol", sym)
 
         s = binance_symbol.upper()
+        is_perp = getattr(self.config, 'exchange_type', None) in (ExchangeType.PERPETUAL, ExchangeType.FUTURES)
         for q in ("USDT", "USDC", "BUSD", "FDUSD", "TUSD"):
             if s.endswith(q) and len(s) > len(q):
-                return f"{s[:-len(q)]}/{q}"
+                base = s[:-len(q)]
+                return f"{base}/{q}:{q}" if is_perp else f"{base}/{q}"
         return binance_symbol
     
     def _safe_decimal(self, value: Any) -> Optional[Decimal]:

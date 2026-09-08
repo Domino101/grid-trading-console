@@ -45,6 +45,7 @@ from web_ui.backend.safety_guard import SafetyGuard
 from web_ui.backend.grid_state_store import GridStateStore
 from web_ui.backend.command_repository import GridCommandRepository
 from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
+from core.infrastructure.database.redis_support import RedisCommandQueue
 from web_ui.backend.lifecycle import (
     account_mode_from_yaml,
     build_grid_read_model,
@@ -415,7 +416,7 @@ async def get_grid_fills(grid_id: str, _token: str = Depends(verify_token)):
     runtime = GridStateStore.instance().get(config_path) or {}
     fills = runtime.get("recent_fills")
     if not isinstance(fills, list):
-        return {"grid_id": grid_id, "available": False, "fills": [], "message": "尚未有成交明細"}
+        return {"grid_id": grid_id, "available": False, "fills": [], "message": "引擎尚未提供成交明細"}
     return {"grid_id": grid_id, "available": True, "fills": fills, "message": None}
 
 
@@ -502,22 +503,27 @@ async def create_grid(
             detail={"message": "參數驗證失敗", "errors": errors},
         )
 
-    # 1.5 LIVE server-side final gate. It is intentionally disabled by default;
-    # PAPER creation stays available for validation workflows.
+    # 1.5 交易對有效性預檢與自適應正規化（不論 LIVE 還是 PAPER 都執行市場存在性驗證）
+    import asyncio
+    from web_ui.backend.routes.market import _lookup_market_from_ccxt_sync
+    market_info = await asyncio.get_running_loop().run_in_executor(
+        None, _lookup_market_from_ccxt_sync, params["symbol"], params["exchange"]
+    )
+    if market_info is None:
+        message = f"交易對 {params['symbol']} 在交易所 {params['exchange']} 中不存在或無法交易，拒絕建立！"
+        audit_logger.log(source=source, action="create_grid", grid_id=None, params=params, result="rejected", reason=reason, error_msg=message)
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=message)
+
+    # 🔥 自適應正規化為交易所標準符號（例如 牛来USDT -> 牛来/USDT:USDT）
+    if market_info.canonical_symbol:
+        params["symbol"] = market_info.canonical_symbol
+
+    # 1.6 LIVE server-side final gate.
     if params.get("account_mode", "paper") == "live":
         if os.getenv("GRID_LIVE_TRADING_ENABLED", "false").lower() not in {"1", "true", "yes"}:
             message = "LIVE 建立功能尚未啟用（需要 GRID_LIVE_TRADING_ENABLED=true）"
             audit_logger.log(source=source, action="create_grid", grid_id=None, params=params, result="rejected", reason=reason, error_msg=message)
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=message)
-        import asyncio
-        from web_ui.backend.routes.market import _lookup_market_from_ccxt_sync
-        market_info = await asyncio.get_running_loop().run_in_executor(
-            None, _lookup_market_from_ccxt_sync, params["symbol"], params["exchange"]
-        )
-        if market_info is None:
-            message = "LIVE 建立前無法確認交易對市場規則"
-            audit_logger.log(source=source, action="create_grid", grid_id=None, params=params, result="rejected", reason=reason, error_msg=message)
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=message)
         market_errors = _validate_market_rules(params, market_info)
         params["market_validation"] = {
             "symbol": market_info.symbol, "exchange": market_info.exchange,
@@ -645,6 +651,7 @@ async def create_grid(
             active_grids = _read_active_grids()
             active_grids[config_path] = True
             _write_active_grids(active_grids)
+            RedisCommandQueue().publish("START", "grid", config_path, command_id=command_id)
             GridCommandRepository.instance().update_status(command_id, "pending_engine")
             grid_status = "pending_engine"
             logger.info("已接受建立後啟動命令: %s command=%s", grid_id, command_id)
@@ -767,6 +774,24 @@ async def start_grid(
         )
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=blocked)
 
+    # 啟動前交易對市場檢驗門禁
+    cfg_symbol = yaml_data.get("grid_system", {}).get("symbol")
+    cfg_exchange = yaml_data.get("grid_system", {}).get("exchange", "binance")
+    if cfg_symbol:
+        import asyncio
+        from web_ui.backend.routes.market import _lookup_market_from_ccxt_sync
+        m_info = await asyncio.get_running_loop().run_in_executor(
+            None, _lookup_market_from_ccxt_sync, cfg_symbol, cfg_exchange
+        )
+        if m_info is None:
+            err_msg = f"配置中交易對 {cfg_symbol} 在交易所 {cfg_exchange} 中無效或不存在，禁止啟動！"
+            audit_logger.log(
+                source=source, action="start", grid_id=grid_id,
+                params={"grid_id": grid_id}, result="rejected", reason=reason,
+                error_msg=err_msg
+            )
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=err_msg)
+
     command_repo = GridCommandRepository.instance()
     if idempotency_key:
         existing = command_repo.get_by_idempotency_key("start", idempotency_key, grid_id=grid_id)
@@ -820,6 +845,7 @@ async def start_grid(
     try:
         active_grids[config_path] = True
         _write_active_grids(active_grids)
+        RedisCommandQueue().publish("START", "grid", config_path, command_id=command["command_id"])
         GridCommandRepository.instance().update_status(command["command_id"], "pending_engine")
         logger.info(f"▶️ 已接受啟動網格命令: {grid_id}, command={command['command_id']}")
 
@@ -941,6 +967,7 @@ async def stop_grid(
     try:
         active_grids[config_path] = False
         _write_active_grids(active_grids)
+        RedisCommandQueue().publish("STOP", "grid", config_path, command_id=command["command_id"])
         GridCommandRepository.instance().update_status(command["command_id"], "pending_engine")
         logger.info(f"🛑 已接受停止網格命令: {grid_id}, command={command['command_id']}")
 
@@ -1071,6 +1098,7 @@ async def delete_grid(
                 pass
             active_grids[config_path] = False
             _write_active_grids(active_grids)
+            RedisCommandQueue().publish("STOP", "grid", config_path)
             logger.info(f"🛑 刪除前已停止網格: {grid_id}")
 
         # 2. 從 active_grids 移除
