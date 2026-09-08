@@ -24,6 +24,7 @@ import {
   type GridRecommendationResponse,
 } from '../services/api';
 import { canAdvanceCreateStep } from '../utils/format';
+import { SymbolSelect } from './SymbolSelect';
 
 
 type Notice = { type: 'success' | 'error'; text: string } | null;
@@ -187,6 +188,7 @@ const GridForm: React.FC<GridFormProps> = ({
       setMarketInfo(info);
       setFormData((current) => ({
         ...current,
+        symbol: info.canonical_symbol || current.symbol,
         price_decimals: info.price_precision ?? current.price_decimals,
         quantity_precision: info.quantity_precision ?? current.quantity_precision,
       }));
@@ -433,10 +435,11 @@ const GridForm: React.FC<GridFormProps> = ({
 
             <label className="input-label">
               <span>交易對 (Symbol)</span>
-              <input
+              <SymbolSelect
                 value={formData.symbol}
-                onChange={(e) => update('symbol', e.target.value.toUpperCase())}
-                placeholder="例如: BTC/USDT"
+                exchange={formData.exchange}
+                onChange={(val) => update('symbol', val)}
+                placeholder="例如: BTC/USDT 或 牛来USDT"
               />
             </label>
 

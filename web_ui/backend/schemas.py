@@ -209,11 +209,29 @@ class MarketInfoResponse(BaseModel):
     """GET /api/v1/market/info/{symbol} 回應"""
     symbol: str
     exchange: str
+    canonical_symbol: Optional[str] = None
     price_precision: Optional[int] = None
     quantity_precision: Optional[int] = None
     min_order_amount: Optional[float] = None
     min_notional: Optional[float] = None
     contract_size: Optional[float] = None
+    cached: bool = False
+
+
+class MarketSymbolItem(BaseModel):
+    """單一可交易對項目"""
+    symbol: str               # 標準格式，例如 BTC/USDT:USDT 或 牛来/USDT:USDT
+    id: str                   # 交易所原始代碼，例如 BTCUSDT 或 牛来USDT
+    base: str                 # 基礎代幣，例如 BTC 或 牛来
+    quote: str                # 計價幣種，例如 USDT
+    market_type: str = "swap" # swap / spot / future
+
+
+class MarketSymbolsResponse(BaseModel):
+    """GET /api/v1/market/symbols 回應"""
+    exchange: str
+    symbols: List[MarketSymbolItem]
+    total: int
     cached: bool = False
 
 

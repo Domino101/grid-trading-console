@@ -3,6 +3,44 @@
 本專案的重要變更記錄於此檔案，遵循 [Semantic Versioning](https://semver.org/lang/zh-TW/) 與 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/) 規範。
 詳細歷史工程記錄請參閱 [CHANGELOG_LEGACY.md](file:///root/grid-trading-console/CHANGELOG_LEGACY.md)。
 
+## [0.3.2] — 2026-09-08
+
+### Added
+- **CoinFull Prime 市場中性截面多空策略模組 (CoinFull Prime Market-Neutral Quant Engine)**：
+  - 全新量化架構模組 (`core/services/coinfull_prime/`)：
+    - `quant_engine.py`：非同步獲取流動性前 79 幣種，計算 24h 動能、主動買賣流比例、資金費率反向因子、大戶多空帳戶比等 4 大因子標準化 (Z-score) 與加權合成打分模型。
+    - `rebalancer.py`：一籃子持倉平衡器與狀態機 (Position Diffing Engine)，支援 Top 8 做多 / Bottom 8 做空名義價值均衡配置、合約精度與步長動態裁切 (`stepSize`)、分批並發限速發單 (`Semaphore=3`)。
+    - `service.py`：策略協調服務與生命週期管理，支援 0.0% CPU 休眠排程（每日 UTC 00:00 / 台北 08:00 自動喚醒執行換倉）。
+    - 支援 Paper 本地模擬盤、Binance 合約測試網、Binance 合約實盤三種帳號環境切換。
+- **三層抗干擾與避碰防護體系 (3-Layer Anti-Interference & Collision Avoidance System)**：
+  - **第一層【專屬持倉籃子獨立記帳與隔離護欄】**：
+    - 引入 `data/coinfull_prime_active_basket.json` 專屬持久化持倉帳本。
+    - 換倉比對時嚴格執行「平倉白名單」：非本策略建立之部位（如網格/DCA/手動倉位）全面強制豁免，絕對不執行市價平倉與干擾。
+  - **第二層【外部活躍機器人標的動態避碰與排除】**：
+    - 每輪換倉與算分前，自動動態掃描 SQLite (`bots` 表) 與 `config/{grid,dca}` 設定檔，提取 13+ 個運行中網格/DCA 機器人標的與基礎幣種。
+    - 自 79 幣流動性候選池直接剔除上述標的，CoinFull Prime 絕不挑選或開立衝突幣種，徹底杜絕保證金擠兌、重複開倉或反向對沖。
+  - **第三層【排程目標雙向同步與防呆標記】**：
+    - 新增 `/api/v1/coinfull-prime/scheduler/target` API。前端切換環境時即時雙向同動後端定時器目標。
+    - 排程卡片明確標示「定時排程實際目標」與一鍵同步按鈕；合約持倉列表即時標註 `🛡️ 外部機器人保護中`、`⚪ 外部獨立持倉 (已隔離)`、`🔵 專屬籃子 (留榜微調)`、`🟠 專屬籃子 (退榜平倉)` 徽章。
+- **動態倉位規模與槓桿控制 (Dynamic Sizing & Leverage Preview)**：
+  - 支援「固定金額 (USDT)」與「帳戶可用餘額百分比 (%)」雙模式，動態讀取合約帳戶即時保證金餘額。
+  - 支援自訂槓桿倍數 (1.0x ~ 2.0x)，前端提供動態即時試算徽章與二次確認彈窗，清晰展示總名義曝險與單幣分配額。
+- **架構演進 Phase 0 ~ Phase 3 (Architecture Evolution P0 - P3)**：
+  - P0: 零停機配置遷移與即時安全金鑰加密保存 (`core/security/`、`tools/encrypt_api_key.py`)。
+  - P1: 工作行程隔離與 Supervisor 行程生命週期管理 (`core/supervisor/`、`scripts/deployment/crypto-engine.service`)。
+  - P2: 雙模持久化與 Canonical Ledger 事件帳本整合 (`core/infrastructure/database/`、`async_writer.py`、`ledger_store.py`、`redis_support.py`)。
+  - P3: 極致低延遲 Go 交易核心與高效 IPC 通訊協定 (`trading-core-go/`、`proto/`、`core/ipc/`、`core/adapters/exchanges/adapters/binance_fast.py`)。
+
+### Changed
+- **前端版本升級至 0.3.2** (`web_ui/frontend/package.json`)。
+- **知識圖譜同步重構**：知識圖譜 `graphify` 完成最新程式碼 AST 提取與多策略社群索引更新。
+
+### Fixed
+- **定時排程目標帳號未同步修復**：解決前端切換實盤/測試網時背景定時排程器未即時連動更新目標的問題。
+- **持倉取得小數精度裁切與退榜狀態誤導修復**：解決無持倉或非專屬持倉被誤標記為「退榜 (即將平倉)」之視覺誤導，增強防護透明度。
+
+---
+
 ## [0.3.1] — 2026-09-05
 
 ### Fixed

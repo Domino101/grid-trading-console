@@ -177,8 +177,15 @@ class LedgerRepository:
         return self._store.rehydrate_position_from_fills(bot_id)
 
     # ══════════════════ 快照與向下相容 ══════════════════
-    def save_snapshot(self, bot_id: str, config_path: str, stats: dict, timestamp: Optional[float] = None) -> float:
-        return self._store.save_snapshot(bot_id, config_path, stats, timestamp)
+    def save_snapshot(
+        self,
+        bot_id: str,
+        config_path: str,
+        stats: dict,
+        timestamp: Optional[float] = None,
+        force_history: bool = False,
+    ) -> float:
+        return self._store.save_snapshot(bot_id, config_path, stats, timestamp, force_history=force_history)
 
     def load_all_snapshots(self) -> Dict[str, Tuple[dict, float]]:
         return self._store.load_all_snapshots()
@@ -191,6 +198,9 @@ class LedgerRepository:
 
     def load_snapshot_history(self, config_path: str, since: float, limit: int = 1000) -> List[Tuple[dict, float]]:
         return self._store.load_snapshot_history(config_path, since, limit)
+
+    def load_history(self, bot_id_or_config: str, limit: int = 1000) -> List[Tuple[dict, float]]:
+        return self._store.load_history(bot_id_or_config, limit=limit)
 
     def remove_snapshot(self, config_path: str) -> None:
         self._store.remove_snapshot(config_path)

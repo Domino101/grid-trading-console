@@ -1,5 +1,6 @@
-# Install after replacing /opt/crypto-trading-open and crypto with the real paths/user.
+# Install after replacing /opt/grid-trading-console and crypto-runner with the real paths/user if customized.
 # sudo install -m 0644 scripts/deployment/crypto-webui.service /etc/systemd/system/crypto-webui.service
+# sudo systemctl daemon-reload && sudo systemctl enable --now crypto-webui.service
 [Unit]
 Description=Crypto Trading Web UI API
 After=network-online.target
@@ -7,21 +8,29 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=crypto
-Group=crypto
-WorkingDirectory=/opt/crypto-trading-open/web_ui/backend
-EnvironmentFile=-/opt/crypto-trading-open/.env
+User=crypto-runner
+Group=crypto-runner
+WorkingDirectory=/opt/grid-trading-console/web_ui/backend
+EnvironmentFile=-/opt/grid-trading-console/.env
 Environment=PYTHONUNBUFFERED=1
-Environment=PYTHONPATH=/opt/crypto-trading-open
-ExecStart=/opt/crypto-trading-open/venv/bin/python3 -m uvicorn main:app --host 0.0.0.0 --port 8001 --proxy-headers
+Environment=PYTHONPATH=/opt/grid-trading-console
+ExecStart=/opt/grid-trading-console/venv/bin/python3 -m uvicorn main:app --host 0.0.0.0 --port 8001 --proxy-headers
 Restart=always
 RestartSec=5
 TimeoutStopSec=30
 KillSignal=SIGTERM
+
+# === Security Sandbox Isolation ===
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=full
-ReadWritePaths=/opt/crypto-trading-open/config /opt/crypto-trading-open/data /opt/crypto-trading-open/logs
+ProtectSystem=strict
+ProtectHome=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictRealtime=true
+ReadWritePaths=/opt/grid-trading-console/config /opt/grid-trading-console/data /opt/grid-trading-console/logs
 
 [Install]
 WantedBy=multi-user.target

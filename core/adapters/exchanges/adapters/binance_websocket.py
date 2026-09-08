@@ -243,8 +243,8 @@ class BinanceWebSocket(BinanceBase):
             if self._futures_websocket and not _is_ws_closed(self._futures_websocket):
                 return True
             
-            # 使用期货 WebSocket URL
-            futures_ws_url = self.DEFAULT_WS_URL
+            # 使用期货 WebSocket URL (若為測試網則使用 self.ws_url)
+            futures_ws_url = self.ws_url or self.DEFAULT_WS_URL
             
             if self.logger:
                 self.logger.info(f"📡 连接Binance期货数据流: {futures_ws_url}")
@@ -930,8 +930,14 @@ class BinanceWebSocket(BinanceBase):
             callback: 回调函数
         """
         try:
-            # 判断是永续合约还是现货
-            is_futures = ':' in symbol
+            # 判断是永续合约还是现货（自适应容错）
+            # 若包含冒号，或当前 Adapter 为 PERPETUAL/FUTURES，皆判定为期货合约
+            exchange_type = getattr(self.config, 'exchange_type', None)
+            is_futures = (
+                ':' in symbol
+                or exchange_type in (ExchangeType.PERPETUAL, ExchangeType.FUTURES)
+                or getattr(self, '_futures_connected', False)
+            )
             
             if self.logger:
                 market_type = "永续合约" if is_futures else "现货"
@@ -942,10 +948,9 @@ class BinanceWebSocket(BinanceBase):
                 if not self._futures_connected:
                     await self._connect_futures_stream()
                 
-                # 移除保证金币种后缀，构建流名称
-                # HYPE/USDT:USDT -> HYPEUSDT -> hypeusdt@bookTicker
-                clean_symbol = symbol.split(':')[0]  # HYPE/USDT
-                binance_symbol = clean_symbol.replace('/', '').lower()
+                # 构建期货流名称，使用 map_symbol_to_binance 自适应解析
+                clean_symbol = symbol.split(':')[0] if ':' in symbol else symbol
+                binance_symbol = self.map_symbol_to_binance(clean_symbol).replace('/', '').lower()
                 stream_name = f"{binance_symbol}@bookTicker"
                 
                 # 注册到期货订阅

@@ -1,14 +1,12 @@
-metadata:
-  bot_id: dca-binance-short-eth-usdc-usdc-20260831004602
 dca:
   exchange: binance
-  symbol: ETH/USDC:USDC
+  symbol: INJ/USDT:USDT
   direction: short
   account_mode: live
   leverage: 10
   margin_mode: isolated
-  quantity_precision: 3
-  price_decimals: 2
+  quantity_precision: 1
+  price_decimals: 3
   fee_rate: '0.0004'
   base_order_amount: '100.0'
   amount_unit: quote
@@ -33,7 +31,7 @@ dca:
   entry:
     mode: indicator
     logic: all
-    timeframe: 15m
+    timeframe: 4h
     fetch_limit: 300
     price_source: close
     confirm_bars: 1
@@ -44,3 +42,5 @@ dca:
       oversold: 30.0
       overbought: 70.0
       condition: level
+metadata:
+  bot_id: 2142cd6f256b48b789d13b07f9d1fce5

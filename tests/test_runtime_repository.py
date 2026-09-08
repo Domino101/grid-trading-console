@@ -32,6 +32,34 @@ class RuntimeSnapshotRepositoryTests(unittest.TestCase):
             self.assertEqual(reader.load_all(), {})
             self.assertEqual(reader.history("config/grid/test.yaml", since=0), [])
 
+    def test_load_all_merges_partial_redis_cache_with_db(self):
+        # DEF-05: 當 Redis 快取僅有部分機器人時，load_all 必須合併 DB，嚴禁遺失其餘機器人
+        from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
+
+        class MockCache:
+            def __init__(self, data):
+                self.data = data
+            def get_all(self):
+                return self.data
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = os.path.join(temp_dir, "runtime.sqlite3")
+            repo = RuntimeSnapshotRepository(path, cache=None)
+            # DB 寫入 3 隻機器人
+            repo.save("config/grid/b1.yaml", {"bot_id": "b1", "price": 100.0}, updated_at=10.0)
+            repo.save("config/grid/b2.yaml", {"bot_id": "b2", "price": 200.0}, updated_at=10.0)
+            repo.save("config/grid/b3.yaml", {"bot_id": "b3", "price": 300.0}, updated_at=10.0)
+
+            # Redis 僅快取 1 隻機器人 (b1，且時間戳較新)
+            mock_cache = MockCache({"config/grid/b1.yaml": ({"bot_id": "b1", "price": 105.0}, 20.0)})
+            repo._redis_cache = mock_cache
+
+            all_snaps = repo.load_all()
+            self.assertEqual(len(all_snaps), 3)
+            self.assertEqual(all_snaps["config/grid/b1.yaml"][0]["price"], 105.0)
+            self.assertEqual(all_snaps["config/grid/b2.yaml"][0]["price"], 200.0)
+            self.assertEqual(all_snaps["config/grid/b3.yaml"][0]["price"], 300.0)
+
 
 if __name__ == "__main__":
     unittest.main()

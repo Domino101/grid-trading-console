@@ -1,0 +1,174 @@
+syntax = "proto3";
+
+package trading_core;
+
+option go_package = "trading-core-go/pb;pb";
+
+// 訂單類型
+enum OrderType {
+    ORDER_TYPE_UNSPECIFIED = 0;
+    LIMIT = 1;
+    MARKET = 2;
+    POST_ONLY = 3;
+}
+
+// 訂單買賣方向
+enum OrderSide {
+    ORDER_SIDE_UNSPECIFIED = 0;
+    BUY = 1;
+    SELL = 2;
+}
+
+// 訂單生命週期狀態
+enum OrderStatus {
+    ORDER_STATUS_UNSPECIFIED = 0;
+    PENDING = 1;
+    OPEN = 2;
+    PARTIALLY_FILLED = 3;
+    FILLED = 4;
+    CANCELLED = 5;
+    REJECTED = 6;
+}
+
+// 訂單有效時限 (Time In Force)
+enum TimeInForce {
+    TIF_UNSPECIFIED = 0;
+    GTC = 1; // Good 'Til Cancelled
+    IOC = 2; // Immediate Or Cancel
+    FOK = 3; // Fill Or Kill
+    POST_ONLY_TIF = 4;
+}
+
+// IPC 訊息類型列舉 (用於 Envelope 快速路由)
+enum MessageType {
+    MSG_UNSPECIFIED = 0;
+    MSG_ORDER_REQ = 1;
+    MSG_ORDER_RESP = 2;
+    MSG_CANCEL_REQ = 3;
+    MSG_CANCEL_RESP = 4;
+    MSG_ORDERBOOK_UPDATE = 5;
+    MSG_POSITION_STATE = 6;
+    MSG_RISK_REQ = 7;
+    MSG_RISK_RESP = 8;
+    MSG_HEARTBEAT = 9;
+}
+
+// 下單請求
+message OrderRequest {
+    string request_id = 1;
+    string bot_id = 2;
+    string symbol = 3;
+    OrderSide side = 4;
+    OrderType order_type = 5;
+    double price = 6;
+    double quantity = 7;
+    int64 client_timestamp_ns = 8;
+    string client_order_id = 9;
+    TimeInForce tif = 10;
+    bool reduce_only = 11;
+}
+
+// 下單響應 (撮合或掛單結果)
+message OrderResponse {
+    string request_id = 1;
+    string order_id = 2;
+    string client_order_id = 3;
+    string bot_id = 4;
+    string symbol = 5;
+    OrderStatus status = 6;
+    double executed_price = 7;
+    double executed_quantity = 8;
+    double remaining_quantity = 9;
+    double cumulative_quote = 10;
+    double fee = 11;
+    string fee_asset = 12;
+    int64 engine_timestamp_ns = 13;
+    int64 latency_ns = 14;
+    string reject_reason = 15;
+}
+
+// 撤單請求
+message CancelRequest {
+    string request_id = 1;
+    string bot_id = 2;
+    string symbol = 3;
+    string order_id = 4;
+    string client_order_id = 5;
+}
+
+// 撤單響應
+message CancelResponse {
+    string request_id = 1;
+    string order_id = 2;
+    bool success = 3;
+    string error_message = 4;
+    int64 engine_timestamp_ns = 5;
+}
+
+// 價位深度單行
+message PriceLevel {
+    double price = 1;
+    double quantity = 2;
+}
+
+// 訂單簿行情廣播 / 快照
+message OrderBookUpdate {
+    string symbol = 1;
+    int64 sequence = 2;
+    int64 timestamp_ns = 3;
+    repeated PriceLevel bids = 4;
+    repeated PriceLevel asks = 5;
+    bool is_snapshot = 6;
+}
+
+// 倉位狀態
+message PositionState {
+    string bot_id = 1;
+    string symbol = 2;
+    OrderSide side = 3;
+    double size = 4;
+    double entry_price = 5;
+    double mark_price = 6;
+    double unrealized_pnl = 7;
+    double realized_pnl = 8;
+    double liquidation_price = 9;
+    double leverage = 10;
+    int64 updated_at_ns = 11;
+}
+
+// 毫秒風控檢查請求
+message RiskCheckRequest {
+    string bot_id = 1;
+    string symbol = 2;
+    OrderSide side = 3;
+    double price = 4;
+    double quantity = 5;
+    double current_drawdown_pct = 6;
+    double max_drawdown_limit_pct = 7;
+    double max_position_size = 8;
+}
+
+// 風控檢查響應
+message RiskCheckResponse {
+    bool approved = 1;
+    string reason = 2;
+    bool circuit_breaker_triggered = 3;
+    int64 latency_ns = 4;
+}
+
+// 引擎健康心跳
+message EngineHeartbeat {
+    int64 timestamp_ns = 1;
+    uint64 total_orders_matched = 2;
+    double current_qps = 3;
+    uint64 memory_rss_bytes = 4;
+    double cpu_pct = 5;
+}
+
+// 高性能二進位封裝外殼 (Framing Routing Envelope)
+message IPCEnvelope {
+    MessageType type = 1;
+    bytes payload = 2;
+    int64 sequence = 3;
+    int64 timestamp_ns = 4;
+}

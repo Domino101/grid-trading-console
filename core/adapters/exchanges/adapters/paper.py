@@ -239,11 +239,13 @@ class PaperExchangeAdapter(ExchangeInterface):
             exchange_id = (self.config.extra_params or {}).get("venue") or self.config.exchange_id or "binance"
             if str(exchange_id).lower() == "paper":
                 exchange_id = "binance"
-            klass = getattr(ccxt, str(exchange_id).lower(), None)
-            if klass is None:
-                raise RuntimeError(f"unsupported venue {exchange_id}")
-            client = klass({"enableRateLimit": True, "options": {"defaultType": "swap"}})
-            ticker = client.fetch_ticker(symbol)
+            if not hasattr(self, "_ccxt_client") or self._ccxt_client is None or getattr(self, "_ccxt_venue", None) != exchange_id:
+                klass = getattr(ccxt, str(exchange_id).lower(), None)
+                if klass is None:
+                    raise RuntimeError(f"unsupported venue {exchange_id}")
+                self._ccxt_client = klass({"enableRateLimit": True, "options": {"defaultType": "swap"}})
+                self._ccxt_venue = exchange_id
+            ticker = self._ccxt_client.fetch_ticker(symbol)
             price = _as_decimal(ticker.get("last") or ticker.get("close"))
             self._last[symbol] = price
             if not hasattr(self, '_last_price_fetch_time'):

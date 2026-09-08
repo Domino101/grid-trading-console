@@ -11,7 +11,15 @@ import json
 import os
 import threading
 import time
+from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
+
+try:
+    from dotenv import load_dotenv
+    _proj_root = Path(__file__).resolve().parent.parent.parent.parent
+    load_dotenv(_proj_root / ".env", override=False)
+except ImportError:
+    pass
 
 from core.logging import get_logger
 
@@ -108,6 +116,13 @@ class RedisStateCache:
 
     def __init__(self, ttl: Optional[int] = None):
         self.ttl = int(ttl) if ttl is not None else env_int("GRID_REDIS_STATE_TTL", 300)
+
+    def is_available(self) -> bool:
+        """True if Redis is enabled and reachable."""
+        return redis_enabled() and get_redis() is not None
+
+    def _get_client(self) -> Optional[Any]:
+        return get_redis()
 
     def _key_for_bot(self, bot_id: str) -> str:
         return f"grid:state:{bot_id}"
@@ -423,3 +438,111 @@ class RedisLeaderElection:
 def leader_election_enabled() -> bool:
     """Enable leader election automatically when Redis is configured."""
     return redis_enabled()
+
+
+GRID_COMMANDS_STREAM = "grid:commands"
+GRID_SUPERVISOR_GROUP = "supervisor_group"
+
+
+class RedisCommandQueue:
+    """Redis Streams-based Command Queue for instant (<10ms) control-plane dispatch.
+
+    Replaces 5-second polling of active_grids.json and active_dca.json while keeping
+    them as persistent fallback / reconciliation sources.
+    """
+
+    def __init__(self, stream: str = GRID_COMMANDS_STREAM, group: str = GRID_SUPERVISOR_GROUP):
+        self.stream = stream
+        self.group = group
+        self._group_ensured = False
+
+    def publish(
+        self,
+        action: str,
+        target_type: str,
+        config_path: str,
+        command_id: Optional[str] = None,
+        params: Optional[dict] = None,
+    ) -> Optional[str]:
+        """Publish a command to the Redis Stream.
+
+        Returns message ID if successful, None on error / Redis unavailable.
+        """
+        import uuid
+        payload = {
+            "command_id": command_id or str(uuid.uuid4()),
+            "action": action.upper(),  # START | STOP | RELOAD
+            "target_type": target_type.lower(),  # grid | dca
+            "config_path": config_path,
+            "params": params or {},
+            "timestamp": time.time(),
+        }
+        msg_data = {"payload": json.dumps(payload, ensure_ascii=False, default=str)}
+
+        def _do(client: Any) -> str:
+            return str(client.xadd(self.stream, msg_data))
+
+        return safe_redis(_do, None)
+
+    def ensure_group(self, group: Optional[str] = None) -> bool:
+        """Create consumer group if not already existing."""
+        grp = group or self.group
+        if self._group_ensured and grp == self.group:
+            return True
+
+        def _do(client: Any) -> bool:
+            try:
+                client.xgroup_create(self.stream, grp, id="0", mkstream=True)
+                self._group_ensured = True
+                return True
+            except Exception as e:
+                if "BUSYGROUP" in str(e):
+                    self._group_ensured = True
+                    return True
+                logger.warning(f"⚠️ [RedisCommandQueue] xgroup_create 警告: {e}")
+                return False
+
+        return safe_redis(_do, False)
+
+    def read_commands(
+        self,
+        consumer_id: str,
+        group: Optional[str] = None,
+        count: int = 10,
+        block_ms: int = 1000,
+    ) -> List[Dict[str, Any]]:
+        """Read pending commands for consumer group.
+
+        Returns a list of command dicts, each with '_msg_id' attached.
+        """
+        grp = group or self.group
+        self.ensure_group(grp)
+
+        def _do(client: Any) -> List[Dict[str, Any]]:
+            res = client.xreadgroup(grp, consumer_id, {self.stream: ">"}, count=count, block=block_ms)
+            if not res:
+                return []
+            commands = []
+            for stream_name, messages in res:
+                for msg_id, fields in messages:
+                    raw_payload = fields.get("payload")
+                    if raw_payload:
+                        try:
+                            cmd = json.loads(raw_payload)
+                            cmd["_msg_id"] = msg_id
+                            commands.append(cmd)
+                        except (TypeError, ValueError, json.JSONDecodeError):
+                            client.xack(self.stream, grp, msg_id)
+            return commands
+
+        return safe_redis(_do, [])
+
+    def ack(self, message_id: str, group: Optional[str] = None) -> None:
+        """Acknowledge a processed command."""
+        grp = group or self.group
+
+        def _do(client: Any) -> None:
+            client.xack(self.stream, grp, message_id)
+
+        safe_redis(_do, None)
+

@@ -54,6 +54,7 @@ class ExchangeFactory:
             from .adapters.hyperliquid import HyperliquidAdapter
             from .adapters.backpack import BackpackAdapter
             from .adapters.binance import BinanceAdapter
+            from .adapters.binance_fast import BinanceFastAdapter
             from .adapters.edgex import EdgeXAdapter
             from .adapters.lighter import LighterAdapter
             from .adapters.o1exchange import O1ExchangeAdapter
@@ -123,6 +124,29 @@ class ExchangeFactory:
                         "ticker": {"max_requests": 1200, "time_window": 60},
                         "orderbook": {"max_requests": 1200, "time_window": 60},
                         "trading": {"max_requests": 600, "time_window": 60}
+                    }
+                }
+            )
+
+            # 注册 Binance Fast 高速原生适配器 (P2-3)
+            self.register_adapter(
+                exchange_id="binance_fast",
+                adapter_class=BinanceFastAdapter,
+                exchange_type=ExchangeType.FUTURES,
+                name="Binance Futures Fast",
+                description="币安期货专用原生高速适配器 (Bypass CCXT)",
+                supported_features=[
+                    "futures_trading", "websocket", "orderbook",
+                    "ticker", "user_stream"
+                ],
+                default_config={
+                    "testnet": False,
+                    "default_leverage": 1,
+                    "enable_websocket": True,
+                    "rate_limits": {
+                        "ticker": {"max_requests": 2400, "time_window": 60},
+                        "orderbook": {"max_requests": 2400, "time_window": 60},
+                        "trading": {"max_requests": 1200, "time_window": 60}
                     }
                 }
             )

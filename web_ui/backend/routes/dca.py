@@ -48,6 +48,7 @@ from web_ui.backend.safety_guard import SafetyGuard
 from web_ui.backend.grid_state_store import GridStateStore
 from web_ui.backend.command_repository import GridCommandRepository
 from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
+from core.infrastructure.database.redis_support import RedisCommandQueue
 from web_ui.backend.lifecycle import (
     data_status_from_runtime,
     delete_rejection,
@@ -618,7 +619,22 @@ async def create_dca(
             detail={"message": "參數驗證失敗", "errors": errors},
         )
 
-    # 1.5 LIVE feature flag + 市場規則校驗（稽核 4.12 / 4.13）
+    # 1.5 交易對有效性預檢與自適應正規化（不論 LIVE 還是 PAPER 都執行市場存在性驗證）
+    from web_ui.backend.routes.market import _lookup_market_from_ccxt_sync
+    market_info = await asyncio.get_running_loop().run_in_executor(
+        None, _lookup_market_from_ccxt_sync, params["symbol"], params["exchange"]
+    )
+    if market_info is None:
+        message = f"交易對 {params['symbol']} 在交易所 {params['exchange']} 中不存在或無法交易，拒絕建立！"
+        audit_logger.log(source=source, action="create_dca", grid_id=None,
+                         params=_prune_params(params), result="rejected", reason=reason,
+                         error_msg=message)
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=message)
+
+    if market_info.canonical_symbol:
+        params["symbol"] = market_info.canonical_symbol
+
+    # 1.6 LIVE feature flag + 市場規則校驗（稽核 4.12 / 4.13）
     if params.get("account_mode", "paper") == "live":
         if not live_trading_enabled():
             message = "LIVE 建立功能尚未啟用（需要 GRID_LIVE_TRADING_ENABLED=true）"
@@ -626,17 +642,6 @@ async def create_dca(
                              params=_prune_params(params), result="rejected", reason=reason,
                              error_msg=message)
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=message)
-        from web_ui.backend.routes.market import _lookup_market_from_ccxt_sync
-        market_info = await asyncio.get_running_loop().run_in_executor(
-            None, _lookup_market_from_ccxt_sync, params["symbol"], params["exchange"]
-        )
-        if market_info is None:
-            message = "LIVE 建立前無法確認交易對市場規則"
-            audit_logger.log(source=source, action="create_dca", grid_id=None,
-                             params=_prune_params(params), result="rejected", reason=reason,
-                             error_msg=message)
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=message)
-        params["symbol"] = market_info.symbol
         entry_price = params.get("entry_price")
         if entry_price is None:
             entry_price = await asyncio.get_running_loop().run_in_executor(
@@ -732,6 +737,7 @@ async def create_dca(
             active_dca = _read_active_dca()
             active_dca[config_path] = True
             _write_active_dca(active_dca)
+            RedisCommandQueue().publish("START", "dca", config_path, command_id=command_id)
             GridCommandRepository.instance().update_status(command_id, "pending_engine")
             dca_status = "pending_engine"
             logger.info("已接受建立後啟動命令: %s command=%s", bot_id, command_id)
@@ -1013,6 +1019,23 @@ async def start_dca(
                          error_msg=blocked)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=blocked)
 
+    # 啟動前交易對市場檢驗門禁
+    cfg_symbol = yaml_data.get("dca", {}).get("symbol")
+    cfg_exchange = yaml_data.get("dca", {}).get("exchange", "binance")
+    if cfg_symbol:
+        from web_ui.backend.routes.market import _lookup_market_from_ccxt_sync
+        m_info = await asyncio.get_running_loop().run_in_executor(
+            None, _lookup_market_from_ccxt_sync, cfg_symbol, cfg_exchange
+        )
+        if m_info is None:
+            err_msg = f"配置中交易對 {cfg_symbol} 在交易所 {cfg_exchange} 中無效或不存在，禁止啟動！"
+            audit_logger.log(
+                source=source, action="start", grid_id=bot_id,
+                params={"bot_id": bot_id}, result="rejected", reason=reason,
+                error_msg=err_msg
+            )
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=err_msg)
+
     command_repo = GridCommandRepository.instance()
     if idempotency_key:
         existing = command_repo.get_by_idempotency_key("start", idempotency_key, grid_id=bot_id)
@@ -1055,6 +1078,7 @@ async def start_dca(
     try:
         active_dca[config_path] = True
         _write_active_dca(active_dca)
+        RedisCommandQueue().publish("START", "dca", config_path, command_id=command["command_id"])
         GridCommandRepository.instance().update_status(command["command_id"], "pending_engine")
         guard.record_action(source)
         audit_logger.log(source=source, action="start", grid_id=bot_id,
@@ -1127,6 +1151,7 @@ async def stop_dca(
     try:
         active_dca[config_path] = False
         _write_active_dca(active_dca)
+        RedisCommandQueue().publish("STOP", "dca", config_path, command_id=command["command_id"])
         GridCommandRepository.instance().update_status(command["command_id"], "pending_engine")
         guard.record_action(source)
         audit_logger.log(source=source, action="stop", grid_id=bot_id,
@@ -1469,6 +1494,7 @@ async def delete_dca(
                 pass
             active_dca[config_path] = False
             _write_active_dca(active_dca)
+            RedisCommandQueue().publish("STOP", "dca", config_path)
             logger.info("刪除前已停止 DCA: %s", bot_id)
 
         if config_path in active_dca:
