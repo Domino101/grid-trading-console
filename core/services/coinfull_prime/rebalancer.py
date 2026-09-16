@@ -4,6 +4,8 @@ CoinFull Prime 一籃子持倉平衡器 (Position Diffing & Order Execution)
 
 import asyncio
 import logging
+import time
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple, Set
 from decimal import Decimal
 
@@ -252,7 +254,8 @@ class PortfolioRebalancer:
         capital_override: Optional[float] = None,
         leverage_override: Optional[float] = None,
         managed_symbols: Optional[Set[str]] = None,
-        protected_symbols: Optional[Set[str]] = None
+        protected_symbols: Optional[Set[str]] = None,
+        account_id: Optional[str] = None
     ) -> RebalanceReport:
         """
         執行一籃子換倉調度（支援動態本金/槓桿覆蓋與專屬持倉籃子/外部機器人隔離保護）
@@ -260,14 +263,45 @@ class PortfolioRebalancer:
         is_dry_run = self.dry_run if dry_run is None else dry_run
         effective_capital = float(capital_override) if capital_override is not None and float(capital_override) > 0 else self.total_capital
         effective_leverage = float(leverage_override) if leverage_override is not None and float(leverage_override) > 0 else self.leverage
+
+        target_account = (
+            account_id
+            or getattr(exchange_adapter, "name", None)
+            or getattr(exchange_adapter, "exchange_name", None)
+            or self.config.get("portfolio", {}).get("exchange", "paper")
+        ).lower().strip()
+        bot_id = f"coinfull_prime:{target_account}"
+
         report = RebalanceReport(
             dry_run=is_dry_run,
-            exchange=self.config.get("portfolio", {}).get("exchange", "paper"),
+            exchange=target_account,
             total_capital_usdt=effective_capital,
             leverage=effective_leverage,
             managed_symbols=sorted(list(managed_symbols or set())),
             protected_symbols=sorted(list(protected_symbols or set()))
         )
+
+        # 0. 向 Canonical Ledger 登記/更新機器人身分（遵循 P1-6 帳本完整性規範）
+        store = None
+        try:
+            from core.infrastructure.database.ledger_store import SqliteLedgerStore, BotRecord, TradeFill
+            store = SqliteLedgerStore()
+            store.initialize()
+            mode = "live" if "live" in target_account else "paper"
+            bot_record = BotRecord(
+                bot_id=bot_id,
+                strategy_type="coinfull_prime",
+                symbol="BASKET_16",
+                exchange=target_account,
+                account_mode=mode,
+                config_path=None,
+                status="running",
+                created_at=time.time()
+            )
+            store.register_or_update_bot(bot_record)
+        except Exception as ex:
+            logger.warning(f"Ledger 初始化/註冊身分異常 ({bot_id}): {ex}")
+            store = None
 
         # 1. 取得當前現有持倉與行情價格
         current_positions: Dict[str, float] = {}
@@ -315,12 +349,73 @@ class PortfolioRebalancer:
             f"換倉計算完成: 共生成 {len(orders)} 筆訂單 (平倉退出: {len(closed_syms)}, 新進開倉: {len(opened_syms)})"
         )
 
-        # 3. 若為 Dry-Run 模擬模式，直接標記為 simulated 並返回
+        # 3. 若為 Dry-Run 模擬模式，標記為 simulated、寫入模擬流水帳本並返回
         if is_dry_run:
             logger.info("⚡ [DRY-RUN 模式] 僅模擬換倉，不發送真實訂單至交易所")
             for o in report.orders:
                 o.status = "simulated"
+                price = prices.get(o.symbol, 0.0)
+                if store:
+                    try:
+                        from core.infrastructure.database.ledger_store import TradeFill
+                        now_ts = time.time()
+                        sim_role = "simulated_exit" if o.reduce_only else "simulated_entry"
+                        fill = TradeFill(
+                            fill_id=f"sim_{target_account}_{int(now_ts * 1000)}_{o.symbol}_{o.side}",
+                            bot_id=bot_id,
+                            exchange_order_id=None,
+                            client_order_id=f"{o.symbol}_{o.side}_{int(now_ts * 1000)}",
+                            side=o.side,
+                            role=sim_role,
+                            price=price,
+                            quantity=o.amount,
+                            fee=0.0,
+                            fee_currency="USDT",
+                            realized_pnl=0.0,
+                            executed_at=now_ts
+                        )
+                        store.record_fill(fill)
+                    except Exception as fe:
+                        logger.debug(f"記錄模擬成交流水異常: {fe}")
+
             report.status = "completed_dry_run"
+
+            # 寫入 bot_events 稽核紀錄（含完整訂單明細）
+            if store:
+                try:
+                    orders_payload = [
+                        {
+                            "symbol": o.symbol,
+                            "side": o.side,
+                            "amount": o.amount,
+                            "price": prices.get(o.symbol, 0.0),
+                            "notional_usdt": o.notional_usdt or round(prices.get(o.symbol, 0.0) * o.amount, 2),
+                            "reduce_only": o.reduce_only,
+                            "reason": o.reason,
+                            "status": o.status,
+                            "error": o.error
+                        }
+                        for o in report.orders
+                    ]
+                    store.append_event(
+                        bot_id=bot_id,
+                        event_type="daily_rebalance",
+                        payload={
+                            "account_id": target_account,
+                            "dry_run": True,
+                            "capital": effective_capital,
+                            "leverage": effective_leverage,
+                            "orders_count": len(report.orders),
+                            "closed_symbols": closed_syms,
+                            "opened_symbols": opened_syms,
+                            "status": report.status,
+                            "orders": orders_payload,
+                            "timestamp": datetime.now(timezone.utc).isoformat()
+                        }
+                    )
+                except Exception as ee:
+                    logger.warning(f"寫入 Dry-Run 換倉事件失敗: {ee}")
+
             return report
 
         # 4. 實盤執行階段 (先平後開，分批限速 Semaphore=3)
@@ -377,6 +472,40 @@ class PortfolioRebalancer:
                     )
                     ord_spec.status = "filled"
                     logger.info(f"✅ 換倉下單成功: {ord_spec.symbol} {ord_spec.side} {clean_amount} ({ord_spec.reason})")
+
+                    # 寫入 Canonical Ledger trade_fills 逐筆成交流水
+                    if store:
+                        try:
+                            from core.infrastructure.database.ledger_store import TradeFill
+                            exec_price = float(getattr(res, "average", None) or getattr(res, "price", None) or price)
+                            exec_amount = float(getattr(res, "filled", None) or clean_amount)
+                            exec_order_id = str(getattr(res, "id", None) or getattr(res, "order_id", None) or "")
+                            exec_client_id = str(getattr(res, "client_id", None) or f"{ord_spec.symbol}_{ord_spec.side}_{int(time.time()*1000)}")
+                            fee_val = 0.0
+                            fee_curr = "USDT"
+                            if hasattr(res, "fee") and isinstance(res.fee, dict):
+                                fee_val = float(res.fee.get("cost", 0.0) or 0.0)
+                                fee_curr = str(res.fee.get("currency", "USDT"))
+                            now_ts = time.time()
+                            live_role = "rebalance_exit" if ord_spec.reduce_only else "rebalance_entry"
+                            fill = TradeFill(
+                                fill_id=f"cfp_{target_account}_{exec_order_id or int(now_ts * 1000)}_{ord_spec.symbol}",
+                                bot_id=bot_id,
+                                exchange_order_id=exec_order_id or None,
+                                client_order_id=exec_client_id,
+                                side=ord_spec.side,
+                                role=live_role,
+                                price=exec_price,
+                                quantity=exec_amount,
+                                fee=fee_val,
+                                fee_currency=fee_curr,
+                                realized_pnl=0.0,
+                                executed_at=now_ts
+                            )
+                            store.record_fill(fill)
+                        except Exception as fe:
+                            logger.warning(f"寫入成交紀錄至 trade_fills 失敗: {fe}")
+
                 except Exception as ex:
                     ord_spec.status = "failed"
                     ord_spec.error = str(ex)
@@ -394,22 +523,41 @@ class PortfolioRebalancer:
             logger.info(f"執行第 2 階段開倉單 ({len(entry_orders)} 筆)...")
             await asyncio.gather(*[send_order(o) for o in entry_orders])
 
-        # 寫入 Canonical Ledger 稽核記帳 (如果有環境)
-        try:
-            from core.infrastructure.database.ledger_store import SqliteLedgerStore
-            store = SqliteLedgerStore()
-            store.initialize()
-            store.append_event(
-                bot_id="coinfull_prime",
-                event_type="daily_rebalance",
-                payload={
-                    "orders_count": len(report.orders),
-                    "closed_symbols": closed_syms,
-                    "opened_symbols": opened_syms,
-                    "dry_run": is_dry_run
-                }
-            )
-        except Exception:
-            pass
+        # 寫入 Canonical Ledger 稽核記帳 (包含完整 orders 清單)
+        if store:
+            try:
+                orders_payload = [
+                    {
+                        "symbol": o.symbol,
+                        "side": o.side,
+                        "amount": o.amount,
+                        "price": prices.get(o.symbol, 0.0),
+                        "notional_usdt": o.notional_usdt or round(prices.get(o.symbol, 0.0) * o.amount, 2),
+                        "reduce_only": o.reduce_only,
+                        "reason": o.reason,
+                        "status": o.status,
+                        "error": o.error
+                    }
+                    for o in report.orders
+                ]
+                store.append_event(
+                    bot_id=bot_id,
+                    event_type="daily_rebalance",
+                    payload={
+                        "account_id": target_account,
+                        "dry_run": False,
+                        "capital": effective_capital,
+                        "leverage": effective_leverage,
+                        "orders_count": len(report.orders),
+                        "closed_symbols": closed_syms,
+                        "opened_symbols": opened_syms,
+                        "status": report.status,
+                        "orders": orders_payload,
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    }
+                )
+                logger.info(f"已將實盤換倉事件寫入 Canonical Ledger (bot_id={bot_id}, orders={len(report.orders)})")
+            except Exception as ee:
+                logger.warning(f"寫入換倉事件至 bot_events 失敗: {ee}")
 
         return report

@@ -5,7 +5,9 @@ import type {
   RankedItem,
   CoinFullPrimeStatus,
   TradingAccountProfile,
-  CoinFullPrimePosition
+  CoinFullPrimePosition,
+  CoinFullPrimeFill,
+  CoinFullPrimeHistoryBatch
 } from '../services/api';
 import {
   Activity,
@@ -21,7 +23,10 @@ import {
   Wallet,
   ShieldCheck,
   ExternalLink,
-  Layers
+  Layers,
+  History,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
 
 interface CoinFullPrimePageProps {
@@ -57,6 +62,15 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
   });
   const hasInitializedModeRef = useRef<boolean>(false);
   const [lastActionMsg, setLastActionMsg] = useState<string | null>(null);
+
+  // 換倉歷史與成交流水狀態
+  const [historyBatches, setHistoryBatches] = useState<CoinFullPrimeHistoryBatch[]>([]);
+  const [tradeFills, setTradeFills] = useState<CoinFullPrimeFill[]>([]);
+  const [historyLoading, setHistoryLoading] = useState<boolean>(false);
+  const [historyViewTab, setHistoryViewTab] = useState<'batches' | 'fills'>('batches');
+  const [includeSimulated, setIncludeSimulated] = useState<boolean>(true);
+  const [expandedBatchId, setExpandedBatchId] = useState<number | null>(null);
+  const [historyAccountFilter, setHistoryAccountFilter] = useState<string>('all');
 
   // 倉位規模與槓桿配置狀態
   const [sizingMode, setSizingMode] = useState<'fixed' | 'percent'>(() => {
@@ -110,7 +124,7 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
 
   const updateDryRunMode = (val: boolean, overrideAcc?: string) => {
     setDryRunMode(val);
-    try { localStorage.setItem('coinfull_dry_run_mode', String(val)); } catch {}
+    try { localStorage.setItem('coinfull_dry_run_mode', String(val)); } catch { /* ignore */ }
 
     const accId = overrideAcc || selectedAccount;
     // 即時雙向同步後端背景定時排程下單模式
@@ -132,27 +146,27 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
 
   const handleFilterTabChange = (tab: 'baskets' | 'long' | 'short' | 'all') => {
     setFilterTab(tab);
-    try { localStorage.setItem('coinfull_filter_tab', tab); } catch {}
+    try { localStorage.setItem('coinfull_filter_tab', tab); } catch { /* ignore */ }
   };
 
   const updateSizingMode = (mode: 'fixed' | 'percent') => {
     setSizingMode(mode);
-    try { localStorage.setItem('coinfull_sizing_mode', mode); } catch {}
+    try { localStorage.setItem('coinfull_sizing_mode', mode); } catch { /* ignore */ }
   };
 
   const updateCapitalInput = (val: string) => {
     setCapitalInput(val);
-    try { localStorage.setItem('coinfull_capital_input', val); } catch {}
+    try { localStorage.setItem('coinfull_capital_input', val); } catch { /* ignore */ }
   };
 
   const updateBalancePctInput = (val: number) => {
     setBalancePctInput(val);
-    try { localStorage.setItem('coinfull_balance_pct_input', String(val)); } catch {}
+    try { localStorage.setItem('coinfull_balance_pct_input', String(val)); } catch { /* ignore */ }
   };
 
   const updateLeverageInput = (val: number) => {
     setLeverageInput(val);
-    try { localStorage.setItem('coinfull_leverage_input', String(val)); } catch {}
+    try { localStorage.setItem('coinfull_leverage_input', String(val)); } catch { /* ignore */ }
   };
 
   // 當前持倉狀態
@@ -209,23 +223,23 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
           const savedAcc = localStorage.getItem('coinfull_selected_account');
           const validAcc = (savedAcc && accountsData.accounts.some(a => a.id === savedAcc))
             ? savedAcc
-            : (status?.scheduler_config && (status.scheduler_config as Record<string, any>).account_id
-                ? (status.scheduler_config as Record<string, any>).account_id
+            : (status?.scheduler_config && (status.scheduler_config as Record<string, unknown>).account_id
+                ? String((status.scheduler_config as Record<string, unknown>).account_id)
                 : (accountsData.selected_account || 'binance_live'));
           setSelectedAccount(validAcc);
-          try { localStorage.setItem('coinfull_selected_account', validAcc); } catch {}
+          try { localStorage.setItem('coinfull_selected_account', validAcc); } catch { /* ignore */ }
 
           const savedDry = localStorage.getItem('coinfull_dry_run_mode');
           if (savedDry !== null) {
             setDryRunMode(savedDry === 'true');
-          } else if (status?.scheduler_config && (status.scheduler_config as Record<string, any>).dry_run !== undefined) {
-            const backendDry = Boolean((status.scheduler_config as Record<string, any>).dry_run);
+          } else if (status?.scheduler_config && (status.scheduler_config as Record<string, unknown>).dry_run !== undefined) {
+            const backendDry = Boolean((status.scheduler_config as Record<string, unknown>).dry_run);
             setDryRunMode(backendDry);
-            try { localStorage.setItem('coinfull_dry_run_mode', String(backendDry)); } catch {}
+            try { localStorage.setItem('coinfull_dry_run_mode', String(backendDry)); } catch { /* ignore */ }
           } else {
             const defaultDry = validAcc === 'binance_testnet' ? false : true;
             setDryRunMode(defaultDry);
-            try { localStorage.setItem('coinfull_dry_run_mode', String(defaultDry)); } catch {}
+            try { localStorage.setItem('coinfull_dry_run_mode', String(defaultDry)); } catch { /* ignore */ }
           }
           hasInitializedModeRef.current = true;
         }
@@ -248,13 +262,41 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
   }, [loadData]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadPositions(selectedAccount);
   }, [selectedAccount, loadPositions]);
+
+  // 載入調倉歷史與成交流水
+  const loadHistory = useCallback(async () => {
+    try {
+      setHistoryLoading(true);
+      const accFilter = historyAccountFilter === 'all' ? undefined : historyAccountFilter;
+      const [histRes, fillsRes] = await Promise.all([
+        api.getCoinFullPrimeHistory(accFilter, 50),
+        api.getCoinFullPrimeFills(accFilter, 200, includeSimulated)
+      ]);
+      if (histRes && Array.isArray(histRes.batches)) {
+        setHistoryBatches(histRes.batches);
+      }
+      if (fillsRes && Array.isArray(fillsRes.fills)) {
+        setTradeFills(fillsRes.fills);
+      }
+    } catch (e) {
+      console.warn('載入 CoinFull Prime 歷史與成交流水異常:', e);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [historyAccountFilter, includeSimulated]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadHistory();
+  }, [loadHistory]);
 
   // 切換交易帳號環境，智慧連動下單模式並持久化，並即時同步後端定時排程目標
   const handleAccountChange = async (accId: string) => {
     setSelectedAccount(accId);
-    try { localStorage.setItem('coinfull_selected_account', accId); } catch {}
+    try { localStorage.setItem('coinfull_selected_account', accId); } catch { /* ignore */ }
 
     const isDry = (accId !== 'binance_testnet');
     updateDryRunMode(isDry, accId);
@@ -321,6 +363,7 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
       );
       void loadData(false);
       void loadPositions(selectedAccount);
+      void loadHistory();
     } catch (err: unknown) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
         onUnauthorized?.();
@@ -940,6 +983,280 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
                 </div>
               );
             })}
+          </div>
+        )}
+      </section>
+
+      {/* 換倉歷史與成交流水 (Canonical Ledger) */}
+      <section className="coinfull-history-panel glass-panel" style={{ marginTop: '1.25rem' }}>
+        <div className="positions-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <div className="positions-title-wrap" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <History size={18} className="text-accent" />
+            <span className="positions-title" style={{ fontWeight: 600, fontSize: '1rem' }}>
+              調倉歷史與成交紀錄 (Canonical Ledger)
+            </span>
+            <span className="badge badge-neutral">
+              {historyViewTab === 'batches' ? `${historyBatches.length} 次換倉紀錄` : `${tradeFills.length} 筆成交流水`}
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+            {/* 視圖切換 */}
+            <div className="tab-pills" style={{ display: 'flex', gap: '0.3rem', background: 'rgba(0,0,0,0.3)', padding: '0.2rem', borderRadius: '6px' }}>
+              <button
+                type="button"
+                className={`pill-btn ${historyViewTab === 'batches' ? 'active' : ''}`}
+                style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem', borderRadius: '4px' }}
+                onClick={() => setHistoryViewTab('batches')}
+              >
+                調倉批次歷史 ({historyBatches.length})
+              </button>
+              <button
+                type="button"
+                className={`pill-btn ${historyViewTab === 'fills' ? 'active' : ''}`}
+                style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem', borderRadius: '4px' }}
+                onClick={() => setHistoryViewTab('fills')}
+              >
+                逐筆成交流水 ({tradeFills.length})
+              </button>
+            </div>
+
+            {/* 帳號篩選 */}
+            <select
+              className="env-select"
+              style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', height: '32px' }}
+              value={historyAccountFilter}
+              onChange={(e) => setHistoryAccountFilter(e.target.value)}
+            >
+              <option value="all">🌐 全部帳號環境</option>
+              <option value="binance_live">Binance 實盤</option>
+              <option value="binance_testnet">Binance 測試網</option>
+              <option value="paper">Paper 模擬盤</option>
+            </select>
+
+            {/* 包含模擬 checkbox */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={includeSimulated}
+                onChange={(e) => setIncludeSimulated(e.target.checked)}
+              />
+              <span>含 Dry-Run 模擬</span>
+            </label>
+
+            <button
+              type="button"
+              className="btn btn-outline"
+              style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem', height: '32px' }}
+              onClick={() => void loadHistory()}
+              disabled={historyLoading}
+              title="重新載入帳本紀錄"
+            >
+              <RefreshCw size={13} className={historyLoading ? 'spin' : ''} />
+              <span>{historyLoading ? '載入中…' : '刷新紀錄'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* 內容區塊 */}
+        {historyLoading && historyBatches.length === 0 && tradeFills.length === 0 ? (
+          <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+            <RefreshCw size={24} className="spin" style={{ margin: '0 auto 0.5rem' }} />
+            <div>正在讀取真實帳本歷史紀錄…</div>
+          </div>
+        ) : historyViewTab === 'batches' ? (
+          /* 調倉批次檢視 */
+          <div style={{ marginTop: '0.75rem' }}>
+            {historyBatches.length === 0 ? (
+              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)', background: 'rgba(0,0,0,0.2)', borderRadius: '8px' }}>
+                目前尚無換倉批次紀錄
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                {historyBatches.map((b) => {
+                  const isExpanded = expandedBatchId === b.id;
+                  const timeFormatted = b.timestamp ? new Date(b.timestamp).toLocaleString('zh-TW', { hour12: false }) : '—';
+                  const closedCount = b.closed_symbols?.length || 0;
+                  const openedCount = b.opened_symbols?.length || 0;
+                  const totalOrders = b.orders_count || (b.orders?.length ?? 0);
+
+                  return (
+                    <div
+                      key={b.id || b.timestamp}
+                      style={{
+                        background: 'rgba(255,255,255,0.03)',
+                        border: '1px solid var(--border-subtle)',
+                        borderRadius: '8px',
+                        padding: '0.75rem',
+                        transition: 'all 0.2s ease'
+                      }}
+                    >
+                      <div
+                        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', flexWrap: 'wrap', gap: '0.5rem' }}
+                        onClick={() => setExpandedBatchId(isExpanded ? null : b.id)}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>
+                            {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                          </span>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', fontWeight: 600 }}>
+                            {timeFormatted}
+                          </span>
+                          <span className={`badge ${b.dry_run ? 'badge-warning' : 'badge-success'}`}>
+                            {b.dry_run ? 'Dry-Run 模擬' : '🚀 實盤已發單'}
+                          </span>
+                          <span className="badge badge-neutral" style={{ textTransform: 'capitalize' }}>
+                            帳號: {b.account_id}
+                          </span>
+                          {b.capital && (
+                            <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                              名義本金: <strong>${Number(b.capital).toLocaleString()} USDT</strong> ({b.leverage || 1.0}x)
+                            </span>
+                          )}
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', fontSize: '0.8rem' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>
+                            訂單總數: <strong>{totalOrders}</strong> 筆
+                            {closedCount > 0 && <span style={{ color: 'var(--trading-red)', marginLeft: '0.3rem' }}>(平倉 {closedCount})</span>}
+                            {openedCount > 0 && <span style={{ color: 'var(--trading-green)', marginLeft: '0.3rem' }}>(開倉 {openedCount})</span>}
+                          </span>
+                          <span className="badge badge-accent" style={{ fontSize: '0.7rem' }}>
+                            {isExpanded ? '收合訂單' : '展開明細'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* 展開後的訂單明細 */}
+                      {isExpanded && (
+                        <div style={{ marginTop: '0.75rem', borderTop: '1px solid var(--border-subtle)', paddingTop: '0.5rem' }}>
+                          {b.orders && b.orders.length > 0 ? (
+                            <div className="table-responsive" style={{ maxHeight: '320px', overflowY: 'auto' }}>
+                              <table className="coinfull-table" style={{ fontSize: '0.75rem' }}>
+                                <thead>
+                                  <tr>
+                                    <th>標的</th>
+                                    <th>方向</th>
+                                    <th>操作</th>
+                                    <th>數量</th>
+                                    <th>預估價格</th>
+                                    <th>名義價值</th>
+                                    <th>原因</th>
+                                    <th>執行狀態</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {b.orders.map((ord, idx) => (
+                                    <tr key={`${ord.symbol}-${idx}`}>
+                                      <td style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{ord.symbol}</td>
+                                      <td>
+                                        <span className={`badge ${ord.side === 'buy' ? 'badge-success' : 'badge-danger'}`} style={{ padding: '0.1rem 0.35rem', fontSize: '0.68rem' }}>
+                                          {ord.side.toUpperCase()}
+                                        </span>
+                                      </td>
+                                      <td>
+                                        <span style={{ color: ord.reduce_only ? 'var(--trading-red)' : 'var(--trading-green)' }}>
+                                          {ord.reduce_only ? '🛑 平倉' : '🟢 開倉/調倉'}
+                                        </span>
+                                      </td>
+                                      <td style={{ fontFamily: 'var(--font-mono)' }}>{Number(ord.amount).toFixed(4)}</td>
+                                      <td style={{ fontFamily: 'var(--font-mono)' }}>${Number(ord.price).toFixed(4)}</td>
+                                      <td style={{ fontFamily: 'var(--font-mono)' }}>${Number(ord.notional_usdt).toFixed(2)}</td>
+                                      <td style={{ color: 'var(--text-muted)' }}>{ord.reason}</td>
+                                      <td>
+                                        <span className={`badge ${ord.status === 'filled' ? 'badge-success' : ord.status === 'simulated' ? 'badge-neutral' : 'badge-danger'}`} style={{ fontSize: '0.68rem' }}>
+                                          {ord.status === 'filled' ? '已成交' : ord.status === 'simulated' ? '模擬完成' : ord.status}
+                                        </span>
+                                        {ord.error && <span style={{ color: 'var(--trading-red)', marginLeft: '0.3rem' }}>({ord.error})</span>}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', padding: '0.5rem' }}>
+                              （該次歷史批次為早期紀錄，無個別訂單陣列；新紀錄將完整保存）
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : (
+          /* 逐筆成交流水檢視 */
+          <div style={{ marginTop: '0.75rem' }}>
+            {tradeFills.length === 0 ? (
+              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)', background: 'rgba(0,0,0,0.2)', borderRadius: '8px' }}>
+                目前尚無成交流水紀錄
+              </div>
+            ) : (
+              <div className="table-responsive" style={{ maxHeight: '420px', overflowY: 'auto' }}>
+                <table className="coinfull-table" style={{ fontSize: '0.78rem' }}>
+                  <thead>
+                    <tr>
+                      <th>時間</th>
+                      <th>帳號環境</th>
+                      <th>標的</th>
+                      <th>方向</th>
+                      <th>角色</th>
+                      <th>成交價格</th>
+                      <th>成交數量</th>
+                      <th>名義價值</th>
+                      <th>手續費</th>
+                      <th>模式</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tradeFills.map((f) => {
+                      const timeStr = f.time ? new Date(f.time).toLocaleString('zh-TW', { hour12: false }) : '—';
+                      return (
+                        <tr key={f.fill_id}>
+                          <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                            {timeStr}
+                          </td>
+                          <td>
+                            <span className="badge badge-neutral" style={{ fontSize: '0.68rem' }}>
+                              {f.account_id}
+                            </span>
+                          </td>
+                          <td style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
+                            {f.symbol}
+                          </td>
+                          <td>
+                            <span className={`badge ${f.side === 'buy' ? 'badge-success' : 'badge-danger'}`} style={{ padding: '0.1rem 0.35rem', fontSize: '0.68rem' }}>
+                              {f.side.toUpperCase()}
+                            </span>
+                          </td>
+                          <td style={{ fontSize: '0.72rem' }}>
+                            {f.role.includes('exit') ? (
+                              <span style={{ color: 'var(--trading-red)' }}>平倉退出</span>
+                            ) : (
+                              <span style={{ color: 'var(--trading-green)' }}>建倉/加減</span>
+                            )}
+                          </td>
+                          <td style={{ fontFamily: 'var(--font-mono)' }}>${Number(f.price).toFixed(4)}</td>
+                          <td style={{ fontFamily: 'var(--font-mono)' }}>{Number(f.quantity).toFixed(4)}</td>
+                          <td style={{ fontFamily: 'var(--font-mono)' }}>${Number(f.notional_usdt).toFixed(2)} USDT</td>
+                          <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+                            {f.fee > 0 ? `${f.fee} ${f.fee_currency || 'USDT'}` : '—'}
+                          </td>
+                          <td>
+                            <span className={`badge ${f.is_simulated ? 'badge-warning' : 'badge-success'}`} style={{ fontSize: '0.65rem' }}>
+                              {f.is_simulated ? '模擬成交' : '實盤成交'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </section>
