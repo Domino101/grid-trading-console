@@ -1,151 +1,229 @@
-# grid-trading-console
+# Grid Trading Console
 
-多交易所網格交易引擎與 Web 總控台。顯示名稱已從舊庫 `crypto-trading-open` 獨立出來；這個倉庫是原始碼專案，**不是**可下載的桌面安裝包。舊的假下載說明已移到 [`docs/archive/README_fake_download_page.md`](docs/archive/README_fake_download_page.md)。
+一個專為加密貨幣量化交易設計的高可靠、多交易所交易引擎與 Web 視覺化總控台。
 
-若要開一個**乾淨歷史**的新 private 庫，在你自己的 GitHub 帳號執行：
+本專案集成了**動態網格交易**、**指標型 DCA 馬丁機器人**、**CoinFull Prime 市場中性多空截面策略**以及**資金感知全功能回測系統**，提供從策略研發、歷史回測、實盤對帳自癒到實時持倉監控的一站式解決方案。
 
-```bash
-gh auth login   # 必須是 Domino101，不是 Arena bot
-./scripts/publish_private_repo.sh
+---
+
+## 核心策略模組
+
+```mermaid
+graph TD
+    UI[Web 總控台 / Dashboard] --> Engine[多策略監督調度引擎]
+    Engine --> Grid[動態網格交易引擎]
+    Engine --> DCA[指標型 DCA 馬丁機器人]
+    Engine --> Prime[CoinFull Prime 市場中性量化]
+    Engine --> Backtest[資金感知回測系統]
+    Grid --> Adapters[多交易所適配器]
+    DCA --> Adapters
+    Prime --> Adapters
+    Adapters --> Binance[Binance 實盤 / 測試網 / Paper]
+    Adapters --> OKX[OKX 歐易]
+    Adapters --> Hyperliquid[Hyperliquid]
+    Adapters --> Lighter[Lighter DEX]
+    Adapters --> Backpack[Backpack]
 ```
 
-預設會建立 `Domino101/grid-trading-console`，不含 `.git` 舊歷史、不含 `config/exchanges` 金鑰、不含 `data/` 與 token 檔。
+### 1. 動態網格交易引擎 (Dynamic Grid Trading)
+* **多模式支援**：中性網格（區間震盪收割）、做多網格（趨勢跟隨低吸）、做空網格（高拋低補）。
+* **自適應間距與動態重置**：支援等比、等差間距配置，當價格突破區間時可自動觸發動態重置或嚴格停損。
+* **收益即時核算**：前後端貫徹純淨收益會計恆等式：$\text{Net PnL} = \text{Grid Profit} + \text{Unrealized PnL} - \text{Total Fees}$。
 
-## 帳戶模式
+### 2. 指標型 DCA 馬丁機器人 (Indicator-Driven Martingale DCA)
+* **冷卻監聽模式 (`armed`)**：入場信號成立前，交易所端維持零掛單，節省保證金與 API 權重。
+* **多因子技術指標入場**：支援 **RSI**、**MACD**、**布林通道 (Bollinger Bands)**、**價格變動率 (Price Change)** 四種技術指標及其自由組合。
+* **動態冷卻與循環重啟**：支援自訂冷卻時間（Cooldown）與止盈後自動循環重啟（Auto-Repeat），並可在運行中熱更新配置。
+* **即時視覺化工作台**：內建 Lightweight Charts K 線圖表，實時繪製基礎單、安全單階梯、持倉均價線與動態止盈線。
+* **三向對帳與自癒機制**：`ExchangeReconciler` 定期自動比對「本地帳本 $\leftrightarrow$ 交易所持倉 $\leftrightarrow$ 在世掛單」，遇到孤立部位時自動補掛止盈單，單向機器人嚴格過濾反向持倉避免誤領。
 
-| 模式 | 行為 |
-|---|---|
-| `PAPER` | 走 `PaperExchangeAdapter`：只讀公開行情，在記憶體訂單簿撮合。每個 PAPER 策略有獨立模擬帳戶。 |
-| `LIVE` | 真實交易所下單。建立與啟動都需要 `GRID_LIVE_TRADING_ENABLED=true`。 |
-| 未標 `account_mode` 的既有 YAML | 視為 **legacy 實盤**，不是 PAPER。 |
+### 3. CoinFull Prime 市場中性截面多空策略 (CoinFull Prime Market-Neutral Quant)
+* **全市場流動性截面**：每日自幣安永續合約提取 24h 成交額前 79 個幣種作為流動性池（排除穩定幣）。
+* **四大客觀微觀因子打分**：
+  $$\text{Score} = 0.35 \cdot Z_{\text{動能}} + 0.35 \cdot Z_{\text{主動買賣流}} + 0.20 \cdot Z_{\text{資金費率(反向)}} + 0.10 \cdot Z_{\text{大戶多空比}}$$
+  採用統計學 Winsorization 去極值與橫截面 Z-Score 標準化，選出 **Top 8 做多** 與 **Bottom 8 做空** 建立對稱組合。
+* **三層抗干擾與防碰撞護欄**：
+  1. **專屬籃子記帳隔離**（`coinfull_prime_active_basket.json`）：僅平倉本策略歷史選拔的退榜幣種，絕對不誤殺用戶手動倉位或外部合約。
+  2. **外部運行中機器人避碰排除**：動態掃描 SQLite 與設定檔中運行中的網格/DCA 機器人標的，自選幣池全面剔除，防止保證金擠兌與衝突。
+  3. **定時排程雙向同動**：零輪詢休眠排程（每日 UTC 00:00 / 台北 08:00 自動喚醒換倉），支援實盤與測試網環境熱切換。
 
-總覽 KPI 在有 LIVE 策略時只加總 LIVE；PAPER 盈虧另外顯示，不會混進實盤收益。
+### 4. 策略回測與壓力測試系統 (Strategy Backtesting & Stress Testing)
+* **網格資金感知回測**：逐倉保證金/清算價格模擬，輸出總報酬率、買入持有對照 (Alpha)、最大回撤、已完成循環數與權益曲線。
+* **極端情境壓力測試**：支援 $\pm 15\% / 30\% / 50\%$ 單向極端行情壓力測試，精確試算防爆倉所需追加保證金。
+* **DCA 實盤同源回測**：直接複用實盤 `DcaCoordinator` 與 `DcaOrderExecutor` 進行歷史 Tick / K 線回放，杜絕「回測一套、實盤一套」的擬合偏差。
+* **多空截面實時行情觀測**：獨立全屏觀測分頁，實時查看 79 幣截面多空強度與指標評級。
 
-預設模擬盤起始權益 `PAPER_STARTING_EQUITY=10000`，手續費 `PAPER_FEE_RATE=0.0002`。
+---
 
-### DCA 機器人（獨立分頁）
+## 支援交易所環境
 
-除網格外，總控台另有與網格完全隔離的 **DCA（定期定額攤平）機器人** 分頁：
+| 交易所 | 支援業務 | 支援帳號環境 | 特色說明 |
+| :--- | :--- | :--- | :--- |
+| **Binance (幣安)** | USDT-M / USDC-M 永續合約、現貨 | Live 實盤 / Testnet 測試網 / Paper 模擬盤 | 深度最佳、完整支援 REST + WebSocket 雙向回報 |
+| **OKX (歐易)** | 永續合約 (SWAP)、現貨 | Live 實盤 / 模擬盤 | 支援多幣種保證金帳戶與高頻 API |
+| **Hyperliquid** | L1 去中心化永續合約 | Mainnet / Testnet | 免 Gas 費的高速鏈上撮合 |
+| **Lighter DEX** | 去中心化訂單簿合約 | Arbitrum Mainnet | 零滑價極速下單體驗 |
+| **Backpack** | 永續合約、現貨 | Live 實盤 | 新一代高效能訂單簿交易所 |
 
-- 啟動後先進入 `armed`（監控中）：入場條件成立前**交易所端零掛單**；觸發後才下基礎單 + 安全單階梯。
-- 攤平後以單一止盈單一次了結，隨每張安全單成交自動重掛止盈。
-- 支援 RSI / MACD / Bollinger / Price Change 四種入場指標，四者皆有可調參數。
-- 詳情工作台八分頁：階梯 / 訂單 / 成交 / 事件 / 指標 / 設定 / **圖表** / **回測**。
-- **即時圖表**：K 線（lightweight-charts）+ 本機器人實際下單、成交、止盈標記 + 均價/止盈/下一張安全單價格線。
-- **回測與參數掃描**：對既有設定或精靈中尚未送出的參數跑歷史回放，輸出總報酬、**買入持有對照與 alpha**、最大回撤、勝率等指標；回測**複用實盤的 `DcaCoordinator` 與 `DcaOrderExecutor`**（不存在第二套模擬器），且為唯讀功能——不下任何真單、不寫 `config/active_dca.json`。
-- 設定與網格隔離：`config/dca/*.yaml`、`config/active_dca.json`（皆與 `config/grid/` 對稱）。
-- 與網格共用同一監督者進程（`run_multiple_grids.py`）與 Adapter 池，不增加 WS 連線或 API 權重。
+---
 
-操作手冊見 [`docs/dca_bot_user_guide_zh-TW.md`](docs/dca_bot_user_guide_zh-TW.md)，圖表與回測見 [`docs/dca_chart_backtest_user_guide_zh-TW.md`](docs/dca_chart_backtest_user_guide_zh-TW.md)。本版本**不開啟 LIVE**（`GRID_LIVE_TRADING_ENABLED` 維持關閉）。
+## 帳戶模式與安全機制
 
-### 策略市場完整回測（左側「網格回測」分頁）
+| 模式 | 行為與資金屬性 |
+| :--- | :--- |
+| **`PAPER` (本地模擬盤)** | 讀取交易所即時公開行情，於本機記憶體訂單簿撮合成交。每個模擬策略享有獨立帳戶與初始虛擬資金，零資金風險。 |
+| **`TESTNET` (交易所測試網)** | 對接幣安等交易所官方測試網沙盒環境，發送真實撮合請求，使用水龍頭免費測試金驗證策略完整鏈路。 |
+| **`LIVE` (真實實盤)** | 向真實交易所下單。系統嚴格受 `GRID_LIVE_TRADING_ENABLED=true` 雙重開關保護，未開啟前全面阻斷任何實盤訂單。 |
 
-把「策略市場只有短期年化排名」的缺口補齊，讓使用者依**初始資金、開啟時間、收益曲線、爆倉風險**判斷是否可上實盤：
+---
 
-- **統一分頁**：左側「網格回測」可切換 **網格回測** 或 **DCA 回測（單向/雙向 + 指標）**。
-- **網格回測**：`core/services/grid/backtest/` 資金感知模擬器，逐倉保證金/清算模擬，輸出總報酬、買入持有對照、Alpha、最大回撤、已完成循環、權益曲線；支援**資金分配**（每格固定金額 / 每格佔總資金 %）、**壓力情境**（±15/30/50% 單向移動）與**參數掃描**；爆倉時提示「需追加多少資金才能防止爆倉」。
-- **DCA 回測**：統一入口支援單向做多 / 單向做空 / 雙向與 RSI / MACD / Bollinger / Price Change 指標入場；來源可為手動參數（draft）或既有 DCA bot；直接複用 `/api/v1/dca/backtest` 的實盤同源 `DcaCoordinator + DcaOrderExecutor`。
-- **市場排行**：每行保留「一鍵開格」，另加「回測」按鈕一鍵帶入參數。
-- **限制**：網格 v1 以專用近似模擬器（資金/保證金近似，不模擬 funding、滑價、部分成交、follow/scalping/martingale）；DCA 沿用既有回測的撮合簡化揭露。
+## 快速上手指引
 
-文件：計畫 [`docs/grid_backtest_implementation_plan_zh-TW.md`](docs/grid_backtest_implementation_plan_zh-TW.md)、使用手冊 [`docs/grid_backtest_user_guide_zh-TW.md`](docs/grid_backtest_user_guide_zh-TW.md)、稽核報告 [`docs/grid_backtest_audit_report_zh-TW.md`](docs/grid_backtest_audit_report_zh-TW.md)。
+### 1. 系統需求
+* **Python**：3.11 或更新版本
+* **Node.js**：22.0.0 或更新版本
+* **Redis**（可選）：用於多進程事件發布/訂閱與快取
 
-## 必要環境變數
-
-| 變數 | 說明 |
-|---|---|
-| `GRID_API_TOKEN` | Web UI / API Bearer token。未設定時後端寫入 `.grid_api_token`（權限 0600），不會印在 log。 |
-| `GRID_LIVE_TRADING_ENABLED` | 預設關閉。只有 `1` / `true` / `yes` 才允許 LIVE 建立與啟動。 |
-| `GRID_CORS_ORIGINS` | CORS 白名單，逗號分隔。`*` 時關閉 credentials。 |
-| `PAPER_STARTING_EQUITY` | PAPER 模擬帳戶起始權益。 |
-| `PAPER_FEE_RATE` | PAPER 模擬手續費率。 |
-| `PROJECT_ROOT` / `PYTHON_BIN` | PM2 路徑參數；見 `ecosystem.config.js`。 |
-
-## 本機啟動
-
-需要 Python 3.11+、Node.js 22+，以及虛擬環境：
-
+### 2. 下載與安裝
 ```bash
+# 複製專案
+git clone https://github.com/Domino101/grid-trading-console.git
+cd grid-trading-console
+
+# 建立並啟用 Python 虛擬環境
 python3 -m venv venv
 source venv/bin/activate
+
+# 安裝後端依賴
 pip install -r requirements.txt
 
-# 引擎：未指定 YAML 時進入熱插拔待命，不會偷偷啟動五個內建實盤
+# 安裝前端依賴
+cd web_ui/frontend
+npm ci
+cd ../..
+```
+
+### 3. 環境變數配置
+在專案根目錄建立 `.env` 檔案（或匯出環境變數）：
+
+```bash
+# Web UI / API 訪問 Token（必填，請妥善保管）
+GRID_API_TOKEN=your_secure_random_api_token_here
+
+# 實盤開關：預設關閉 (false)。欲開啟真實交易請設為 true
+GRID_LIVE_TRADING_ENABLED=false
+
+# 交易所 API 金鑰（依所需交易所配置）
+BINANCE_API_KEY=your_binance_api_key
+BINANCE_API_SECRET=your_binance_api_secret
+
+# 測試網 API 金鑰（可選）
+BINANCE_TESTNET_API_KEY=your_testnet_key
+BINANCE_TESTNET_API_SECRET=your_testnet_secret
+
+# 模擬盤起始參數（可選）
+PAPER_STARTING_EQUITY=10000
+PAPER_FEE_RATE=0.0002
+```
+
+### 4. 啟動本機開發服務
+
+啟動調度引擎與 Web 控制台：
+
+```bash
+# 1. 啟動交易調度引擎（熱插拔待命模式）
 python run_multiple_grids.py
 
-# Web UI（開發）
-cd web_ui/frontend && npm ci && npm run dev
-# 另開終端
-cd web_ui/backend && python main.py
+# 2. 啟動後端 FastAPI 服務（監聽 8001 端口）
+cd web_ui/backend
+python main.py
+
+# 3. 啟動前端開發伺服器（另開終端）
+cd web_ui/frontend
+npm run dev
 ```
 
-瀏覽器只打同源 `/api`。Vite 會把 `/api` 與 `/ws` proxy 到後端，遠端 preview 不要改成 `localhost`。
+開啟瀏覽器進入 `http://localhost:5173`，輸入設定的 `GRID_API_TOKEN` 即可登入使用。
 
-登入頁輸入 `GRID_API_TOKEN` 或 `.grid_api_token` 的內容。不要把交易所 API 金鑰貼進登入框。
+---
 
-## 正式部署
+## 正式生產部署
 
-`start_web_ui.sh` 仍用 `nohup`，**只適合本機實驗**。正式環境使用 systemd：
+生產環境建議使用 **PM2** 或 **Systemd** 管理長時間運行的服務：
 
-- 單元：[`scripts/deployment/crypto-webui.service`](scripts/deployment/crypto-webui.service)
-- 清單：[`docs/web_ui_deployment_and_release_checklist_zh-TW.md`](docs/web_ui_deployment_and_release_checklist_zh-TW.md)
-
-PM2 只應跑 `multi-grid-engine`（可另跑波動率掃描器）。不要同時再跑一份單幣 `run_grid_trading.py`，否則同一 YAML 會雙開。
-
-## 操作語意
-
-- 總覽只顯示 `config/active_grids.json` 已註冊策略；`config/grid/archived/` 不會進清單。
-- 建立策略預設不啟動（`auto_start=false`）。啟動成功只代表命令 `pending_engine`，要等引擎 heartbeat 才算 `running`。
-- 停止會取消掛單，**預設不平倉**。
-- 刪除只允許已停止且沒有未完成命令的策略；否則 HTTP 409。
-- 未知盈虧 / 餘額顯示 `—`，不會用 `0` 偽裝成真實帳戶資料。
-
-## 測試與 CI
+### 使用 PM2 管理
+專案提供已設定好的 `ecosystem.config.js`：
 
 ```bash
+# 編譯前端靜態資產
+cd web_ui/frontend && npm run build && cd ../..
+
+# 使用 PM2 啟動所有服務
+pm2 start ecosystem.config.js
+
+# 查看狀態
+pm2 list
+pm2 logs
+```
+
+### 使用 Systemd 服務
+服務單元設定檔位於 `scripts/deployment/crypto-webui.service`，可複製至 `/etc/systemd/system/` 啟用：
+
+```bash
+sudo cp scripts/deployment/crypto-webui.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now crypto-webui
+```
+
+---
+
+## 專案目錄結構
+
+```text
+grid-trading-console/
+├── core/                               # 核心業務與量化引擎
+│   ├── adapters/                       # 多交易所適配層 (Binance, OKX, Hyperliquid, Lighter, Backpack, Paper)
+│   ├── infrastructure/                 # 基礎設施 (Canonical Ledger, SQLite, Redis Support)
+│   ├── services/
+│   │   ├── grid/                       # 網格策略實現、協調器、風控與回測模擬器
+│   │   ├── dca/                        # DCA 馬丁策略、指標計算、梯單管理與回測引擎
+│   │   ├── coinfull_prime/             # CoinFull Prime 截面打分、持倉 Diffing 平衡器與定時調度
+│   │   └── reconciler/                 # 實時對帳引擎 (ExchangeReconciler)
+│   └── system/                         # 系統日誌、進程監控與錯誤捕獲
+├── web_ui/                             # 總控台前後端
+│   ├── backend/                        # FastAPI 服務、RESTful 路由、WebSocket 事件推送
+│   └── frontend/                       # React 19 + TypeScript + Vite 前端 SPA 介面
+├── config/                             # 策略設定檔目錄 (grid/, dca/, coinfull_prime/)
+├── data/                               # 本機 SQLite 數據庫、排程狀態與持倉籃子快照 (已忽略版本控制)
+├── docs/                               # 策略詳細設計手冊、架構規範與 API 說明文件
+├── scripts/                            # 運維、部署、CI 檢查與維護腳本
+└── tests/                              # 單元測試與整合驗證套件
+```
+
+---
+
+## 測試與驗證
+
+本專案遵循嚴格的自動化測試標準，包含單元測試、HTTP 接口合約驗證與前端端到端驗證：
+
+```bash
+# 執行全套 CI 整合驗證
 ./scripts/ci.sh
+
+# 或分開執行：
+# 1. 執行 Python 單元與架構測試
+python3 -m unittest discover -s tests
+
+# 2. 執行前端單元測試與 Production Build
+cd web_ui/frontend
+npm test -- --run
+npm run build
 ```
 
-或分開跑：
+---
 
-```bash
-python3 -m unittest \
-  tests.test_lifecycle_and_safety \
-  tests.test_paper_adapter \
-  tests.test_command_repository \
-  tests.test_runtime_repository \
-  tests.test_ledger_repository \
-  tests.test_paper_grid_lifecycle_e2e \
-  tests.test_frontend_format_contract \
-  tests.test_dashboard_snapshot \
-  tests.test_web_ui_http_contract \
-  tests.test_dca_ladder tests.test_dca_indicators tests.test_dca_config_and_state \
-  tests.test_dca_executor tests.test_dca_coordinator tests.test_dca_config_loader \
-  tests.test_dca_ohlcv_cache tests.test_dca_paper_e2e tests.test_dca_yaml_generator \
-  tests.test_dca_http_contract tests.test_dca_snapshot tests.test_dca_frontend_contract \
-  tests.services.grid.test_coordinator_stats_and_fills \
-  tests.services.grid.backtest.test_allocation \
-  tests.services.grid.backtest.test_risk \
-  tests.services.grid.backtest.test_simulator \
-  tests.services.grid.backtest.test_stress \
-  tests.test_grid_backtest_http_contract
+## 風險與免責聲明
 
-cd web_ui/frontend && npm test && npm run lint && npm run build
-```
-
-沒有安裝 FastAPI 時，HTTP / snapshot 測試會 skip。GitHub Actions 工作流範本在 `docs/github-actions-ci.yml`（需 `workflows` 權限才能放到 `.github/workflows/ci.yml`）。
-
-## 文件
-
-- 稽核與修改計畫：`docs/grid_trading_console_audit_20260813_zh-TW.md`
-- 升級計畫：`docs/grid_trading_console_upgrade_plan_zh-TW.md`
-- DCA 機器人實作計畫：`docs/dca_bot_implementation_plan_zh-TW.md`
-- DCA 機器人使用手冊：`docs/dca_bot_user_guide_zh-TW.md`
-- DCA 機器人最終稽核報告：`docs/dca_bot_audit_report_zh-TW.md`
-- DCA 圖表與回測實作計畫：`docs/dca_chart_backtest_plan_zh-TW.md`
-- DCA 圖表與回測使用手冊：`docs/dca_chart_backtest_user_guide_zh-TW.md`
-- DCA 圖表與回測最終稽核報告：`docs/dca_chart_backtest_audit_report_zh-TW.md`
-- 網格/DCA 回測實作計畫：`docs/grid_backtest_implementation_plan_zh-TW.md`
-- 網格/DCA 回測使用手冊：`docs/grid_backtest_user_guide_zh-TW.md`
-- 網格/DCA 回測稽核報告：`docs/grid_backtest_audit_report_zh-TW.md`
-- 變更紀錄：`CHANGELOG.md`
+1. **投資風險**：加密貨幣與衍生品合約交易具備高波動性與高槓桿風險，可能導致本金部分或全部損失。
+2. **非投資建議**：本專案所有程式碼、量化模型、策略回測與市場指標僅供技術研究與程式開發參考，不構成任何形式之投資建議。
+3. **安全審計**：上線實盤前，請務必先在 `PAPER` 模擬盤或 `TESTNET` 測試網進行充分壓力測試，並謹慎保管您的 API 金鑰。
