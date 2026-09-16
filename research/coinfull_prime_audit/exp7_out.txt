@@ -1,0 +1,74 @@
+############ A. 疊加測試（基準 = v2 + 風險關閉平倉，7 日、K=5）############
+基準 v2+gate                                 FULL cagr=  18.8% sh= 1.41 dd=  -15.3% turn=0.113 | IS cagr=  22.1% sh= 1.17 | OOS cagr=  25.1% sh= 1.94 dd=   -9.8%
+A1 pts=0 時持有不動（hold）                       FULL cagr=  15.9% sh= 0.95 dd=  -21.2% turn=0.093 | IS cagr=  17.1% sh= 0.76 | OOS cagr=  18.8% sh= 1.06 dd=  -14.7%
+A2 風險連 2 日才平倉（確認延遲）                        FULL cagr=  18.6% sh= 1.37 dd=  -11.7% turn=0.119 | IS cagr=  24.8% sh= 1.33 | OOS cagr=  23.2% sh= 1.71 dd=   -9.8%
+A3 風險連 3 日才平倉                              FULL cagr=  19.0% sh= 1.38 dd=  -12.8% turn=0.120 | IS cagr=  25.1% sh= 1.33 | OOS cagr=  22.7% sh= 1.64 dd=   -9.8%
+A4 +波動目標 16%                               FULL cagr=  14.3% sh= 0.82 dd=  -20.9% turn=0.275 | IS cagr=  10.4% sh= 0.46 | OOS cagr=  19.4% sh= 1.07 dd=  -16.0%
+A4 +波動目標 18%                               FULL cagr=  15.7% sh= 0.85 dd=  -19.8% turn=0.305 | IS cagr=  11.6% sh= 0.48 | OOS cagr=  22.0% sh= 1.11 dd=  -16.4%
+A4 +波動目標 20%                               FULL cagr=  15.4% sh= 0.78 dd=  -29.2% turn=0.317 | IS cagr=   8.1% sh= 0.31 | OOS cagr=  24.2% sh= 1.16 dd=  -18.4%
+A4 +波動目標 22%                               FULL cagr=  16.1% sh= 0.76 dd=  -32.7% turn=0.353 | IS cagr=   7.9% sh= 0.27 | OOS cagr=  26.4% sh= 1.22 dd=  -16.8%
+A4 +波動目標 25%                               FULL cagr=  19.8% sh= 0.91 dd=  -31.8% turn=0.386 | IS cagr=  10.9% sh= 0.35 | OOS cagr=  27.8% sh= 1.18 dd=  -15.9%
+A5 +回撤節流 -10% -> 0.6x                      FULL cagr=   9.4% sh= 0.75 dd=  -17.2% turn=0.085 | IS cagr=  20.5% sh= 1.17 | OOS cagr=  25.1% sh= 1.94 dd=   -9.8%
+A5 +回撤節流 -12% -> 0.5x                      FULL cagr=   9.4% sh= 0.74 dd=  -17.4% turn=0.082 | IS cagr=  20.5% sh= 1.16 | OOS cagr=  25.1% sh= 1.94 dd=   -9.8%
+A5 +回撤節流 -15% -> 0.5x                      FULL cagr=   8.6% sh= 0.67 dd=  -20.4% turn=0.083 | IS cagr=  19.1% sh= 1.06 | OOS cagr=  25.1% sh= 1.94 dd=   -9.8%
+A5 +回撤節流 -20% -> 0.5x                      FULL cagr=  18.8% sh= 1.41 dd=  -15.3% turn=0.113 | IS cagr=  22.1% sh= 1.17 | OOS cagr=  25.1% sh= 1.94 dd=   -9.8%
+A6 軟閘門 0.35/1/1.15                         FULL cagr=  22.5% sh= 1.37 dd=  -14.0% turn=0.187 | IS cagr=  30.1% sh= 1.20 | OOS cagr=  27.2% sh= 1.85 dd=  -10.6%
+A7 軟閘門 0.0/1/1.15                          FULL cagr=  22.8% sh= 1.40 dd=  -15.1% turn=0.171 | IS cagr=  29.2% sh= 1.17 | OOS cagr=  29.3% sh= 2.03 dd=  -10.6%
+A8 +低分散度縮倉（disp<20% → 0.5x）                FULL cagr=  15.4% sh= 1.13 dd=  -20.3% turn=0.114 | IS cagr=  18.3% sh= 0.97 | OOS cagr=  20.2% sh= 1.72 dd=   -9.0%
+A9 +rank buffer 2 +急單門檻 1.5%               FULL cagr=  18.2% sh= 1.31 dd=  -15.2% turn=0.107 | IS cagr=  23.3% sh= 1.22 | OOS cagr=  21.1% sh= 1.50 dd=  -10.7%
+A10 +僅在換倉日檢查閘門（降週轉）                        FULL cagr=  17.5% sh= 1.32 dd=  -13.8% turn=0.079 | IS cagr=  21.0% sh= 1.15 | OOS cagr=  22.0% sh= 1.76 dd=   -9.8%
+
+############ B. 閘門語意（pts=0 時怎麼做最好）############
+B1 平倉（flatten）                             FULL cagr=  18.8% sh= 1.41 dd=  -15.3% turn=0.113 | IS cagr=  22.1% sh= 1.17 | OOS cagr=  25.1% sh= 1.94 dd=   -9.8%
+B2 只停止下單（hold）                             FULL cagr=  15.9% sh= 0.95 dd=  -21.2% turn=0.093 | IS cagr=  17.1% sh= 0.76 | OOS cagr=  18.8% sh= 1.06 dd=  -14.7%
+B3 減半（0.5x）                                FULL cagr=  18.3% sh= 1.34 dd=  -13.9% turn=0.135 | IS cagr=  23.2% sh= 1.23 | OOS cagr=  21.6% sh= 1.59 dd=   -9.8%
+B4 留 35%（0.35x）                            FULL cagr=  18.5% sh= 1.37 dd=  -14.2% turn=0.129 | IS cagr=  22.9% sh= 1.22 | OOS cagr=  23.0% sh= 1.73 dd=   -9.8%
+
+############ C. 參數敏感度（基準配置）############
+C K=3                                      FULL cagr=  24.8% sh= 1.60 dd=  -12.2% turn=0.127 | IS cagr=  33.9% sh= 1.47 | OOS cagr=  30.6% sh= 1.88 dd=  -19.1%
+C K=4                                      FULL cagr=  20.4% sh= 1.38 dd=  -14.4% turn=0.120 | IS cagr=  28.2% sh= 1.33 | OOS cagr=  28.6% sh= 1.98 dd=  -12.9%
+C K=5                                      FULL cagr=  18.8% sh= 1.41 dd=  -15.3% turn=0.113 | IS cagr=  22.1% sh= 1.17 | OOS cagr=  25.1% sh= 1.94 dd=   -9.8%
+C K=6                                      FULL cagr=  14.1% sh= 1.10 dd=  -19.1% turn=0.107 | IS cagr=  14.6% sh= 0.85 | OOS cagr=  19.2% sh= 1.58 dd=  -10.3%
+C K=8                                      FULL cagr=   8.6% sh= 0.69 dd=  -22.6% turn=0.093 | IS cagr=   8.3% sh= 0.52 | OOS cagr=  11.5% sh= 1.07 dd=  -15.2%
+C reb=3                                    FULL cagr=  17.9% sh= 1.27 dd=  -12.7% turn=0.205 | IS cagr=  23.0% sh= 1.16 | OOS cagr=  21.5% sh= 1.52 dd=  -11.7%
+C reb=5                                    FULL cagr=  13.0% sh= 0.87 dd=  -20.9% turn=0.144 | IS cagr=  10.7% sh= 0.52 | OOS cagr=  20.5% sh= 1.45 dd=  -11.1%
+C reb=7                                    FULL cagr=  18.8% sh= 1.41 dd=  -15.3% turn=0.113 | IS cagr=  22.1% sh= 1.17 | OOS cagr=  25.1% sh= 1.94 dd=   -9.8%
+C reb=10                                   FULL cagr=   8.8% sh= 0.57 dd=  -24.6% turn=0.084 | IS cagr=   6.5% sh= 0.33 | OOS cagr=  24.5% sh= 1.88 dd=   -9.5%
+C reb=14                                   FULL cagr=  20.9% sh= 1.69 dd=  -13.0% turn=0.062 | IS cagr=  23.8% sh= 1.34 | OOS cagr=  29.1% sh= 2.23 dd=   -6.5%
+C w_mom=0.4                                FULL cagr=  11.0% sh= 0.80 dd=  -29.1% turn=0.115 | IS cagr=   6.1% sh= 0.33 | OOS cagr=  24.3% sh= 1.94 dd=   -8.7%
+C w_mom=0.5                                FULL cagr=  15.1% sh= 1.12 dd=  -21.7% turn=0.114 | IS cagr=  13.9% sh= 0.76 | OOS cagr=  25.6% sh= 2.00 dd=   -9.8%
+C w_mom=0.6                                FULL cagr=  18.8% sh= 1.41 dd=  -15.3% turn=0.113 | IS cagr=  22.1% sh= 1.17 | OOS cagr=  25.1% sh= 1.94 dd=   -9.8%
+C w_mom=0.7                                FULL cagr=  16.7% sh= 1.18 dd=  -17.0% turn=0.114 | IS cagr=  20.6% sh= 1.04 | OOS cagr=  23.9% sh= 1.83 dd=   -8.8%
+C w_mom=0.8                                FULL cagr=  17.4% sh= 1.22 dd=  -16.2% turn=0.112 | IS cagr=  22.9% sh= 1.16 | OOS cagr=  21.0% sh= 1.57 dd=  -11.5%
+
+############ D. 建議配置完整表 ############
+FULL: {'days': 1976, 'total_pct': 154.081, 'cagr_pct': 18.807, 'vol_pct': 20.189, 'sharpe': 1.41, 'sortino': 2.499, 'max_dd_pct': -15.303, 'calmar': 1.229, 'hit_pct': 29.049, 'avg_bp': 7.798, 'median_bp': 0.0, 'worst_pct': -6.844, 'best_pct': 11.577, 'gross': 1603.242, 'fees': 156.38, 'funding': 93.947, 'net': 1540.81, 'turnover': 0.113}
+
+      days  net_pct  gross_pct  fees_pct  funding_pct  vol_pct  sharpe  hit_pct  maxdd_pct
+year                                                                                      
+2021   305    77.73      76.13      1.97         3.58    30.91    3.01    34.10      -9.23
+2022   365    -2.90      -0.82      2.79         0.71    13.72   -0.21    13.15     -16.09
+2023   365    -1.45       0.04      3.49         2.00    21.81   -0.07    36.71     -29.96
+2024   366    57.21      58.00      2.84         2.05    23.16    2.46    39.89     -11.90
+2025   365    13.63      15.55      2.59         0.67    11.63    1.17    24.66     -12.28
+2026   210     9.87      11.43      1.96         0.40    10.12    1.69    24.76      -6.36
+
+每月效應（全期）:
+       mean      std      sum
+m                            
+1   0.00091  0.01179  0.14111
+2  -0.00008  0.00836 -0.01083
+3   0.00057  0.01327  0.10530
+4   0.00270  0.01434  0.48670
+5   0.00014  0.00828  0.02596
+6   0.00044  0.00586  0.07932
+7  -0.00035  0.00937 -0.06429
+8   0.00053  0.01079  0.08270
+9   0.00096  0.00878  0.14414
+10  0.00160  0.00990  0.24764
+11  0.00221  0.01225  0.33190
+12 -0.00019  0.01041 -0.02884
+
+多空分解: (engine2 僅輸出組合層級 P&L；已由第 3 節配置表補足兩腿比較)
+
+(完成)

@@ -1,0 +1,86 @@
+=== 1. IC by horizon (cross-sectional Spearman) ===
+               IC1d    IC3d    IC7d   IC14d   IC21d
+factor                                             
+blend       -0.0305 -0.0174 -0.0036  0.0188  0.0185
+composite   -0.0258 -0.0135 -0.0020  0.0193  0.0196
+fund         0.0325  0.0402  0.0478  0.0486  0.0423
+fund_smooth  0.0384  0.0402  0.0501  0.0466  0.0399
+mom1        -0.0260 -0.0154 -0.0036  0.0110  0.0140
+mom3        -0.0332 -0.0310 -0.0093  0.0137  0.0158
+mom30       -0.0136 -0.0033  0.0048  0.0145  0.0088
+mom7        -0.0275 -0.0189 -0.0059  0.0264  0.0229
+pressure    -0.0097 -0.0079  0.0025  0.0093  0.0115
+rev3         0.0332  0.0310  0.0093 -0.0137 -0.0158
+takerproxy  -0.0229 -0.0185 -0.0048  0.0060  0.0090
+
+=== 2. Portfolio spread by rank bucket (basket size K, 1d holding, zero cost) ===
+            mean_spread_bp               sharpe            
+K                        2      3      5      2     3     5
+factor                                                     
+blend                28.23  27.87  11.47   1.12  1.39  0.80
+composite            19.68  17.79  10.28   0.78  0.89  0.73
+fund                 16.51   9.65   8.52   0.79  0.58  0.69
+fund_smooth           9.97   7.59  10.42   0.49  0.44  0.81
+mom1                 25.42   8.17   5.79   1.02  0.43  0.41
+mom3                  8.11   5.80   5.80   0.31  0.29  0.41
+mom30                18.67  18.34  15.46   0.77  0.94  1.09
+mom7                 21.57  16.30  12.73   0.87  0.84  0.91
+pressure             31.49  23.38  13.78   1.35  1.29  1.04
+rev3                 -8.11  -5.80  -5.80  -0.31 -0.29 -0.41
+takerproxy           15.71   7.09   3.28   0.64  0.37  0.24
+
+=== 3. turnover decomposition (as-coded, K=3, daily) ===
+avg name turnover/day=1.190  drift turnover/day=0.394  total=1.584  (annual fee drag at 7bp = 40.5%/yr)
+avg holding period ~ 0.8 days per name swap
+K=2: avg holding duration 1.2 days, median 1, days<2: 85%
+K=3: avg holding duration 1.3 days, median 1, days<2: 80%
+K=8: avg holding duration 1.8 days, median 1, days<2: 56%
+
+=== 4. candidate configurations, fee 5bp + slip 2bp, K=3 ===
+-- rebalance every 1d
+as-coded: 0.35mom1+0.35flow+0.20fund [1d]            tot=   -65.9% cagr= -17.8% vol= 34.6% sharpe=-0.35 sortino=-0.61 dd= -95.0% hit=  46% turn=1.58 gross=$   1456 fee=$  2218 fund=$   104
+v2a: 0.5 mom_blend + 0.2 flow + 0.3 fund3d [1d]      tot=   149.6% cagr=  18.2% vol= 34.9% sharpe= 0.78 sortino= 1.47 dd= -20.6% hit=  49% turn=1.02 gross=$   2754 fee=$  1435 fund=$   177
+v2b: no flow, 0.7 mom_blend + 0.3 fund3d [1d]        tot=   230.4% cagr=  24.4% vol= 36.5% sharpe= 1.15 sortino= 2.22 dd= -17.0% hit=  50% turn=0.72 gross=$   3178 fee=$  1008 fund=$   135
+v2c: no flow, 100% mom_blend [1d]                    tot=   170.1% cagr=  19.9% vol= 36.8% sharpe= 0.84 sortino= 1.59 dd= -23.2% hit=  49% turn=0.72 gross=$   2789 fee=$  1012 fund=$   -76
+v2d: no flow, 100% mom7 [1d]                         tot=    62.1% cagr=   9.2% vol= 35.5% sharpe= 0.32 sortino= 0.57 dd= -39.8% hit=  50% turn=0.67 gross=$   1631 fee=$   934 fund=$   -77
+v2e: 0.6 mom_composite + 0.4 fund3d [1d]             tot=   171.0% cagr=  20.0% vol= 35.9% sharpe= 0.87 sortino= 1.61 dd= -23.0% hit=  50% turn=0.52 gross=$   2169 fee=$   729 fund=$   269
+v2f: 0.6 mom_blend + 0.4 fund3d [1d]                 tot=   210.6% cagr=  23.0% vol= 35.9% sharpe= 1.07 sortino= 2.05 dd= -16.3% hit=  50% turn=0.71 gross=$   2857 fee=$   989 fund=$   238
+v2g: flow contrarian (-0.2) + mom_blend [1d]         tot=   132.9% cagr=  16.7% vol= 37.3% sharpe= 0.65 sortino= 1.17 dd= -27.2% hit=  49% turn=0.60 gross=$   2048 fee=$   842 fund=$   123
+-- rebalance every 3d
+as-coded: 0.35mom1+0.35flow+0.20fund [3d]            tot=   -10.9% cagr=  -2.1% vol= 34.1% sharpe=-0.06 sortino=-0.10 dd= -59.9% hit=  49% turn=0.54 gross=$    564 fee=$   752 fund=$    79
+v2a: 0.5 mom_blend + 0.2 flow + 0.3 fund3d [3d]      tot=    85.2% cagr=  11.9% vol= 34.0% sharpe= 0.46 sortino= 0.81 dd= -25.0% hit=  49% turn=0.39 gross=$   1258 fee=$   547 fund=$   142
+v2b: no flow, 0.7 mom_blend + 0.3 fund3d [3d]        tot=   143.0% cagr=  17.6% vol= 35.3% sharpe= 0.74 sortino= 1.33 dd= -21.2% hit=  50% turn=0.32 gross=$   1766 fee=$   441 fund=$   105
+v2c: no flow, 100% mom_blend [3d]                    tot=   115.7% cagr=  15.1% vol= 35.6% sharpe= 0.59 sortino= 1.09 dd= -28.1% hit=  49% turn=0.30 gross=$   1656 fee=$   427 fund=$   -73
+v2d: no flow, 100% mom7 [3d]                         tot=    63.0% cagr=   9.3% vol= 33.5% sharpe= 0.34 sortino= 0.61 dd= -34.3% hit=  50% turn=0.37 gross=$   1200 fee=$   513 fund=$   -58
+v2e: 0.6 mom_composite + 0.4 fund3d [3d]             tot=   146.3% cagr=  17.9% vol= 34.4% sharpe= 0.77 sortino= 1.42 dd= -23.6% hit=  50% turn=0.29 gross=$   1645 fee=$   410 fund=$   227
+v2f: 0.6 mom_blend + 0.4 fund3d [3d]                 tot=   125.7% cagr=  16.0% vol= 34.9% sharpe= 0.66 sortino= 1.18 dd= -22.7% hit=  50% turn=0.32 gross=$   1522 fee=$   453 fund=$   188
+v2g: flow contrarian (-0.2) + mom_blend [3d]         tot=   118.2% cagr=  15.3% vol= 35.9% sharpe= 0.60 sortino= 1.09 dd= -24.2% hit=  49% turn=0.29 gross=$   1486 fee=$   412 fund=$   108
+-- rebalance every 7d
+as-coded: 0.35mom1+0.35flow+0.20fund [7d]            tot=   107.4% cagr=  14.2% vol= 32.3% sharpe= 0.61 sortino= 1.03 dd= -51.2% hit=  51% turn=0.22 gross=$   1277 fee=$   311 fund=$   109
+v2a: 0.5 mom_blend + 0.2 flow + 0.3 fund3d [7d]      tot=   130.9% cagr=  16.5% vol= 34.2% sharpe= 0.70 sortino= 1.22 dd= -37.5% hit=  50% turn=0.19 gross=$   1377 fee=$   261 fund=$   193
+v2b: no flow, 0.7 mom_blend + 0.3 fund3d [7d]        tot=   181.4% cagr=  20.8% vol= 35.1% sharpe= 0.94 sortino= 1.64 dd= -24.7% hit=  52% turn=0.17 gross=$   1906 fee=$   233 fund=$   142
+v2c: no flow, 100% mom_blend [7d]                    tot=   156.5% cagr=  18.8% vol= 34.7% sharpe= 0.82 sortino= 1.49 dd= -33.8% hit=  50% turn=0.17 gross=$   1840 fee=$   243 fund=$   -32
+v2d: no flow, 100% mom7 [7d]                         tot=    11.5% cagr=   2.0% vol= 32.9% sharpe= 0.06 sortino= 0.11 dd= -58.8% hit=  50% turn=0.23 gross=$    467 fee=$   324 fund=$   -28
+v2e: 0.6 mom_composite + 0.4 fund3d [7d]             tot=   190.4% cagr=  21.5% vol= 34.7% sharpe= 1.00 sortino= 1.73 dd= -16.1% hit=  52% turn=0.15 gross=$   1887 fee=$   216 fund=$   233
+v2f: 0.6 mom_blend + 0.4 fund3d [7d]                 tot=   224.1% cagr=  23.9% vol= 34.3% sharpe= 1.19 sortino= 2.11 dd= -20.3% hit=  52% turn=0.16 gross=$   2238 fee=$   230 fund=$   233
+v2g: flow contrarian (-0.2) + mom_blend [7d]         tot=   172.8% cagr=  20.1% vol= 35.5% sharpe= 0.89 sortino= 1.54 dd= -15.6% hit=  51% turn=0.16 gross=$   1857 fee=$   224 fund=$    95
+
+=== 5. K sweep for the best-of-class (v2f, 7d rebalance) ===
+v2f K=1 [7d]                                         tot=   155.2% cagr=  18.6% vol= 58.6% sharpe= 0.48 sortino= 0.88 dd= -25.5% hit=  49% turn=0.22 gross=$   1540 fee=$   308 fund=$   320
+v2f K=2 [7d]                                         tot=   272.1% cagr=  27.1% vol= 43.3% sharpe= 1.15 sortino= 2.04 dd= -33.1% hit=  51% turn=0.18 gross=$   2700 fee=$   255 fund=$   275
+v2f K=3 [7d]                                         tot=   224.1% cagr=  23.9% vol= 34.3% sharpe= 1.19 sortino= 2.11 dd= -20.3% hit=  52% turn=0.16 gross=$   2238 fee=$   230 fund=$   233
+v2f K=4 [7d]                                         tot=   168.9% cagr=  19.8% vol= 28.6% sharpe= 1.08 sortino= 1.91 dd= -18.6% hit=  52% turn=0.15 gross=$   1706 fee=$   214 fund=$   197
+v2f K=5 [7d]                                         tot=   133.2% cagr=  16.7% vol= 25.1% sharpe= 0.97 sortino= 1.69 dd= -16.0% hit=  52% turn=0.14 gross=$   1368 fee=$   192 fund=$   156
+v2f K=6 [7d]                                         tot=    89.5% cagr=  12.4% vol= 23.3% sharpe= 0.70 sortino= 1.15 dd= -36.0% hit=  52% turn=0.12 gross=$    926 fee=$   175 fund=$   144
+v2f K=8 [7d]                                         tot=    64.4% cagr=   9.5% vol= 20.0% sharpe= 0.59 sortino= 0.97 dd= -31.2% hit=  52% turn=0.10 gross=$    666 fee=$   146 fund=$   124
+
+=== 6. yearly detail of v2f K=5 7d ===
+      days  net_pct  gross_pct  fees_pct  funding_pct  vol_pct  sharpe  hit_pct  maxdd_pct
+year                                                                                      
+2021   330     46.8       44.8       3.2          5.2     37.7     1.4     49.1      -23.3
+2022   365     15.4       17.8       3.2          0.8     21.2     0.7     51.2      -18.9
+2023   365     22.5       22.9       3.5          3.2     24.5     0.9     52.1      -21.7
+2024   366     34.2       35.0       3.6          2.8     24.2     1.4     51.4      -14.2
+2025   365     12.4       13.4       3.5          2.6     20.0     0.6     54.2      -12.8
+2026   210      1.8        2.9       2.2          1.1     14.9     0.2     50.5      -14.6
+{'days': 2001, 'total_pct': 133.21889325953595, 'cagr_pct': 16.712368028020762, 'vol_pct': 25.08197121466918, 'sharpe': 0.968835250744481, 'sortino': 1.6856238059835198, 'max_dd_pct': -16.011532661166264, 'calmar': 1.0437706609158208, 'hit_pct': 51.52423788105946, 'avg_bp': 6.657615855049279, 'median_bp': 2.22886582342954, 'worst_pct': -9.43305462152875, 'best_pct': 13.090623926089396, 'gross': 1367.876295595361, 'fees': 191.65999999999997, 'funding': 155.972637, 'net': 1332.188932595361, 'turnover': 0.1368315842078961}

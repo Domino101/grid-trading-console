@@ -1,0 +1,76 @@
+############ 0. 基準（v2, gate=off）與單因子方向 ############
+v2 無閘門（基準）                                   FULL cagr=  16.9% sh= 1.02 dd=  -18.3% | OOS cagr=  14.9% sh= 0.84 dd=  -20.6%
+
+############ A. flow 因子方向（gate=off）############
+flow=pressure as-coded(+0.35)                FULL cagr=  15.2% sh= 0.89 dd=  -14.9% | OOS cagr=   4.2% sh= 0.22 dd=  -24.7%
+flow=pressure 弱版(+0.12)                      FULL cagr=  15.3% sh= 0.91 dd=  -17.4% | OOS cagr=   8.1% sh= 0.42 dd=  -22.3%
+flow=pressure 反向(-0.35)                      FULL cagr=   3.8% sh= 0.18 dd=  -39.8% | OOS cagr=   8.1% sh= 0.43 dd=  -21.9%
+flow=pressure 強反向(-1.0)                      FULL cagr=   0.8% sh= 0.04 dd=  -54.1% | OOS cagr=  -4.5% sh=-0.23 dd=  -25.8%
+flow=takerproxy as-coded(+0.35)              FULL cagr=  18.1% sh= 1.15 dd=  -16.1% | OOS cagr=  12.0% sh= 0.64 dd=  -20.3%
+flow=takerproxy 弱版(+0.12)                    FULL cagr=  17.8% sh= 1.12 dd=  -17.0% | OOS cagr=  12.4% sh= 0.66 dd=  -21.4%
+flow=takerproxy 反向(-0.35)                    FULL cagr=   7.1% sh= 0.36 dd=  -27.7% | OOS cagr=  -2.1% sh=-0.10 dd=  -31.5%
+flow=takerproxy 強反向(-1.0)                    FULL cagr=  -3.5% sh=-0.14 dd=  -40.3% | OOS cagr=  -5.0% sh=-0.24 dd=  -28.4%
+
+############ B. T1 風險關閉閘門變體 ############
+B1 pts=0 → 0 (建議)                            FULL cagr=  18.8% sh= 1.41 dd=  -15.3% | OOS cagr=  25.1% sh= 1.94 dd=   -9.8%
+B2 pts<=1 → 0                                FULL cagr=  14.6% sh= 1.11 dd=  -21.9% | OOS cagr=  19.8% sh= 1.69 dd=   -8.1%
+B3 pts<=2 → 0                                FULL cagr=   2.5% sh= 0.20 dd=  -29.8% | OOS cagr=  11.2% sh= 1.03 dd=   -7.6%
+B4 軟 0.35 / 1 / 1.15                         FULL cagr=  22.5% sh= 1.37 dd=  -14.0% | OOS cagr=  27.2% sh= 1.85 dd=  -10.6%
+B5 軟 0.25 / 1 / 1.25                         FULL cagr=  26.0% sh= 1.30 dd=  -18.0% | OOS cagr=  31.6% sh= 1.97 dd=  -11.1%
+B6 軟 0.5 / 1 / 1.0                           FULL cagr=  18.3% sh= 1.34 dd=  -13.9% | OOS cagr=  21.6% sh= 1.59 dd=   -9.8%
+B7 軟 0.0 / 1 / 1.15                          FULL cagr=  22.8% sh= 1.40 dd=  -15.1% | OOS cagr=  29.3% sh= 2.03 dd=  -10.6%
+B8 僅換倉日檢查 pts=0                              FULL cagr=  17.9% sh= 1.28 dd=  -15.7% | OOS cagr=  19.8% sh= 1.48 dd=   -9.8%
+B9 每日檢查、只擋新倉(hold)                           FULL cagr=  15.9% sh= 0.95 dd=  -21.2% | OOS cagr=  18.8% sh= 1.06 dd=  -14.7%
+
+############ C. 回撤節流（iteration-based，含 T1）############
+C1 軟 0.35/1/1.15 + DD(−6%→.5, −9%→0)         FULL cagr=  10.3% sh= 0.75 dd=  -15.1% | OOS cagr=  -0.2% sh=-0.28 dd=   -1.8%
+C2 軟 0.35/1/1.15 + DD(−10%→.5, −15%→0)       FULL cagr=  10.7% sh= 0.75 dd=  -15.1% | OOS cagr=  -5.1% sh=-1.57 dd=  -13.7%
+C3 軟 0.35/1/1.15 + DD(−12%→.5, −18%→.5)      FULL cagr=  16.4% sh= 1.06 dd=  -15.2% | OOS cagr=  12.1% sh= 0.74 dd=  -21.8%
+C4 T1 + DD(−12%→.5)                          FULL cagr=  16.4% sh= 1.06 dd=  -15.2% | OOS cagr=  12.1% sh= 0.74 dd=  -21.8%
+
+############ D. 其他規避規則（單獨疊在 T1 上；T1=基準 gate=pts0→0）############
+D1 T1 + vol14>q90 → 0.5                      FULL cagr=  19.5% sh= 1.55 dd=  -12.3% | OOS cagr=  23.9% sh= 1.98 dd=   -9.5%
+D2 T1 + vol14>q90 → 0                        FULL cagr=  19.7% sh= 1.58 dd=  -12.0% | OOS cagr=  23.7% sh= 1.97 dd=  -10.8%
+D3 T1 + vol14>q95 → 0.5                      FULL cagr=  18.8% sh= 1.45 dd=  -15.3% | OOS cagr=  23.0% sh= 1.84 dd=   -8.3%
+D4 T1 + disp7<q20 → 0.5                      FULL cagr=  15.1% sh= 1.10 dd=  -21.5% | OOS cagr=  19.5% sh= 1.66 dd=   -9.0%
+D5 T1 + disp7>q95 → 0.5                      FULL cagr=  20.4% sh= 1.73 dd=  -13.1% | OOS cagr=  23.8% sh= 2.07 dd=   -9.8%
+D6 T1 + fund_pct<45 → 0                      FULL cagr=  12.7% sh= 0.98 dd=  -19.5% | OOS cagr=  13.2% sh= 1.14 dd=   -9.9%
+D7 T1 + fund_pct<45 → 0.5                    FULL cagr=  14.6% sh= 1.15 dd=  -18.4% | OOS cagr=  16.7% sh= 1.45 dd=   -9.8%
+D8 T1 + fund_pct>90 → 0.5                    FULL cagr=  15.4% sh= 1.30 dd=  -15.2% | OOS cagr=  19.4% sh= 1.87 dd=  -12.2%
+D9 T1 + breadth<30 → 0                       FULL cagr=  14.9% sh= 1.09 dd=  -19.4% | OOS cagr=  19.3% sh= 1.62 dd=   -8.1%
+D10 T1 + breadth>80 → 1.15                   FULL cagr=  17.6% sh= 0.97 dd=  -30.3% | OOS cagr=  32.7% sh= 1.80 dd=  -12.6%
+D11 T1 + BTC 1d<=-5% → 0（當日）                 FULL cagr=  17.9% sh= 1.40 dd=  -16.5% | OOS cagr=  22.3% sh= 1.74 dd=  -10.0%
+D12 T1 + BTC 1d>=+5% → 0（當日）                 FULL cagr=  14.1% sh= 1.11 dd=  -15.4% | OOS cagr=  20.6% sh= 1.70 dd=  -13.7%
+D13 T1 + vol<q90 且 disp>q20                  FULL cagr=  10.1% sh= 0.82 dd=  -21.3% | OOS cagr=  18.2% sh= 1.71 dd=   -8.7%
+
+############ E. 最佳組合 + 週期/K ###########
+軟0.35/1.15 reb=5 K=4                         FULL cagr=  20.4% sh= 1.17 dd=  -18.3% | OOS cagr=  29.6% sh= 1.73 dd=  -12.4%
+軟0.35/1.15 reb=5 K=5                         FULL cagr=  14.4% sh= 0.83 dd=  -19.8% | OOS cagr=  20.8% sh= 1.32 dd=  -14.0%
+軟0.35/1.15 reb=5 K=6                         FULL cagr=  11.2% sh= 0.69 dd=  -19.4% | OOS cagr=  17.7% sh= 1.19 dd=  -13.3%
+軟0.35/1.15 reb=7 K=4                         FULL cagr=  24.4% sh= 1.35 dd=  -16.3% | OOS cagr=  31.2% sh= 1.92 dd=  -13.6%
+軟0.35/1.15 reb=7 K=5                         FULL cagr=  22.5% sh= 1.37 dd=  -14.0% | OOS cagr=  27.2% sh= 1.85 dd=  -10.6%
+軟0.35/1.15 reb=7 K=6                         FULL cagr=  17.7% sh= 1.13 dd=  -17.0% | OOS cagr=  21.4% sh= 1.55 dd=  -12.0%
+軟0.35/1.15 reb=10 K=4                        FULL cagr=  17.7% sh= 0.83 dd=  -19.5% | OOS cagr=  35.0% sh= 2.15 dd=   -8.4%
+軟0.35/1.15 reb=10 K=5                        FULL cagr=  12.6% sh= 0.60 dd=  -22.9% | OOS cagr=  25.0% sh= 1.64 dd=  -12.0%
+軟0.35/1.15 reb=10 K=6                        FULL cagr=  12.1% sh= 0.64 dd=  -20.8% | OOS cagr=  19.1% sh= 1.31 dd=  -11.4%
+
+-- 週期/倉位敏感度（軟閘門固定）--
+reb=3                                        FULL cagr=  19.7% sh= 1.27 dd=  -11.1% | OOS cagr=  19.5% sh= 1.26 dd=  -11.6%
+reb=5                                        FULL cagr=  14.4% sh= 0.83 dd=  -19.8% | OOS cagr=  20.8% sh= 1.32 dd=  -14.0%
+reb=7                                        FULL cagr=  22.5% sh= 1.37 dd=  -14.0% | OOS cagr=  27.2% sh= 1.85 dd=  -10.6%
+reb=10                                       FULL cagr=  12.6% sh= 0.60 dd=  -22.9% | OOS cagr=  25.0% sh= 1.64 dd=  -12.0%
+reb=14                                       FULL cagr=  26.7% sh= 1.40 dd=  -16.2% | OOS cagr=  32.0% sh= 2.01 dd=   -7.0%
+K=3                                          FULL cagr=  28.3% sh= 1.52 dd=  -18.2% | OOS cagr=  32.1% sh= 1.73 dd=  -19.5%
+K=4                                          FULL cagr=  24.4% sh= 1.35 dd=  -16.3% | OOS cagr=  31.2% sh= 1.92 dd=  -13.6%
+K=6                                          FULL cagr=  17.7% sh= 1.13 dd=  -17.0% | OOS cagr=  21.4% sh= 1.55 dd=  -12.0%
+K=8                                          FULL cagr=  10.5% sh= 0.66 dd=  -22.1% | OOS cagr=  13.7% sh= 1.12 dd=  -14.9%
+
+############ F. 風險結束後的再進場延遲（T3）############
+T1 + 再進場延遲 1 日                               FULL cagr=  19.0% sh= 1.43 dd=  -15.5% | OOS cagr=  23.8% sh= 1.84 dd=   -9.8%
+軟閘門 + 再進場延遲 1 日                              FULL cagr=  22.5% sh= 1.37 dd=  -14.0% | OOS cagr=  27.2% sh= 1.85 dd=  -10.6%
+T1 + 再進場延遲 2 日                               FULL cagr=  18.8% sh= 1.43 dd=  -13.5% | OOS cagr=  24.4% sh= 1.91 dd=   -9.8%
+軟閘門 + 再進場延遲 2 日                              FULL cagr=  22.5% sh= 1.37 dd=  -14.0% | OOS cagr=  27.2% sh= 1.85 dd=  -10.6%
+T1 + 再進場延遲 3 日                               FULL cagr=  18.9% sh= 1.45 dd=  -13.4% | OOS cagr=  24.4% sh= 1.90 dd=   -9.8%
+軟閘門 + 再進場延遲 3 日                              FULL cagr=  22.5% sh= 1.37 dd=  -14.0% | OOS cagr=  27.2% sh= 1.85 dd=  -10.6%
+
+(完成)
