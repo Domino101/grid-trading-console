@@ -64,6 +64,9 @@ TEST_MODULES=(
   tests.test_coinfull_prime_quant
   tests.test_coinfull_prime_rebalance
   tests.test_coinfull_prime_regime
+  tests.test_unified_ledger_accounting
+  tests.test_ledger_consistency_audit
+  tests.test_accounting_path_policy
 )
 
 PYTHON="${PYTHON_BIN:-$(command -v python3 || command -v python)}"

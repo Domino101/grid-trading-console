@@ -10,8 +10,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 
 from web_ui.backend.auth import verify_token
 from core.services.coinfull_prime.service import CoinFullPrimeService
+from core.infrastructure.database.strategy_ledger import StrategyLedger
 
 logger = logging.getLogger("WebUI.CoinFullPrime")
+
+CFP_BOT_IDS = ("coinfull_prime:paper", "coinfull_prime:binance_testnet", "coinfull_prime:binance_live")
 
 router = APIRouter(prefix="/api/v1/coinfull-prime", tags=["CoinFull Prime"])
 
@@ -188,24 +191,20 @@ async def get_coinfull_prime_fills(
     include_simulated: bool = Query(True, description="是否包含 Dry-Run 模擬成交流水"),
     _token: str = Depends(verify_token)
 ):
-    """取得 CoinFull Prime 持久化成交流水 (支援依帳號環境篩選與實盤/模擬切換)"""
+    """取得 CoinFull Prime 持久化成交流水 (支援依帳號環境篩選與實盤/模擬切換)
+
+    P4-1：讀取路徑與寫入路徑同源 —— 一律經 StrategyLedger（canonical ledger），
+    PostgreSQL 真相源模式下不再讀到本機幽靈 SQLite。
+    """
     try:
-        from core.infrastructure.database.ledger_store import SqliteLedgerStore
-        store = SqliteLedgerStore()
-        store.initialize()
+        ledger = StrategyLedger.instance()
 
         target_acc = account_id.strip() if account_id else None
-        bot_ids = [f"coinfull_prime:{target_acc}"] if target_acc else [
-            "coinfull_prime:paper", "coinfull_prime:binance_testnet", "coinfull_prime:binance_live"
-        ]
+        bot_ids = [f"coinfull_prime:{target_acc}"] if target_acc else list(CFP_BOT_IDS)
 
         all_fills = []
         for bid in bot_ids:
-            try:
-                fills = store.get_fills(bid, limit=limit, order_desc=True)
-                all_fills.extend(fills)
-            except Exception:
-                pass
+            all_fills.extend(ledger.get_fills(bid, limit=limit, order_desc=True))
 
         # 依執行時間倒序
         all_fills.sort(key=lambda x: getattr(x, "executed_at", 0.0), reverse=True)
@@ -217,17 +216,8 @@ async def get_coinfull_prime_fills(
             if not include_simulated and is_sim:
                 continue
 
-            # 從 client_order_id 或 fill_id 提取 symbol
-            cid = str(getattr(f, "client_order_id", ""))
-            sym = "UNKNOWN"
-            if cid:
-                parts = cid.split("_")
-                if len(parts) >= 1 and parts[0]:
-                    sym = parts[0]
-            if sym == "UNKNOWN" or sym.lower() in ("cfp", "sim"):
-                fid_parts = str(getattr(f, "fill_id", "")).split("_")
-                if len(fid_parts) >= 4:
-                    sym = fid_parts[-2]
+            # 從 client_order_id / fill_id 推導 symbol（統一命名契約，見 _infer_symbol）
+            sym = _infer_symbol(f)
 
             exec_ts = getattr(f, "executed_at", None)
             time_iso = (
@@ -273,26 +263,18 @@ async def get_coinfull_prime_history(
     limit: int = Query(50, ge=1, le=200, description="換倉批次限制"),
     _token: str = Depends(verify_token)
 ):
-    """取得 CoinFull Prime 歷史換倉批次與詳細訂單紀錄"""
+    """取得 CoinFull Prime 歷史換倉批次與詳細訂單紀錄（canonical ledger bot_events）"""
     try:
-        from core.infrastructure.database.ledger_store import SqliteLedgerStore
-        store = SqliteLedgerStore()
-        store.initialize()
+        ledger = StrategyLedger.instance()
 
         target_acc = account_id.strip() if account_id else None
-        bot_ids = [f"coinfull_prime:{target_acc}"] if target_acc else [
-            "coinfull_prime:paper", "coinfull_prime:binance_testnet", "coinfull_prime:binance_live", "coinfull_prime"
-        ]
+        bot_ids = [f"coinfull_prime:{target_acc}"] if target_acc else list(CFP_BOT_IDS) + ["coinfull_prime"]
 
         all_events = []
         for bid in bot_ids:
-            try:
-                events = store.get_events(bid, limit=limit)
-                for ev in events:
-                    if getattr(ev, "event_type", "") in ("daily_rebalance", "manual_rebalance"):
-                        all_events.append(ev)
-            except Exception:
-                pass
+            for ev in ledger.get_events(bid, limit=limit):
+                if getattr(ev, "event_type", "") in ("daily_rebalance", "manual_rebalance"):
+                    all_events.append(ev)
 
         # 依建立時間倒序
         all_events.sort(key=lambda x: getattr(x, "created_at", 0.0), reverse=True)
@@ -325,7 +307,11 @@ async def get_coinfull_prime_history(
                 "dry_run": bool(payload.get("dry_run", True)),
                 "capital": payload.get("capital"),
                 "leverage": payload.get("leverage"),
+                "batch_id": payload.get("batch_id"),
                 "orders_count": payload.get("orders_count") or len(payload.get("orders", [])),
+                "realized_pnl_usdt": payload.get("realized_pnl_usdt"),
+                "fees_usdt": payload.get("fees_usdt"),
+                "gate": payload.get("gate"),
                 "closed_symbols": payload.get("closed_symbols") or [],
                 "opened_symbols": opened_syms if (opened_syms := payload.get("opened_symbols")) else [],
                 "status": payload.get("status") or "completed",
@@ -339,4 +325,106 @@ async def get_coinfull_prime_history(
         }
     except Exception as e:
         logger.error(f"取得 CoinFull Prime 換倉歷史失敗: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+QUOTE_SUFFIXES = ("USDT", "USDC", "USD", "BUSD", "BTC", "ETH")
+
+
+def _infer_symbol(fill: Any) -> str:
+    """由 client_order_id / fill_id 推導標的。
+
+    canonical ``trade_fills`` 沒有 symbol 欄位（稽核發現 D-08），因此各策略以
+    穩定命名契約把 symbol 編入 client_order_id；本函式同時容忍舊格式。
+    """
+    for field_value in (getattr(fill, "client_order_id", ""), getattr(fill, "fill_id", "")):
+        tokens = [t for t in str(field_value or "").split("_") if t]
+        for token in reversed(tokens):
+            upper = token.upper()
+            if len(upper) >= 6 and upper.endswith(QUOTE_SUFFIXES) and not upper.startswith(("CFP", "SIM")):
+                return upper
+    return "UNKNOWN"
+
+
+@router.get("/regime/history")
+async def get_coinfull_prime_regime_history(
+    account_id: Optional[str] = Query(None, description="帳號環境（未提供時查詢所有帳號）"),
+    limit: int = Query(200, ge=1, le=2000, description="筆數限制"),
+    _token: str = Depends(verify_token)
+):
+    """風險閘門決策歷史（canonical ledger ``bot_regime_decisions``，非 JSONL 檔案）"""
+    service = CoinFullPrimeService.instance()
+    try:
+        return {
+            "account_id": account_id,
+            "source": "canonical_ledger:bot_regime_decisions",
+            "total": len(service.load_regime_history(account_id=account_id, limit=limit)),
+            "decisions": service.load_regime_history(account_id=account_id, limit=limit),
+        }
+    except Exception as e:
+        logger.error(f"取得風險閘門歷史失敗: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/basket")
+async def get_coinfull_prime_basket(
+    account_id: Optional[str] = Query(None, description="帳號環境（預設為目前排程目標）"),
+    _token: str = Depends(verify_token)
+):
+    """受管持倉籃子（canonical ledger ``bot_baskets``；含均價與已實現損益）"""
+    service = CoinFullPrimeService.instance()
+    target_acc = (account_id or service.selected_account or "paper").strip()
+    try:
+        entries = service.load_basket_entries(target_acc)
+        gross = round(sum(e.notional_usdt or 0.0 for e in entries), 2)
+        return {
+            "account_id": target_acc,
+            "source": "canonical_ledger:bot_baskets",
+            "count": len(entries),
+            "gross_notional_usdt": gross,
+            "long_notional_usdt": round(sum(e.notional_usdt or 0.0 for e in entries if e.side == "long"), 2),
+            "short_notional_usdt": round(sum(e.notional_usdt or 0.0 for e in entries if e.side == "short"), 2),
+            "cumulative_realized_pnl_usdt": round(sum(e.realized_pnl or 0.0 for e in entries), 8),
+            "managed_symbols": sorted({e.symbol for e in entries}),
+            "entries": [
+                {
+                    "symbol": e.symbol,
+                    "side": e.side,
+                    "quantity": e.quantity,
+                    "entry_price": e.entry_price,
+                    "notional_usdt": e.notional_usdt,
+                    "realized_pnl": e.realized_pnl,
+                    "status": e.status,
+                    "updated_at": e.updated_at,
+                }
+                for e in entries
+            ],
+        }
+    except Exception as e:
+        logger.error(f"取得受管籃子失敗: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/accounting")
+async def get_coinfull_prime_accounting(_token: str = Depends(verify_token)):
+    """統一記帳層健康度（寫入成功/失敗計數、後端、最近錯誤）— 供前端與稽核使用"""
+    try:
+        ledger = StrategyLedger.instance()
+        health = ledger.health()
+        service = CoinFullPrimeService.instance()
+        target_acc = service.selected_account or "paper"
+        bot_id = f"coinfull_prime:{target_acc}"
+        snapshot = ledger.load_snapshot(bot_id)
+        return {
+            "backend": health.get("backend"),
+            "database_path": health.get("database_path"),
+            "health": health,
+            "bot_id": bot_id,
+            "latest_snapshot": (snapshot[0] if snapshot else None),
+            "latest_snapshot_at": (snapshot[1] if snapshot else None),
+            "fills_total": len(ledger.get_fills(bot_id, limit=100000)),
+            "events_total": len(ledger.get_events(bot_id, limit=100000)),
+        }
+    except Exception as e:
+        logger.error(f"取得記帳健康度失敗: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
