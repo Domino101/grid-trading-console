@@ -37,15 +37,22 @@ graph TD
 * **即時視覺化工作台**：內建 Lightweight Charts K 線圖表，實時繪製基礎單、安全單階梯、持倉均價線與動態止盈線。
 * **三向對帳與自癒機制**：`ExchangeReconciler` 定期自動比對「本地帳本 $\leftrightarrow$ 交易所持倉 $\leftrightarrow$ 在世掛單」，遇到孤立部位時自動補掛止盈單，單向機器人嚴格過濾反向持倉避免誤領。
 
-### 3. CoinFull Prime 市場中性截面多空策略 (CoinFull Prime Market-Neutral Quant)
-* **全市場流動性截面**：每日自幣安永續合約提取 24h 成交額前 79 個幣種作為流動性池（排除穩定幣）。
-* **四大客觀微觀因子打分**：
-  $$\text{Score} = 0.35 \cdot Z_{\text{動能}} + 0.35 \cdot Z_{\text{主動買賣流}} + 0.20 \cdot Z_{\text{資金費率(反向)}} + 0.10 \cdot Z_{\text{大戶多空比}}$$
-  採用統計學 Winsorization 去極值與橫截面 Z-Score 標準化，選出 **Top 8 做多** 與 **Bottom 8 做空** 建立對稱組合。
+### 3. CoinFull Prime 市場中性截面多空策略 (CoinFull Prime Market-Neutral Quant, v2 + Regime Gate)
+* **全市場流動性截面**：每週自幣安永續合約提取 24h 成交額前 79 個幣種作為流動性池（排除穩定幣）。
+* **多時距雙因子打分（v2 優化，依 2026-09-16 實證稽核報告）**：
+  $$\text{Score} = 0.60 \cdot Z_{\text{動能(0.5\cdot R_{1d}+0.3\cdot R_{7d}+0.2\cdot R_{30d})}} + 0.40 \cdot Z_{\text{資金費率(3 次結算平均, 反向)}}$$
+  已移除 1 日 taker 買賣壓力與大戶多空比（實測無可用 alpha）；採用統計學 Winsorization 去極值與橫截面 Z-Score 標準化，選出 **Top 5 做多** 與 **Bottom 5 做空** 建立對稱組合。
+* **風險閘門 (Regime Gate)**：換倉前以 `pts = [BTC>50 日均線] + [廣度>30%] + [資金費率 252 日百分位>45]` 判定市場狀態：
+  * `pts = 0`（風險關閉）→ **平倉並停止下單**（T1，實測 OOS Sharpe 0.84 → 1.94 的最大單一改善項）；
+  * `pts = 2` 且資金費率百分位 45–80 → 可加碼至 1.15×（上限 1.2×）；
+  * BTC 收盤日 ≤ −5%（崩跌日）→ 換倉延後 24 小時（T2，最多 2 次）；
+  * 極端擁擠（百分位 >95 且 pts≤1）→ 降至 0.5×（T5）；
+  * 決策逐次落地 `data/coinfull_prime_regime_history.jsonl`，查詢端點 `GET /api/v1/coinfull-prime/regime`。
 * **三層抗干擾與防碰撞護欄**：
   1. **專屬籃子記帳隔離**（`coinfull_prime_active_basket.json`）：僅平倉本策略歷史選拔的退榜幣種，絕對不誤殺用戶手動倉位或外部合約。
   2. **外部運行中機器人避碰排除**：動態掃描 SQLite 與設定檔中運行中的網格/DCA 機器人標的，自選幣池全面剔除，防止保證金擠兌與衝突。
-  3. **定時排程雙向同動**：零輪詢休眠排程（每日 UTC 00:00 / 台北 08:00 自動喚醒換倉），支援實盤與測試網環境熱切換。
+  3. **定時排程雙向同動**：零輪詢休眠排程（**每週四 UTC 00:05 / 台北 08:05** 自動喚醒換倉，頻率可於 `strategy_config.yaml` 調整），支援實盤與測試網環境熱切換。
+* **績效可追蹤**：每次換倉落地權益/持倉快照（`data/coinfull_prime_run_snapshots.jsonl`）與完整訂單事件（Canonical Ledger `bot_events`），詳見 `docs/CoinFull_Prime_Audit_Report_2026-09-16.md` 與 `docs/CoinFull_Prime_00_README.md`。
 
 ### 4. 策略回測與壓力測試系統 (Strategy Backtesting & Stress Testing)
 * **網格資金感知回測**：逐倉保證金/清算價格模擬，輸出總報酬率、買入持有對照 (Alpha)、最大回撤、已完成循環數與權益曲線。
