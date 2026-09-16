@@ -101,6 +101,10 @@ class RebalanceReport(BaseModel):
     gate_scale: Optional[float] = None
     gate_allow_new_entries: Optional[bool] = None
     gate_force_flatten: Optional[bool] = None
+    # P4-1 統一記帳：本批換倉由 canonical ledger（bot_baskets 均價法）結算出的損益
+    realized_pnl_usdt: Optional[float] = None
+    fees_usdt: Optional[float] = None
+    batch_id: Optional[str] = None
 
 
 class RegimeDecision(BaseModel):

@@ -12,7 +12,7 @@ import time
 import logging
 from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 # 加入專案根目錄到 sys.path 以便匯入 core 模組
 _project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
@@ -141,3 +141,46 @@ async def get_audit_logs(
         total=len(logs),
         logs=logs
     )
+
+
+@router.get("/ledger-audit")
+async def get_ledger_audit(
+    backfill: bool = Query(default=False, description="true = 先執行檔案型帳本冪等回填再稽核"),
+    policy_scan: bool = Query(default=True, description="是否包含程式碼路徑政策掃描（L4）"),
+    markdown: bool = Query(default=False, description="true = 回傳 Markdown 報告而非 JSON"),
+    _token: str = Depends(verify_token),
+):
+    """統一記帳一致性稽核（grid / dca / coinfull_prime 三策略）。
+
+    以帳本不變式驗證「三者是否真的共用同一套資料庫記帳」：
+    孤兒成交、幽靈後端、事件冪等、記帳契約、檔案型帳本分歧、會計恆等式、
+    操作稽核日誌健康度等 15 項檢查（L1–L15）。唯讀、零交易所 API 權重。
+    """
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+    try:
+        from core.infrastructure.database.ledger_audit import run_audit
+        from core.infrastructure.database.ledger_backfill import backfill_coinfull_prime_side_files
+
+        backfill_stats = None
+        if backfill:
+            backfill_stats = backfill_coinfull_prime_side_files(
+                data_dir=os.path.join(project_root, "data")
+            )
+        report = run_audit(
+            project_root=project_root,
+            include_policy_scan=policy_scan,
+            data_dir=os.path.join(project_root, "data"),
+        )
+        payload = report.to_dict()
+        payload["audit_log"] = AuditLogger.get_instance(project_root).health()
+        if backfill_stats is not None:
+            payload["backfill"] = backfill_stats
+        if markdown:
+            from fastapi.responses import PlainTextResponse
+
+            # media_type 不可自帶 charset：PlainTextResponse 會再附加一次（content-type 重複）
+            return PlainTextResponse(report.to_markdown(), media_type="text/markdown")
+        return payload
+    except Exception as exc:
+        logger.error(f"統一記帳稽核執行失敗: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))

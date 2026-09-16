@@ -6,7 +6,7 @@ import asyncio
 import logging
 import os
 import json
-import sqlite3
+import time
 from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 from decimal import Decimal
@@ -22,6 +22,7 @@ from .regime_filter import RegimeFilter
 from core.adapters.exchanges.factory import ExchangeFactory
 from core.adapters.exchanges.interface import ExchangeInterface, ExchangeConfig, ExchangeType
 from core.adapters.exchanges.adapters.paper import create_paper_adapter
+from core.infrastructure.database.ledger_backfill import SCHEDULER_BOT_ID
 
 
 def compute_next_rebalance_run(
@@ -125,27 +126,26 @@ class CoinFullPrimeService(BaseService):
         """
         protected: Set[str] = set()
 
-        # 1. 查詢 SQLite canonical ledger (bots 表)
-        db_path = os.path.join(os.path.dirname(__file__), "../../../data/web_ui_runtime.sqlite3")
-        if os.path.exists(db_path):
-            try:
-                conn = sqlite3.connect(f"file:{os.path.abspath(db_path)}?mode=ro", uri=True, timeout=5.0)
-                cursor = conn.cursor()
-                query = """
-                    SELECT symbol, account_mode FROM bots 
-                    WHERE archived_at IS NULL 
-                    AND status NOT IN ('STOPPED', 'ARCHIVED', 'failed', 'stopped')
-                """
-                cursor.execute(query)
-                for row in cursor.fetchall():
-                    if row and row[0]:
-                        sym = row[0]
-                        norm = PortfolioRebalancer._normalize_symbol(sym)
-                        if norm:
-                            protected.add(norm)
-                conn.close()
-            except Exception as ex:
-                logger.warning(f"讀取 SQLite 外部機器人標的失敗: {ex}")
+        # 1. 查詢 canonical ledger (bots 表)
+        #    P4-1：改走 StrategyLedger（→ LedgerRepository → create_ledger_store），
+        #    過去以 raw sqlite3 讀取硬編碼相對路徑 data/web_ui_runtime.sqlite3，
+        #    在 PostgreSQL 真相源模式下會讀到不存在/過期的本機 SQLite，
+        #    使「外部機器人避碰名單」靜默變空 → 可能與網格/DCA 搶同一標的保證金。
+        try:
+            from core.infrastructure.database.strategy_ledger import StrategyLedger
+
+            for bot in StrategyLedger.instance().list_bots():
+                strategy_type = (getattr(bot, "strategy_type", "") or "").lower()
+                if strategy_type == "coinfull_prime":
+                    continue  # 自身籃子不列入外部保護名單（由 managed_symbols 處理）
+                status = (getattr(bot, "status", "") or "").lower()
+                if getattr(bot, "archived_at", None) or status in ("stopped", "archived", "failed"):
+                    continue
+                norm = PortfolioRebalancer._normalize_symbol(getattr(bot, "symbol", "") or "")
+                if norm:
+                    protected.add(norm)
+        except Exception as ex:
+            logger.warning(f"讀取 canonical ledger 外部機器人標的失敗: {ex}")
 
         # 2. 掃描本地配置檔 config/grid 與 config/dca
         base_dir = Path(__file__).resolve().parent.parent.parent.parent
@@ -166,10 +166,40 @@ class CoinFullPrimeService(BaseService):
 
         return protected
 
+    # ------------------------------------------------------------------
+    # P4-1 統一記帳：專屬持倉籃子（DB 為唯一真相源，檔案僅為匯出鏡像）
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _ledger():
+        from core.infrastructure.database.strategy_ledger import StrategyLedger
+
+        return StrategyLedger.instance()
+
+    @staticmethod
+    def _basket_bot_id(account_id: str) -> str:
+        return f"coinfull_prime:{account_id}"
+
+    def _basket_file(self) -> Path:
+        return self._get_data_dir() / "coinfull_prime_active_basket.json"
+
     def load_active_basket(self, account_id: str) -> Set[str]:
-        """讀取指定帳號的 CoinFull Prime 專屬持倉籃子"""
-        base_dir = Path(__file__).resolve().parent.parent.parent.parent
-        basket_file = base_dir / "data" / "coinfull_prime_active_basket.json"
+        """讀取指定帳號的受管持倉籃子。
+
+        真相源為 canonical ledger 的 ``bot_baskets``；若 DB 尚無資料但存在舊檔
+        （0.3.5 以前落地），自動執行一次性冪等回填後再讀 DB，確保遷移期間
+        「平倉白名單」不會遺失（遺失會導致退榜幣種無法被平倉）。
+        """
+        ledger = self._ledger()
+        bot_id = self._basket_bot_id(account_id)
+        entries = ledger.load_basket(bot_id, account_id=account_id, active_only=True)
+        if not entries:
+            if self._backfill_side_files(reason="basket_empty"):
+                entries = ledger.load_basket(bot_id, account_id=account_id, active_only=True)
+        if entries:
+            return {PortfolioRebalancer._normalize_symbol(e.symbol) for e in entries if e.symbol}
+
+        # 最後手段：DB 與回填都不可用時，退回讀取鏡像檔（保持交易可繼續）
+        basket_file = self._basket_file()
         if not basket_file.exists():
             return set()
         try:
@@ -177,38 +207,109 @@ class CoinFullPrimeService(BaseService):
                 data = json.load(f) or {}
             acc_data = data.get(account_id, {})
             symbols = acc_data.get("managed_symbols", [])
+            logger.warning(
+                f"⚠️ 籃子記帳降級：canonical ledger 無資料，改讀檔案鏡像 ({account_id})；"
+                "請執行 tools/ledger_consistency_audit.py --backfill 修復"
+            )
             return {PortfolioRebalancer._normalize_symbol(s) for s in symbols if s}
         except Exception as ex:
-            logger.warning(f"讀取專屬持倉籃子檔失敗: {ex}")
+            logger.warning(f"讀取專屬持倉籃子鏡像檔失敗: {ex}")
             return set()
 
-    def save_active_basket(self, account_id: str, symbols: List[str]):
-        """持久化指定帳號的 CoinFull Prime 專屬持倉籃子"""
-        base_dir = Path(__file__).resolve().parent.parent.parent.parent
-        basket_file = base_dir / "data" / "coinfull_prime_active_basket.json"
-        data = {}
-        if basket_file.exists():
-            try:
-                with open(basket_file, "r", encoding="utf-8") as f:
-                    data = json.load(f) or {}
-            except Exception:
-                data = {}
+    def load_basket_entries(self, account_id: str) -> List[Any]:
+        """讀取籃子完整成分（含方向/數量/均價/已實現損益），供 API 與稽核使用。"""
+        return self._ledger().load_basket(
+            self._basket_bot_id(account_id), account_id=account_id, active_only=True
+        )
 
-        clean_symbols = sorted(list({PortfolioRebalancer._normalize_symbol(s) for s in symbols if s}))
-        data[account_id] = {
-            "managed_symbols": clean_symbols,
-            "count": len(clean_symbols),
-            "updated_at": datetime.now(timezone.utc).isoformat()
-        }
+    def save_active_basket(self, account_id: str, symbols: List[str], sides: Optional[Dict[str, str]] = None):
+        """持久化受管持倉籃子：先寫 canonical ledger，再寫檔案鏡像（best-effort）。"""
+        clean_symbols = sorted({PortfolioRebalancer._normalize_symbol(s) for s in symbols if s})
+        bot_id = self._basket_bot_id(account_id)
+        ledger = self._ledger()
+        now_ts = time.time()
         try:
-            basket_file.parent.mkdir(parents=True, exist_ok=True)
-            temp_file = basket_file.with_suffix(".tmp")
-            with open(temp_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-            temp_file.replace(basket_file)
-            logger.info(f"💾 已成功持久化 CoinFull Prime 專屬持倉籃子 ({account_id}): {clean_symbols}")
+            from core.infrastructure.database.models import BasketEntry
+
+            entries = [
+                BasketEntry(
+                    bot_id=bot_id,
+                    account_id=account_id,
+                    symbol=sym,
+                    side=((sides or {}).get(sym) or "long"),
+                    quantity=0.0,          # 0 → 保留 DB 既有持倉數量（名單同步不洗掉部位）
+                    status="active",
+                    updated_at=now_ts,
+                )
+                for sym in clean_symbols
+            ]
+            if entries:
+                ledger.save_basket(bot_id, account_id, entries, close_missing=True)
+            logger.info(f"💾 已將專屬持倉籃子寫入 canonical ledger ({account_id}): {clean_symbols}")
         except Exception as ex:
-            logger.error(f"持久化專屬持倉籃子失敗: {ex}")
+            logger.error(f"持久化專屬持倉籃子至 ledger 失敗: {ex}")
+
+        # 檔案鏡像：由 DB 反向產生，避免雙來源分歧
+        try:
+            self._export_basket_mirror(account_id)
+        except Exception as ex:
+            logger.warning(f"寫入籃子檔案鏡像失敗（不影響記帳）: {ex}")
+
+    def _export_basket_mirror(self, account_id: Optional[str] = None) -> None:
+        """把 DB 籃子真相源匯出成 ``coinfull_prime_active_basket.json`` 鏡像。"""
+        ledger = self._ledger()
+        accounts = [account_id] if account_id else ["paper", "binance_testnet", "binance_live"]
+        mirror: Dict[str, Any] = {}
+        for acc in accounts:
+            entries = ledger.load_basket(self._basket_bot_id(acc), account_id=acc, active_only=True)
+            if not entries:
+                continue
+            symbols = sorted({e.symbol for e in entries})
+            mirror[acc] = {
+                "managed_symbols": symbols,
+                "count": len(symbols),
+                "source": "canonical_ledger:bot_baskets",
+                "entries": [
+                    {
+                        "symbol": e.symbol,
+                        "side": e.side,
+                        "quantity": e.quantity,
+                        "entry_price": e.entry_price,
+                        "notional_usdt": e.notional_usdt,
+                        "realized_pnl": e.realized_pnl,
+                        "status": e.status,
+                    }
+                    for e in entries
+                ],
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        if not mirror:
+            return
+        path = self._basket_file()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp_file = path.with_suffix(".tmp")
+        with open(temp_file, "w", encoding="utf-8") as f:
+            json.dump(mirror, f, indent=2, ensure_ascii=False, default=str)
+        temp_file.replace(path)
+
+    def _backfill_side_files(self, reason: str = "startup") -> bool:
+        """把 0.3.5 以前的檔案型帳本冪等回填進 canonical ledger（自我修復）。"""
+        try:
+            from core.infrastructure.database.ledger_backfill import backfill_coinfull_prime_side_files
+
+            stats = backfill_coinfull_prime_side_files(data_dir=self._get_data_dir(), ledger=self._ledger())
+            imported = (
+                stats.get("baskets", {}).get("symbols", 0)
+                + stats.get("regime_decisions", {}).get("imported", 0)
+                + stats.get("run_snapshots", {}).get("imported", 0)
+                + stats.get("scheduler_states", {}).get("imported", 0)
+            )
+            if imported:
+                logger.info(f"🔁 檔案型帳本已回填 canonical ledger (reason={reason}): {stats}")
+            return imported > 0
+        except Exception as ex:
+            logger.warning(f"檔案型帳本回填失敗 (reason={reason}): {ex}")
+            return False
 
     def load_config(self) -> Dict[str, Any]:
         """加載 YAML 策略配置檔"""
@@ -224,25 +325,22 @@ class CoinFullPrimeService(BaseService):
             self.config = {}
         return self.config
 
-    def register_bot_identity(self, account_id: str = "paper"):
-        """向 Canonical Ledger 登記 CoinFull Prime 機器人身分 (遵守 P1-6 帳本完整性規範)"""
+    def register_bot_identity(self, account_id: str = "paper", status: Optional[str] = None):
+        """向 Canonical Ledger 登記 CoinFull Prime 機器人身分 (遵守 P1-6 帳本完整性規範)
+
+        P4-1：改走 ``StrategyLedger``（統一記帳門面，自動路由 SQLite/PostgreSQL）。
+        """
         try:
-            import time
-            from core.infrastructure.database.ledger_store import SqliteLedgerStore, BotRecord
-            store = SqliteLedgerStore()
-            store.initialize()
             mode = "live" if "live" in account_id.lower() else "paper"
-            bot_record = BotRecord(
+            self._ledger().ensure_bot(
                 bot_id=f"coinfull_prime:{account_id}",
                 strategy_type="coinfull_prime",
                 symbol="BASKET_16",
                 exchange=account_id,
                 account_mode=mode,
+                status=status or ("running" if self._is_running else "idle"),
                 config_path=self.config_path,
-                status="running" if self._is_running else "idle",
-                created_at=time.time()
             )
-            store.register_or_update_bot(bot_record)
         except Exception as ex:
             logger.warning(f"登記 CoinFull Prime 機器人身分異常 ({account_id}): {ex}")
 
@@ -253,9 +351,11 @@ class CoinFullPrimeService(BaseService):
         self.rebalancer = PortfolioRebalancer(self.config)
         self.regime_filter = RegimeFilter(self.config)
 
-        # 登記所有環境身分至 Canonical Ledger
-        for acc in ["paper", "binance_testnet", "binance_live"]:
-            self.register_bot_identity(acc)
+        # P4-1 記帳收斂：先把 0.3.5 以前的檔案型帳本冪等回填進 canonical ledger
+        self._backfill_side_files(reason="initialize")
+        # 只登記「實際使用的帳號環境」身分，避免未使用的環境在 bots 表產生幽靈機器人
+        # （稽核 L9：幽靈身分會污染儀表板計數與外部避碰名單）
+        self.register_bot_identity(self.selected_account or "paper")
 
         # 預設初始化 paper 適配器
         try:
@@ -561,7 +661,9 @@ class CoinFullPrimeService(BaseService):
             await self.initialize()
 
         target_acc = account_id or self.selected_account or "paper"
-        logger.info(f"⚡ 手動/排程觸發 CoinFull Prime 全管線運行 (帳號: {target_acc})...")
+        # P4-1：本批換倉的穩定識別碼 → bot_events 的 dedupe_key（同批重跑冪等）
+        batch_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        logger.info(f"⚡ 手動/排程觸發 CoinFull Prime 全管線運行 (帳號: {target_acc}, batch={batch_id})...")
 
         # 1. 取得目標適配器
         adapter = await self.get_adapter(target_acc)
@@ -726,7 +828,8 @@ class CoinFullPrimeService(BaseService):
             gross_scale=decision.scale,
             allow_new_entries=decision.allow_new_entries,
             force_flatten=decision.force_flatten,
-            gate_pts=decision.pts
+            gate_pts=decision.pts,
+            batch_id=batch_id
         )
         rebalance_report.exchange = target_acc
         self.last_rebalance_report = rebalance_report
@@ -735,8 +838,13 @@ class CoinFullPrimeService(BaseService):
 
         # 8. 更新並持久化專屬持倉籃子 (僅在實際換倉時登記新籃子)
         if rank_result and rank_result.status == "success" and rank_result.long_list:
-            new_basket_symbols = [x.symbol for x in rank_result.long_list + rank_result.short_list]
-            self.save_active_basket(target_acc, new_basket_symbols)
+            ranked_items = list(rank_result.long_list) + list(rank_result.short_list)
+            new_basket_symbols = [x.symbol for x in ranked_items]
+            basket_sides = {
+                PortfolioRebalancer._normalize_symbol(x.symbol): ("short" if x.side == "short" else "long")
+                for x in ranked_items
+            }
+            self.save_active_basket(target_acc, new_basket_symbols, sides=basket_sides)
 
         # 9. 成功執行一次換倉 → 重置 T2 延後計數；並落地每日快照（權益/PnL 可追蹤）
         self._defer_count = 0
@@ -756,23 +864,132 @@ class CoinFullPrimeService(BaseService):
         return base_dir / "data"
 
     def append_regime_history(self, decision: RegimeDecision, account_id: str, note: str = ""):
-        """將每次閘門決策以 JSONL 落地 (data/coinfull_prime_regime_history.jsonl，best-effort)"""
+        """記錄一次風險閘門決策。
+
+        P4-1：真相源為 canonical ledger 的 ``bot_regime_decisions``（+ ``bot_events``
+        的 ``regime_gate`` 事件，供事件溯源回放）；JSONL 檔案僅為匯出鏡像。
+        以 ``dedupe_key=regime:{account}:{timestamp}`` 保證重跑冪等。
+        """
+        payload = decision.model_dump(mode="json")
+        payload["account_id"] = account_id
+        payload["note"] = note
+        decided_at = time.time()
+        bot_id = self._basket_bot_id(account_id)
+        ledger = self._ledger()
+        try:
+            from core.infrastructure.database.models import RegimeDecisionRecord
+
+            dedupe_key = f"regime:{account_id}:{payload.get('timestamp') or int(decided_at)}"
+            ledger.ensure_bot(
+                bot_id=bot_id,
+                strategy_type="coinfull_prime",
+                symbol="BASKET_16",
+                exchange=account_id,
+                account_mode="live" if "live" in account_id.lower() else "paper",
+                status="running" if self._is_running else "idle",
+                config_path=self.config_path,
+            )
+            ledger.record_regime_decision(
+                RegimeDecisionRecord(
+                    bot_id=bot_id,
+                    account_id=account_id,
+                    decided_at=decided_at,
+                    pts=int(decision.pts or 0),
+                    scale=float(decision.scale if decision.scale is not None else 1.0),
+                    allow_new_entries=bool(decision.allow_new_entries),
+                    force_flatten=bool(decision.force_flatten),
+                    crash_defer=bool(decision.crash_defer),
+                    degraded=bool(decision.degraded),
+                    mode=decision.mode,
+                    reason="; ".join(decision.reasons or [])[:2000] or None,
+                    payload=payload,
+                    dedupe_key=dedupe_key,
+                )
+            )
+            ledger.append_event(
+                bot_id=bot_id,
+                event_type="regime_gate",
+                payload=payload,
+                created_at=decided_at,
+                dedupe_key=dedupe_key,
+            )
+        except Exception as ex:
+            logger.error(f"❌ 風險閘門決策記帳失敗（已計入記帳健康度，不影響交易）: {ex}")
+
+        # 檔案鏡像（best-effort，永遠由 DB 語意產生，不作為真相源）
         try:
             path = self._get_data_dir() / "coinfull_prime_regime_history.jsonl"
-            payload = decision.model_dump(mode="json")
-            payload["account_id"] = account_id
-            payload["note"] = note
             path.parent.mkdir(parents=True, exist_ok=True)
             with open(path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
         except Exception as ex:
-            logger.warning(f"寫入風險閘門歷史失敗 (不影響交易): {ex}")
+            logger.warning(f"寫入風險閘門歷史鏡像失敗 (不影響記帳): {ex}")
+
+    def load_regime_history(self, account_id: Optional[str] = None, limit: int = 200) -> List[Dict[str, Any]]:
+        """自 canonical ledger 讀取風險閘門決策歷史（供 API / 稽核使用）。"""
+        bot_id = self._basket_bot_id(account_id) if account_id else None
+        out: List[Dict[str, Any]] = []
+        for record in self._ledger().load_regime_decisions(bot_id=bot_id, limit=limit):
+            payload = dict(record.payload or {})
+            payload.update(
+                {
+                    "id": record.id,
+                    "bot_id": record.bot_id,
+                    "account_id": record.account_id,
+                    "decided_at": record.decided_at,
+                    "decided_at_iso": datetime.fromtimestamp(record.decided_at, tz=timezone.utc).isoformat(),
+                    "pts": record.pts,
+                    "scale": record.scale,
+                    "allow_new_entries": record.allow_new_entries,
+                    "force_flatten": record.force_flatten,
+                    "crash_defer": record.crash_defer,
+                    "degraded": record.degraded,
+                    "mode": record.mode,
+                    "reason": record.reason,
+                    "source": "canonical_ledger:bot_regime_decisions",
+                }
+            )
+            out.append(payload)
+        return out
 
     def _persist_run_snapshot(self, target_acc: str, decision: RegimeDecision, report: RebalanceReport):
-        """落地每次換倉的權益/持倉快照 (data/coinfull_prime_run_snapshots.jsonl，best-effort)"""
+        """落地每次換倉的權益/持倉快照。
+
+        P4-1：真相源為 canonical ledger（``bot_snapshots`` + ``bot_snapshot_history``，
+        與 grid / DCA 完全同一套表與讀取路徑），JSONL 僅為匯出鏡像。
+        籃子策略的淨曝險/UPnL 可正可負，故帶 ``_monotonic_bypass`` 說明其不適用
+        累計計數單調護欄（P1-4 護欄語意僅針對單標的累計計數器）。
+        """
+        bot_id = self._basket_bot_id(target_acc)
+        ledger = self._ledger()
+        basket_entries = []
+        try:
+            basket_entries = [
+                {
+                    "symbol": e.symbol,
+                    "side": e.side,
+                    "quantity": e.quantity,
+                    "entry_price": e.entry_price,
+                    "notional_usdt": e.notional_usdt,
+                    "realized_pnl": e.realized_pnl,
+                }
+                for e in ledger.load_basket(bot_id, account_id=target_acc, active_only=True)
+            ]
+        except Exception as ex:
+            logger.debug(f"讀取籃子成分供快照失敗: {ex}")
+
+        realized_total = round(sum(e.get("realized_pnl") or 0.0 for e in basket_entries), 8)
+        gross_notional = round(sum(e.get("notional_usdt") or 0.0 for e in basket_entries), 2)
+        long_notional = round(sum(e.get("notional_usdt") or 0.0 for e in basket_entries if e.get("side") == "long"), 2)
+        short_notional = round(sum(e.get("notional_usdt") or 0.0 for e in basket_entries if e.get("side") == "short"), 2)
+
         line: Dict[str, Any] = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "account_id": target_acc,
+            "bot_id": bot_id,
+            "strategy_type": "coinfull_prime",
+            "snapshot_kind": "run",
+            "batch_id": getattr(report, "batch_id", None),
             "regime": {
                 "pts": decision.pts,
                 "scale": decision.scale,
@@ -791,46 +1008,71 @@ class CoinFullPrimeService(BaseService):
                 "orders_count": len(report.orders),
                 "closed_symbols": report.closed_symbols,
                 "opened_symbols": report.opened_symbols,
+                "realized_pnl_usdt": getattr(report, "realized_pnl_usdt", None),
+                "fees_usdt": getattr(report, "fees_usdt", None),
+            },
+            "basket": {
+                "position_count": len(basket_entries),
+                "gross_notional_usdt": gross_notional,
+                "long_notional_usdt": long_notional,
+                "short_notional_usdt": short_notional,
+                "net_notional_usdt": round(long_notional - short_notional, 2),
+                "cumulative_realized_pnl_usdt": realized_total,
+                "entries": basket_entries,
             },
             "portfolio": None,
+            "_monotonic_bypass": True,
         }
-        # 持倉快照（非同步）：以 fire-and-forget 任務補寫，不阻塞換倉主流程
+
+        def _write_snapshot(payload: Dict[str, Any]) -> None:
+            """寫入 canonical ledger（force_history：每次換倉都是重大事件）+ 檔案鏡像。"""
+            try:
+                ledger.save_snapshot(
+                    bot_id,
+                    f"config/coinfull_prime/{target_acc}",
+                    payload,
+                    force_history=True,
+                )
+            except Exception as ex:
+                logger.error(f"❌ 換倉快照記帳失敗（已計入記帳健康度）: {ex}")
+            try:
+                mirror = {k: v for k, v in payload.items() if not k.startswith("_")}
+                path = self._get_data_dir() / "coinfull_prime_run_snapshots.jsonl"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with open(path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(mirror, ensure_ascii=False, default=str) + "\n")
+            except Exception as ex:
+                logger.warning(f"寫入換倉快照鏡像失敗 (不影響記帳): {ex}")
+
+        # 交易所持倉補寫（非同步，不阻塞換倉主流程）；完成後以完整快照覆寫同一筆記錄
         async def _fill_portfolio():
             try:
                 positions = await self.get_positions(target_acc)
                 if positions:
                     gross = sum(p.get("notional_usdt", 0.0) for p in positions)
-                    long_notional = sum(p.get("notional_usdt", 0.0) for p in positions if p.get("side") == "long")
-                    short_notional = sum(p.get("notional_usdt", 0.0) for p in positions if p.get("side") == "short")
                     upnl = sum(p.get("unrealized_pnl", 0.0) for p in positions)
                     line["portfolio"] = {
                         "position_count": len(positions),
                         "gross_notional_usdt": round(gross, 2),
-                        "long_notional_usdt": round(long_notional, 2),
-                        "short_notional_usdt": round(short_notional, 2),
+                        "long_notional_usdt": round(
+                            sum(p.get("notional_usdt", 0.0) for p in positions if p.get("side") == "long"), 2
+                        ),
+                        "short_notional_usdt": round(
+                            sum(p.get("notional_usdt", 0.0) for p in positions if p.get("side") == "short"), 2
+                        ),
                         "unrealized_pnl_usdt": round(upnl, 2),
                     }
             except Exception as ex:
                 logger.debug(f"快照持倉補寫失敗: {ex}")
-            try:
-                path = self._get_data_dir() / "coinfull_prime_run_snapshots.jsonl"
-                path.parent.mkdir(parents=True, exist_ok=True)
-                with open(path, "a", encoding="utf-8") as f:
-                    f.write(json.dumps(line, ensure_ascii=False, default=str) + "\n")
-            except Exception as ex:
-                logger.warning(f"寫入換倉快照失敗 (不影響交易): {ex}")
+            _write_snapshot(line)
 
+        # 先以帳本（bot_baskets）可即時結算的內容落地，確保重啟/崩潰也有記帳
+        _write_snapshot(line)
         try:
             asyncio.get_running_loop().create_task(_fill_portfolio())
         except RuntimeError:
-            # 無事件迴圈（例如純同步測試環境）：只寫入不含持倉的快照
-            try:
-                path = self._get_data_dir() / "coinfull_prime_run_snapshots.jsonl"
-                path.parent.mkdir(parents=True, exist_ok=True)
-                with open(path, "a", encoding="utf-8") as f:
-                    f.write(json.dumps(line, ensure_ascii=False, default=str) + "\n")
-            except Exception as ex:
-                logger.warning(f"寫入換倉快照失敗 (不影響交易): {ex}")
+            # 無事件迴圈（例如純同步測試環境）：已完成 DB 落地，無需補寫交易所持倉
+            pass
 
     def _schedule_deferred_rebalance(
         self,
@@ -973,7 +1215,21 @@ class CoinFullPrimeService(BaseService):
         return base_dir / "data" / "coinfull_prime_scheduler.json"
 
     def load_scheduler_state(self) -> Dict[str, Any]:
-        """讀取保存的排程器配置與狀態"""
+        """讀取排程器配置與狀態。
+
+        P4-1：真相源為 canonical ledger 的 ``bot_runtime_state``
+        （bot_id=``coinfull_prime:scheduler``, key=``scheduler``）；
+        DB 無資料時退回舊檔案（並在下次 initialize 時冪等回填）。
+        """
+        try:
+            from core.infrastructure.database.strategy_ledger import StrategyLedger
+
+            state = StrategyLedger.instance().get_state(SCHEDULER_BOT_ID, "scheduler")
+            if isinstance(state, dict) and state:
+                return state
+        except Exception as ex:
+            logger.warning(f"讀取 ledger 排程狀態失敗，退回檔案鏡像: {ex}")
+
         path = self._get_scheduler_state_file()
         if not path.exists():
             return {}
@@ -985,8 +1241,7 @@ class CoinFullPrimeService(BaseService):
             return {}
 
     def save_scheduler_state(self):
-        """原子寫入持久化排程器狀態"""
-        path = self._get_scheduler_state_file()
+        """持久化排程器狀態：先寫 canonical ledger，再原子寫入檔案鏡像。"""
         data = {
             "account_id": self.selected_account,
             "dry_run": self.scheduler_dry_run,
@@ -1000,6 +1255,16 @@ class CoinFullPrimeService(BaseService):
             "schedule_anchor_date": self._schedule_anchor_date.isoformat() if self._schedule_anchor_date else None,
             "updated_at": datetime.now(timezone.utc).isoformat()
         }
+        # 1) canonical ledger（真相源）
+        try:
+            from core.infrastructure.database.strategy_ledger import StrategyLedger
+
+            StrategyLedger.instance().set_state(SCHEDULER_BOT_ID, "scheduler", data)
+        except Exception as ex:
+            logger.error(f"❌ 排程狀態記帳失敗（已計入記帳健康度）: {ex}")
+
+        # 2) 檔案鏡像（原子寫入，best-effort）
+        path = self._get_scheduler_state_file()
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             temp_file = path.with_suffix(".tmp")
@@ -1008,7 +1273,7 @@ class CoinFullPrimeService(BaseService):
             temp_file.replace(path)
             logger.debug(f"💾 已成功持久化 CoinFull Prime 排程狀態: {data}")
         except Exception as ex:
-            logger.error(f"持久化 CoinFull Prime 排程狀態失敗: {ex}")
+            logger.warning(f"持久化 CoinFull Prime 排程狀態鏡像失敗 (不影響記帳): {ex}")
 
     def restore_scheduler(self):
         """

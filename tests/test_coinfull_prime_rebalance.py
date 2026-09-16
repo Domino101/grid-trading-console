@@ -221,9 +221,13 @@ class TestCoinFullPrimeRebalancer(unittest.TestCase):
         self.assertIn("BTCUSDT", opened_syms)
 
     def test_execute_rebalance_records_ledger_fills_and_events(self):
-        """驗證 execute_rebalance 自動登記 bot 身分並將 fills 與 events 寫入 Canonical Ledger"""
+        """驗證 execute_rebalance 自動登記 bot 身分並將 fills 與 events 寫入 Canonical Ledger
+
+        P4-1：讀寫同源 —— 一律經 StrategyLedger（統一記帳門面），並額外驗證
+        canonical fill 事件與換倉事件的冪等 dedupe_key。
+        """
         async def run_test():
-            from core.infrastructure.database.ledger_store import SqliteLedgerStore
+            from core.infrastructure.database.strategy_ledger import StrategyLedger
             report = await self.rebalancer.execute_rebalance(
                 rank_result=self.rank_result,
                 exchange_adapter=None,
@@ -234,8 +238,7 @@ class TestCoinFullPrimeRebalancer(unittest.TestCase):
             self.assertEqual(report.status, "completed_dry_run")
             self.assertEqual(len(report.orders), 4)
 
-            store = SqliteLedgerStore()
-            store.initialize()
+            store = StrategyLedger.instance()
 
             # 驗證 bots 表有登記身分
             bot = store.get_bot("coinfull_prime:paper")
@@ -246,11 +249,15 @@ class TestCoinFullPrimeRebalancer(unittest.TestCase):
             fills = store.get_fills("coinfull_prime:paper", limit=100)
             self.assertGreaterEqual(len(fills), 4)
 
-            # 驗證 bot_events 表有寫入換倉事件
-            events = store.get_events("coinfull_prime:paper", limit=10)
+            # 驗證 bot_events 表有寫入換倉事件（含冪等 dedupe_key）與 canonical fill 事件
+            events = store.get_events("coinfull_prime:paper", limit=100)
             rebalance_events = [e for e in events if e.event_type == "daily_rebalance"]
             self.assertGreaterEqual(len(rebalance_events), 1)
             self.assertIn("orders", rebalance_events[-1].payload)
+            self.assertTrue(rebalance_events[-1].dedupe_key)
+            self.assertIn("batch_id", rebalance_events[-1].payload)
+            fill_events = [e for e in events if e.event_type == "fill"]
+            self.assertGreaterEqual(len(fill_events), len(fills))
 
         asyncio.run(run_test())
 
