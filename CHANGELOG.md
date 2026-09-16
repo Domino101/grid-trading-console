@@ -3,6 +3,37 @@
 本專案的重要變更記錄於此檔案，遵循 [Semantic Versioning](https://semver.org/lang/zh-TW/) 與 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/) 規範。
 詳細歷史工程記錄請參閱 [CHANGELOG_LEGACY.md](file:///root/grid-trading-console/CHANGELOG_LEGACY.md)。
 
+## [0.3.5] — 2026-09-16
+
+### Added
+- **CoinFull Prime v2 優化策略程式碼落地 (Regime Gate + 多時距因子 + 週期排程)**：
+  依 `docs/CoinFull_Prime_Audit_Report_2026-09-16.md` §10.2 與 `docs/CoinFull_Prime_03/04` 規格書補齊稽核報告宣告、但此前僅存在於文件中的實作：
+  - 新增 `core/services/coinfull_prime/regime_filter.py` 風險閘門模組（`RegimeFilter.decide()` 純函數決策層 + `collect()` 網路資料層分離，離線可測）：
+    `pts = [BTC>50 日 SMA] + [廣度>30%] + [全市場資金費率 252 日百分位>45]`，資料缺漏一律保守計 0 並標記 `degraded`。
+    實作 T1（pts=0 → flatten 保守版平倉停單 / soft 積極版 0.35×）、T2（BTC 收盤日 ≤ -5% → 換倉延後 24 小時，最多 2 次，跨重啟補排）、
+    T5（資金費率百分位 >95 且 pts≤1 → 0.5×）、加碼（pts=2 且百分位 45–80 → 1.15×，上限 1.2×）。
+  - `service.py`：`trigger_once()` 於換倉前必算閘門決策並落地 `data/coinfull_prime_regime_history.jsonl`；
+    T1 觸發時跳過算分、直接以 `force_flatten` 平倉受管部位；T2 觸發時以 one-shot 任務 24 小時後補跑
+    （`pending_defer_until` 持久化、開機自動重排）；每次換倉落地權益/持倉快照 `data/coinfull_prime_run_snapshots.jsonl`。
+  - `rebalancer.py`：`calculate_diff()` / `execute_rebalance()` 新增 `gross_scale / allow_new_entries / force_flatten` 參數——
+    **平倉單永遠不被閘門阻擋**，僅限制新倉與目標名義；減倉單標記 `reduce_only`（實盤帶 `reduceOnly` 參數、先平倉階段執行）；
+    換倉事件（`bot_events.daily_rebalance`）載入完整 `gate` 區塊（pts/scale/allow/flatten）供稽核。
+  - `quant_engine.py`：支援 `momentum.mode=blend`（0.5×R1d + 0.3×R7d + 0.2×R30d，抓日線 K 線並剔除未收盤 K 線，失敗自動退回 24h）
+    與 `funding.mode=smooth`（最近 3 次 8 小時結算平均取負，失敗退回單點快照）；
+    `flow` / `liquidation` 權重為 0 時不再呼叫對應 API（每週省 2×N 次請求）。
+  - 排程改為 **每週四 UTC 00:05**（`schedule.rebalance_days / execution_weekday / execution_minute_utc`，
+    Python weekday 慣例週四=3；週六/週日換倉實測明顯較差）。`rebalance_days≠7` 時改以 N 日相位漂移排程（14 日低頻替代等）。
+  - `config/coinfull_prime/strategy_config.yaml` 更新為 v2 建議配置：5/5 多空、權重 動能 0.6 / 資金費率 0.4（移除 flow 與大戶比）、
+    blend/smooth 因子形式、完整 `regime_gate.*` 區塊（含 `log_only` 開關供上線初期 2 週僅記錄不攔單）。
+  - Web UI 後端：新增 `GET /api/v1/coinfull-prime/regime?refresh=true`（pts、倍數、平倉/停單狀態、原因、下次換倉時間）；
+    `GET /status` 附帶最近一次閘門快照與新排程資訊。
+  - 測試：新增 `tests/test_coinfull_prime_regime.py`（14 項：pts 三態、flatten/soft 模式、加碼邊界、T5 擁擠、T2 崩跌延後、
+    資料缺漏保守處理、rebalancer 強制平倉/僅減倉/加碼名義、排程週四 00:05 與 N 日相位）。
+  - `README.md` 之 CoinFull Prime 章節更新為 v2 行為（雙因子、5/5、週期排程、風險閘門、績效落地）。
+- **注意**：本版本的策略參數皆來自 19 檔主流幣 2021–2026 歷史重建（非 top-79 實際宇宙），
+  上線前仍須完成 `docs/CoinFull_Prime_01_Profit_Optimization_Plan.md` 第 4 節之紙上驗證（≥4 個完整換倉週期）；
+  建議先以 `regime_gate.log_only: true` 運行 2 週比對閘門判定與重建一致性。
+
 ## [0.3.4] — 2026-09-16
 
 ### Added

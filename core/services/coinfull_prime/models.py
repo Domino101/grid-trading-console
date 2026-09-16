@@ -96,3 +96,46 @@ class RebalanceReport(BaseModel):
     protected_symbols: List[str] = Field(default_factory=list)
     status: str = "completed"
     error: Optional[str] = None
+    # 風險閘門 (regime gate) 本次執行所套用的參數（稽核軌跡用；None = 未套用/未知）
+    gate_pts: Optional[int] = None
+    gate_scale: Optional[float] = None
+    gate_allow_new_entries: Optional[bool] = None
+    gate_force_flatten: Optional[bool] = None
+
+
+class RegimeDecision(BaseModel):
+    """風險閘門 (regime gate) 決策結果
+
+    pts(t) = [ BTC 收盤 > BTC 50 日 SMA ]
+           + [ 宇宙中站上 50 日 SMA 的比例 > 30% ]
+           + [ 全市場資金費率（252 日百分位）> 45 ]
+
+    參數與語意來源：docs/CoinFull_Prime_02_Regime_Playbook.md、
+    docs/CoinFull_Prime_03_NoTrade_Trigger_Spec.md、
+    docs/CoinFull_Prime_04_Position_Sizing_Timing.md
+    """
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    enabled: bool = True
+    log_only: bool = False           # True = 僅記錄不改變下單行為（上線初期 2 週建議）
+    mode: str = "flatten"            # flatten(保守) | soft(積極)
+
+    # 三個構成元件
+    trend_flag: int = 0              # BTC > 50 日 SMA
+    breadth_flag: int = 0            # 廣度 > 門檻
+    funding_flag: int = 0            # 資金費率百分位 > 門檻
+    pts: int = 0                     # 三者合計 (0~3)
+
+    # 原始量測值 (None = 該元件資料缺漏，已保守處理)
+    btc_close: Optional[float] = None
+    btc_ma50: Optional[float] = None
+    breadth_pct: Optional[float] = None       # 宇宙站上 50 日 SMA 比例 (%)
+    funding_pctile: Optional[float] = None    # 全市場資金費率 252 日百分位 (0~100)
+    btc_ret_1d_pct: Optional[float] = None    # 最近一個已收盤交易日 BTC 報酬 (%)
+
+    # 決策輸出
+    scale: float = 1.0               # 目標總名義倍數 (0 / 0.35 / 0.5 / 1.0 / 1.15)
+    allow_new_entries: bool = True   # 是否允許建立新倉
+    force_flatten: bool = False      # 是否強制平掉所有受管部位 (T1)
+    crash_defer: bool = False        # T2: 崩跌日 → 換倉延後 24 小時
+    degraded: bool = False           # 資料缺漏（保守處理）標記
+    reasons: List[str] = Field(default_factory=list)

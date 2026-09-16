@@ -23,6 +23,31 @@ async def get_coinfull_prime_status(_token: str = Depends(verify_token)):
     return service.get_status()
 
 
+@router.get("/regime")
+async def get_coinfull_prime_regime(
+    refresh: bool = Query(False, description="true = 重新抓取即時資料計算 pts 與決策"),
+    _token: str = Depends(verify_token)
+):
+    """取得風險閘門 (regime gate) 最近一次判定：pts、建議倍數、平倉/停單狀態與原因"""
+    service = CoinFullPrimeService.instance()
+    try:
+        decision = await service.get_regime(refresh=refresh)
+        return {
+            "status": "success",
+            "regime": decision.model_dump(mode="json"),
+            "schedule": {
+                "rebalance_days": service._schedule_params()["rebalance_days"],
+                "execution_weekday": service._schedule_params()["execution_weekday"],
+                "execution_minute_utc": service._schedule_params()["execution_minute_utc"],
+                "description": service._schedule_description(),
+                "next_run_utc": service._next_rebalance_run().isoformat()
+            }
+        }
+    except Exception as e:
+        logger.error(f"風險閘門查詢失敗: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/rankings")
 async def get_latest_rankings(refresh: bool = False, _token: str = Depends(verify_token)):
     """取得最新的 79 幣截面打分排名與 Z-score 詳細資料"""

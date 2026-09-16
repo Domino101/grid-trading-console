@@ -6,7 +6,7 @@ CoinFull Prime（市場中性截面多空 Alpha 策略）獨立執行腳本
     # 1. 執行單次即時計算與預覽 (Dry-Run 模式，不發單)
     python3 run_coinfull_prime.py --dry-run --once
 
-    # 2. 以常駐守護進程模式運行 (每日 UTC 00:00 自動喚醒執行)
+    # 2. 以常駐守護進程模式運行 (每週四 UTC 00:05 自動喚醒換倉，含風險閘門判定)
     python3 run_coinfull_prime.py --daemon
 
     # 3. 指定自定義設定檔

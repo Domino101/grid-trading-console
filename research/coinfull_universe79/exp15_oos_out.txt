@@ -1,0 +1,95 @@
+==============================================================================================================================================================
+0. DATA  symbols=147  days=943 (2024-01-01 .. 2026-07-31)  top_n=79  stablecoins_excluded=10
+      min  median  max
+2024    0    58.0   66
+2025   66    75.0   79
+2026   79    79.0   79
+
+==============================================================================================================================================================
+1. PACKS (capital $1,000; fee 5bp + slip 2bp; gate universe = top-40 by t-1 volume)
+  FULL  0. as-coded v1 (K=8, 1d, mom+flow+fund) cagr= -100.0%  vol= 33.9%  sharpe=-1.29  maxdd= -105.6%  calmar=-0.95  hit=47.1%  turn=1.587  fee=$   979  fund=$   248  net=$  -1058
+  IS                                           (period not in dataset)
+  OOS                                          cagr= -100.0%  vol= 33.9%  sharpe=-1.29  maxdd= -105.6%  calmar=-0.95  hit=47.1%  turn=1.587  fee=$   979  fund=$   248  net=$  -1058
+  FULL  1. v2 no gate                          cagr=   39.6%  vol= 44.9%  sharpe= 1.14  maxdd=  -23.6%  calmar= 1.67  hit=54.1%  turn=0.192  fee=$   118  fund=$   484  net=$   1235
+  IS                                           (period not in dataset)
+  OOS                                          cagr=   39.6%  vol= 44.9%  sharpe= 1.14  maxdd=  -23.6%  calmar= 1.67  hit=54.1%  turn=0.192  fee=$   118  fund=$   484  net=$   1235
+  FULL  2. v2 + T1                             cagr=   48.6%  vol= 32.6%  sharpe= 2.03  maxdd=   -9.0%  calmar= 5.37  hit=31.6%  turn=0.138  fee=$    85  fund=$   158  net=$   1599
+  IS                                           (period not in dataset)
+  OOS                                          cagr=   48.6%  vol= 32.6%  sharpe= 2.03  maxdd=   -9.0%  calmar= 5.37  hit=31.6%  turn=0.138  fee=$    85  fund=$   158  net=$   1599
+  FULL  3. v2 + T1 + vol                       cagr=   49.2%  vol= 32.3%  sharpe= 2.08  maxdd=   -8.8%  calmar= 5.61  hit=31.1%  turn=0.134  fee=$    83  fund=$   155  net=$   1625
+  IS                                           (period not in dataset)
+  OOS                                          cagr=   49.2%  vol= 32.3%  sharpe= 2.08  maxdd=   -8.8%  calmar= 5.61  hit=31.1%  turn=0.134  fee=$    83  fund=$   155  net=$   1625
+  FULL  4. v2 + T1 + disp                      cagr=   45.5%  vol= 30.0%  sharpe= 2.03  maxdd=   -9.6%  calmar= 4.73  hit=28.6%  turn=0.139  fee=$    86  fund=$   141  net=$   1469
+  IS                                           (period not in dataset)
+  OOS                                          cagr=   45.5%  vol= 30.0%  sharpe= 2.03  maxdd=   -9.6%  calmar= 4.73  hit=28.6%  turn=0.139  fee=$    86  fund=$   141  net=$   1469
+  FULL  5. conservative                        cagr=   46.1%  vol= 29.7%  sharpe= 2.09  maxdd=   -9.2%  calmar= 5.02  hit=28.1%  turn=0.135  fee=$    83  fund=$   138  net=$   1495
+  IS                                           (period not in dataset)
+  OOS                                          cagr=   46.1%  vol= 29.7%  sharpe= 2.09  maxdd=   -9.2%  calmar= 5.02  hit=28.1%  turn=0.135  fee=$    83  fund=$   138  net=$   1495
+  FULL  6. aggressive                          cagr=   53.7%  vol= 41.5%  sharpe= 1.82  maxdd=  -16.0%  calmar= 3.35  hit=28.0%  turn=0.228  fee=$   141  fund=$   176  net=$   1820
+  IS                                           (period not in dataset)
+  OOS                                          cagr=   53.7%  vol= 41.5%  sharpe= 1.82  maxdd=  -16.0%  calmar= 3.35  hit=28.0%  turn=0.228  fee=$   141  fund=$   176  net=$   1820
+
+==============================================================================================================================================================
+2. REBALANCE-FREQUENCY SCAN (v2 + conservative gate)
+   reb | FULL cagr     sh      dd |  IS cagr     sh | OOS cagr     sh      dd
+     1 |     44.4%   1.71    -8.0 |     N/A   N/A |    44.4%  1.71    -8.0
+     2 |     47.7%   1.94    -7.6 |     N/A   N/A |    47.7%  1.94    -7.6
+     3 |     44.4%   1.86   -10.0 |     N/A   N/A |    44.4%  1.86   -10.0
+     4 |     50.5%   2.13    -8.6 |     N/A   N/A |    50.5%  2.13    -8.6
+     5 |     36.6%   1.52    -9.9 |     N/A   N/A |    36.6%  1.52    -9.9
+     6 |     48.1%   2.22   -11.5 |     N/A   N/A |    48.1%  2.22   -11.5
+     7 |     46.1%   2.09    -9.2 |     N/A   N/A |    46.1%  2.09    -9.2
+     8 |     53.2%   2.46    -8.0 |     N/A   N/A |    53.2%  2.46    -8.0
+    10 |     37.0%   1.62    -7.7 |     N/A   N/A |    37.0%  1.62    -7.7
+    14 |     28.0%   1.29   -10.5 |     N/A   N/A |    28.0%  1.29   -10.5
+    28 |     24.2%   1.16   -15.2 |     N/A   N/A |    24.2%  1.16   -15.2
+
+==============================================================================================================================================================
+3. WEEKDAY-PHASE SCAN (weekly rebalance on weekday w; production v2 = Thursday=3)
+  Mon         FULL cagr=   44.2% sh= 2.02 dd= -11.9% | IS     N/A   N/A | OOS    44.2%  2.02
+  Tue         FULL cagr=   44.3% sh= 1.99 dd= -10.4% | IS     N/A   N/A | OOS    44.3%  1.99
+  Wed         FULL cagr=   31.9% sh= 1.41 dd= -14.6% | IS     N/A   N/A | OOS    31.9%  1.41
+  Thu <- prod FULL cagr=   39.9% sh= 1.85 dd= -19.8% | IS     N/A   N/A | OOS    39.9%  1.85
+  Fri         FULL cagr=   46.1% sh= 2.09 dd=  -9.2% | IS     N/A   N/A | OOS    46.1%  2.09
+  Sat         FULL cagr=   40.5% sh= 1.77 dd= -13.8% | IS     N/A   N/A | OOS    40.5%  1.77
+  Sun         FULL cagr=   28.9% sh= 1.23 dd= -10.0% | IS     N/A   N/A | OOS    28.9%  1.23
+
+==============================================================================================================================================================
+4. BASKET-WIDTH K SCAN (v2 + conservative gate, 7d)
+  K=3  FULL cagr=   48.6% sh= 1.69 dd= -17.3% turn=0.140 | IS     N/A   N/A | OOS    48.6%  1.69
+  K=4  FULL cagr=   41.2% sh= 1.65 dd= -15.6% turn=0.137 | IS     N/A   N/A | OOS    41.2%  1.65
+  K=5  FULL cagr=   46.1% sh= 2.09 dd=  -9.2% turn=0.135 | IS     N/A   N/A | OOS    46.1%  2.09
+  K=6  FULL cagr=   45.4% sh= 2.30 dd=  -7.4% turn=0.133 | IS     N/A   N/A | OOS    45.4%  2.30
+  K=8  FULL cagr=   43.1% sh= 2.55 dd=  -6.3% turn=0.130 | IS     N/A   N/A | OOS    43.1%  2.55
+
+==============================================================================================================================================================
+5. COST SENSITIVITY (v2 + conservative gate, FULL)
+  fee=   3bp slip=   1bp  cagr=   47.0%  sh= 2.14  dd=  -9.0%  net=$   1531  fee=$    47
+  fee=   5bp slip=   2bp  cagr=   46.1%  sh= 2.09  dd=  -9.2%  net=$   1495  fee=$    83
+  fee=  10bp slip=   5bp  cagr=   43.8%  sh= 1.95  dd=  -9.7%  net=$   1400  fee=$   178
+  fee=  15bp slip=   8bp  cagr=   41.4%  sh= 1.82  dd= -10.2%  net=$   1305  fee=$   273
+  tiered slippage (2/4/8bp by 30d vol rank)  cagr=   45.4%  sh= 2.04  dd=  -9.4%  net=$   1465  (Δfee vs flat-2bp: $+30; flat baseline net=$1495)
+
+==============================================================================================================================================================
+6. GATE-STATE PERFORMANCE (conservative pack, FULL)
+  by gate value:
+    gate=0.00  days= 357 (40.5%)  ann=   -2.1%  mean_daily= -0.57bp
+    gate=1.00  days= 524 (59.5%)  ann=  105.6%  mean_daily= 28.92bp
+  by pts (0..3):
+    pts=0  days= 312  ann=   -1.5%  mean_daily= -0.40bp
+    pts=1  days= 311  ann=  104.8%  mean_daily= 28.72bp
+    pts=2  days= 258  ann=   86.9%  mean_daily= 23.82bp
+
+==============================================================================================================================================================
+7. 19-COIN (proxy) vs 79-COIN (true universe) — FULL, fee 5bp + slip 2bp
+  pack                                   |  19c cagr  19c sh |  79c cagr  79c sh
+  0. as-coded v1 (K=8, 1d, mom+flow+fund) |   -100.0%   -1.21 |   -100.0%   -1.29
+  1. v2 no gate                          |     16.9%    1.02 |     39.6%    1.14
+  2. v2 + T1                             |     18.8%    1.41 |     48.6%    2.03
+  5. conservative                        |     20.8%    1.86 |     46.1%    2.09
+  6. aggressive                          |     24.8%    1.75 |     53.7%    1.82
+
+==============================================================================================================================================================
+caveats: universe = top-79 by t-1 quote volume (stablecoins excluded); gate computed on top-40;
+funding day = UTC date of fundingTime (19-coin convention); delisted names auto-close at last bar;
+first ~6 months of gated packs: fund_pct warm-up forces gate off (same as the 19-coin run).

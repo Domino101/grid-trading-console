@@ -4,6 +4,7 @@ CoinFull Prime 核心量化引擎 (純客觀截面矩陣計算)
 
 import asyncio
 import logging
+import time
 from typing import Dict, List, Optional, Set
 import numpy as np
 import aiohttp
@@ -45,6 +46,26 @@ class CoinFullPrimeQuant:
         self.short_count = self.config.get("portfolio", {}).get("short_count", 8)
         self.total_capital = float(self.config.get("portfolio", {}).get("total_capital_usdt", 1000.0))
         self.leverage = float(self.config.get("portfolio", {}).get("leverage", 1.0))
+
+        # 因子形式（v2 優化：docs/CoinFull_Prime_01_Profit_Optimization_Plan.md 階段 A）
+        # momentum.mode: "day" = 24h 漲跌幅（現行）; "blend" = 0.5*R1d + 0.3*R7d + 0.2*R30d
+        momentum_cfg = self.config.get("momentum", {}) or {}
+        self.momentum_mode = str(momentum_cfg.get("mode", "day")).lower()
+        self.momentum_blend = {
+            "r1d": float(momentum_cfg.get("blend", {}).get("r1d", 0.5)),
+            "r7d": float(momentum_cfg.get("blend", {}).get("r7d", 0.3)),
+            "r30d": float(momentum_cfg.get("blend", {}).get("r30d", 0.2)),
+        }
+        # funding.mode: "spot" = 單點快照（現行）; "smooth" = 最近 N 次 8 小時結算平均
+        funding_cfg = self.config.get("funding", {}) or {}
+        self.funding_mode = str(funding_cfg.get("mode", "spot")).lower()
+        self.funding_settlements = int(funding_cfg.get("settlements", 3))
+        if self.momentum_mode not in ("day", "blend"):
+            logger.warning(f"momentum.mode 未支援: {self.momentum_mode}，退回 day")
+            self.momentum_mode = "day"
+        if self.funding_mode not in ("spot", "smooth"):
+            logger.warning(f"funding.mode 未支援: {self.funding_mode}，退回 spot")
+            self.funding_mode = "spot"
 
     async def fetch_universe(
         self,
@@ -134,39 +155,94 @@ class CoinFullPrimeQuant:
             logger.warning(f"獲取動能批次失敗，將使用中性值: {e}")
 
         # 3 & 4. 併發抓取單幣 Taker 買賣流和大戶多空比 (控頻 Semaphore=10)
+        # v2：權重為 0 的因子不再呼叫對應 API（省 2×N 次請求）；
+        #     momentum=blend 改抓日線 K 線、funding=smooth 改抓最近 N 次結算
         sem = asyncio.Semaphore(10)
+
+        w_flow = float(self.weights.get("flow", 0.0) or 0.0)
+        w_liq = float(self.weights.get("liquidation", 0.0) or 0.0)
+        need_flow = w_flow > 0
+        need_liq = w_liq > 0
+        need_klines = self.momentum_mode == "blend"
+        need_funding_hist = self.funding_mode == "smooth"
 
         async def fetch_single_symbol(symbol: str) -> RawFeature:
             flow_val = 1.0
             liq_val = 1.0
             async with sem:
-                # Taker Long/Short Ratio
-                try:
-                    url_flow = f"{self.base_url}/futures/data/takerlongshortRatio?symbol={symbol}&period=1d&limit=1"
-                    async with session.get(url_flow, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                        flow_json = await resp.json()
-                        if isinstance(flow_json, list) and flow_json:
-                            flow_val = float(flow_json[0].get("buySellRatio", 1.0))
-                except Exception:
-                    flow_val = 1.0
+                # Taker Long/Short Ratio（flow 權重 > 0 才抓取）
+                if need_flow:
+                    try:
+                        url_flow = f"{self.base_url}/futures/data/takerlongshortRatio?symbol={symbol}&period=1d&limit=1"
+                        async with session.get(url_flow, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                            flow_json = await resp.json()
+                            if isinstance(flow_json, list) and flow_json:
+                                flow_val = float(flow_json[0].get("buySellRatio", 1.0))
+                    except Exception:
+                        flow_val = 1.0
 
-                # Top Trader Long/Short Account Ratio
-                try:
-                    url_liq = f"{self.base_url}/futures/data/topLongShortAccountRatio?symbol={symbol}&period=1d&limit=1"
-                    async with session.get(url_liq, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                        liq_json = await resp.json()
-                        if isinstance(liq_json, list) and liq_json:
-                            liq_val = float(liq_json[0].get("longShortRatio", 1.0))
-                except Exception:
-                    liq_val = 1.0
+                # Top Trader Long/Short Account Ratio（liquidation 權重 > 0 才抓取）
+                if need_liq:
+                    try:
+                        url_liq = f"{self.base_url}/futures/data/topLongShortAccountRatio?symbol={symbol}&period=1d&limit=1"
+                        async with session.get(url_liq, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                            liq_json = await resp.json()
+                            if isinstance(liq_json, list) and liq_json:
+                                liq_val = float(liq_json[0].get("longShortRatio", 1.0))
+                    except Exception:
+                        liq_val = 1.0
 
-            raw_funding = funding_map.get(symbol, 0.0)
+                # 動能：blend 模式改以日線 K 線計算多時距混合
+                mom_val = mom_map.get(symbol, 0.0)
+                if need_klines:
+                    try:
+                        url_kl = f"{self.base_url}/fapi/v1/klines?symbol={symbol}&interval=1d&limit=35"
+                        async with session.get(url_kl, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                            kl = await resp.json()
+                        closes = [float(k[4]) for k in kl if isinstance(k, list) and len(k) > 6]
+                        # 剔除尚未收盤的進行中 K 線（close_time 在未來）
+                        now_ms = time.time() * 1000
+                        if closes and kl and isinstance(kl[-1], list) and int(kl[-1][6]) > now_ms:
+                            closes = closes[:-1]
+                        if len(closes) >= 31 and closes[-2] > 0 and closes[-8] > 0 and closes[-31] > 0:
+                            r1 = closes[-1] / closes[-2] - 1.0
+                            r7 = closes[-1] / closes[-8] - 1.0
+                            r30 = closes[-1] / closes[-31] - 1.0
+                            b = self.momentum_blend
+                            # 以 % 表示（與 24h priceChangePercent 同量綱）
+                            mom_val = 100.0 * (b["r1d"] * r1 + b["r7d"] * r7 + b["r30d"] * r30)
+                    except Exception as e:
+                        logger.debug(f"{symbol} 日線動能抓取失敗，退回 24h 漲跌幅: {e}")
+
+                # 資金費率：smooth 模式改以最近 N 次 8 小時結算平均
+                raw_funding = funding_map.get(symbol, 0.0)
+                if need_funding_hist:
+                    try:
+                        url_fr = (
+                            f"{self.base_url}/fapi/v1/fundingRate?symbol={symbol}"
+                            f"&limit={max(3, self.funding_settlements)}"
+                        )
+                        async with session.get(url_fr, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                            fr = await resp.json()
+                        if isinstance(fr, list) and fr:
+                            rates = [
+                                float(x.get("fundingRate", 0.0))
+                                for x in fr
+                                if isinstance(x, dict) and x.get("fundingRate") is not None
+                            ]
+                            if rates:
+                                raw_funding = sum(rates[-self.funding_settlements:]) / min(
+                                    len(rates), self.funding_settlements
+                                )
+                    except Exception as e:
+                        logger.debug(f"{symbol} 資金費率歷史抓取失敗，退回單點快照: {e}")
+
             # 資金費率作為反向因子：資金費率高代表多頭擁擠 -> 乘以 -1.0
             neg_funding = -1.0 * raw_funding
 
             return RawFeature(
                 symbol=symbol,
-                momentum=mom_map.get(symbol, 0.0),
+                momentum=mom_val,
                 flow=flow_val,
                 funding=neg_funding,
                 liquidation=liq_val
