@@ -46,7 +46,10 @@ class PortfolioRebalancer:
         prices: Dict[str, float],
         rank_result: UniverseRankResult,
         managed_symbols: Optional[Set[str]] = None,
-        protected_symbols: Optional[Set[str]] = None
+        protected_symbols: Optional[Set[str]] = None,
+        gross_scale: float = 1.0,
+        allow_new_entries: bool = True,
+        force_flatten: bool = False
     ) -> Tuple[List[RebalanceOrder], List[str], List[str]]:
         """
         比對現有庫存與目標清單，產出最少交易次數的差異訂單清單（含雙軌防干擾與防碰撞機制）。
@@ -57,7 +60,21 @@ class PortfolioRebalancer:
         2. 專屬持倉籃子隔離 (managed_symbols)：
            若當前持倉並非由 CoinFull Prime 所建立與管理（例如手動合約或外部部位），
            CoinFull Prime 視為外部獨立資產，跳過平倉。只有登記在 managed_symbols 中的淘汰幣才允許平倉。
+
+        風險閘門參數（docs/CoinFull_Prime_03_NoTrade_Trigger_Spec.md）：
+        * force_flatten (T1)：
+           平掉「所有」受管且未受保護的部位（reduce-only），不產生任何開倉/加倉單。
+           平倉單永遠不受閘門阻擋 —— 本參數只是「額外平倉」，不會阻止既有平倉邏輯。
+        * allow_new_entries = False：
+           不建立任何新倉；已持有標的僅允許「減倉」（目標名義不得高於現有名義）。
+        * gross_scale：
+           目標名義金額的總倍數（0 ~ 2）。1.15 = 加碼、0.5 = 減半、
+           0.35 = 風險關閉積極版的部分倉位。
         """
+        orders: List[RebalanceOrder] = []
+        closed_symbols: List[str] = []
+        opened_symbols: List[str] = []
+        scale = min(max(float(gross_scale), 0.0), 2.0)
         orders: List[RebalanceOrder] = []
         closed_symbols: List[str] = []
         opened_symbols: List[str] = []
@@ -126,8 +143,9 @@ class PortfolioRebalancer:
                 logger.info(f"🛡️ [未納管部位隔離] 標的 {sym} 非 CoinFull Prime 專屬籃子標的，CoinFull Prime 視為獨立外部部位，跳過平倉。")
                 continue
 
-            if sym not in target_map:
+            if force_flatten or sym not in target_map:
                 # 退出名單 -> 全部平倉 (釋放保證金)
+                # T1 風險關閉 (force_flatten) -> 受管部位「全部」平倉，不問是否仍在名單內
                 side = "sell" if curr_qty > 0 else "buy"
                 orders.append(
                     RebalanceOrder(
@@ -137,11 +155,15 @@ class PortfolioRebalancer:
                         amount=abs(curr_qty),
                         notional_usdt=round(curr_notional, 2),
                         reduce_only=True,
-                        reason="exit_old",
+                        reason="regime_flatten" if force_flatten else "exit_old",
                         status="pending"
                     )
                 )
                 closed_symbols.append(sym)
+
+        if force_flatten:
+            # T1 風險關閉：平倉後不產生任何開倉/調倉單（allow_new_entries 已為 False 的語意）
+            return orders, closed_symbols, opened_symbols
 
         # 2. 識別需要開倉或調倉的標的
         for sym, target_item in target_map.items():
@@ -155,11 +177,23 @@ class PortfolioRebalancer:
                 logger.warning(f"缺少 {sym} 最新市價，跳過換倉計算")
                 continue
 
-            target_notional = target_item.target_notional
-            target_qty = (target_notional / price) if target_item.side == "long" else -(target_notional / price)
             curr_qty = norm_positions.get(sym, 0.0)
+            is_held = abs(curr_qty * price) >= self.min_order_notional
+
+            # 風險閘門：禁止開新倉時，尚未持有的標的一律不進場
+            if not allow_new_entries and not is_held:
+                continue
+
+            target_notional = target_item.target_notional * scale
+            target_qty = (target_notional / price) if target_item.side == "long" else -(target_notional / price)
 
             diff_qty = target_qty - curr_qty
+
+            # 風險閘門：禁止開新倉時，已持有標的僅允許減倉（目標量不得高於現存量）
+            if not allow_new_entries:
+                if (curr_qty > 0 and target_qty > curr_qty) or (curr_qty < 0 and target_qty < curr_qty):
+                    diff_qty = 0.0
+
             diff_notional = diff_qty * price
 
             # 若差異未達到最小交易門檻（如 5 USDT），則不調整以節省手續費與摩擦
@@ -167,8 +201,9 @@ class PortfolioRebalancer:
                 continue
 
             side = "buy" if diff_qty > 0 else "sell"
-            is_new = abs(curr_qty * price) < self.min_order_notional
-            reason = "enter_new" if is_new else "adjust_weight"
+            reason = "enter_new" if not is_held else "adjust_weight"
+            # 減倉單標記 reduce-only（實盤執行時帶 reduceOnly 參數、於先平倉階段送出）
+            reducing = (side == "sell" and curr_qty > 0) or (side == "buy" and curr_qty < 0)
 
             orders.append(
                 RebalanceOrder(
@@ -177,12 +212,12 @@ class PortfolioRebalancer:
                     order_type="market",
                     amount=abs(diff_qty),
                     notional_usdt=round(abs(diff_notional), 2),
-                    reduce_only=False,
+                    reduce_only=reducing,
                     reason=reason,
                     status="pending"
                 )
             )
-            if is_new:
+            if not is_held:
                 opened_symbols.append(sym)
 
         return orders, closed_symbols, opened_symbols
@@ -255,10 +290,17 @@ class PortfolioRebalancer:
         leverage_override: Optional[float] = None,
         managed_symbols: Optional[Set[str]] = None,
         protected_symbols: Optional[Set[str]] = None,
-        account_id: Optional[str] = None
+        account_id: Optional[str] = None,
+        gross_scale: float = 1.0,
+        allow_new_entries: bool = True,
+        force_flatten: bool = False,
+        gate_pts: Optional[int] = None
     ) -> RebalanceReport:
         """
         執行一籃子換倉調度（支援動態本金/槓桿覆蓋與專屬持倉籃子/外部機器人隔離保護）
+
+        風險閘門參數由 service 層依 RegimeDecision 傳入：
+        gross_scale / allow_new_entries / force_flatten（見 calculate_diff 說明）。
         """
         is_dry_run = self.dry_run if dry_run is None else dry_run
         effective_capital = float(capital_override) if capital_override is not None and float(capital_override) > 0 else self.total_capital
@@ -278,7 +320,11 @@ class PortfolioRebalancer:
             total_capital_usdt=effective_capital,
             leverage=effective_leverage,
             managed_symbols=sorted(list(managed_symbols or set())),
-            protected_symbols=sorted(list(protected_symbols or set()))
+            protected_symbols=sorted(list(protected_symbols or set())),
+            gate_pts=gate_pts,
+            gate_scale=round(min(max(float(gross_scale), 0.0), 2.0), 4),
+            gate_allow_new_entries=bool(allow_new_entries),
+            gate_force_flatten=bool(force_flatten)
         )
 
         # 0. 向 Canonical Ledger 登記/更新機器人身分（遵循 P1-6 帳本完整性規範）
@@ -333,20 +379,34 @@ class PortfolioRebalancer:
                     except Exception:
                         pass
 
-        # 2. 計算差異訂單 (傳入外部機器人保護名單與專屬籃子名單)
+        # 2. 計算差異訂單 (傳入外部機器人保護名單、專屬籃子名單與風險閘門參數)
         orders, closed_syms, opened_syms = self.calculate_diff(
             current_positions=current_positions,
             prices=prices,
             rank_result=rank_result,
             managed_symbols=managed_symbols,
-            protected_symbols=protected_symbols
+            protected_symbols=protected_symbols,
+            gross_scale=gross_scale,
+            allow_new_entries=allow_new_entries,
+            force_flatten=force_flatten
         )
         report.orders = orders
         report.closed_symbols = closed_syms
         report.opened_symbols = opened_syms
 
+        if force_flatten:
+            logger.info(
+                f"⛔ [風險閘門 T1] pts={gate_pts} 風險關閉 → 強制平倉所有受管部位，停止新倉 "
+                f"(scale={report.gate_scale}, allow_new_entries={allow_new_entries})"
+            )
+        elif not allow_new_entries:
+            logger.info(
+                f"️ [風險閘門] pts={gate_pts} 停止開新倉 (scale={report.gate_scale}，僅允許減倉)"
+            )
+
         logger.info(
-            f"換倉計算完成: 共生成 {len(orders)} 筆訂單 (平倉退出: {len(closed_syms)}, 新進開倉: {len(opened_syms)})"
+            f"換倉計算完成: 共生成 {len(orders)} 筆訂單 (平倉退出: {len(closed_syms)}, 新進開倉: {len(opened_syms)}) "
+            f"[閘門: pts={gate_pts}, scale={report.gate_scale}, allow_new={allow_new_entries}, flatten={force_flatten}]"
         )
 
         # 3. 若為 Dry-Run 模擬模式，標記為 simulated、寫入模擬流水帳本並返回
@@ -410,6 +470,12 @@ class PortfolioRebalancer:
                             "opened_symbols": opened_syms,
                             "status": report.status,
                             "orders": orders_payload,
+                            "gate": {
+                                "pts": gate_pts,
+                                "scale": report.gate_scale,
+                                "allow_new_entries": report.gate_allow_new_entries,
+                                "force_flatten": report.gate_force_flatten
+                            },
                             "timestamp": datetime.now(timezone.utc).isoformat()
                         }
                     )
@@ -553,6 +619,12 @@ class PortfolioRebalancer:
                         "opened_symbols": opened_syms,
                         "status": report.status,
                         "orders": orders_payload,
+                        "gate": {
+                            "pts": gate_pts,
+                            "scale": report.gate_scale,
+                            "allow_new_entries": report.gate_allow_new_entries,
+                            "force_flatten": report.gate_force_flatten
+                        },
                         "timestamp": datetime.now(timezone.utc).isoformat()
                     }
                 )

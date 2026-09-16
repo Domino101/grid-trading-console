@@ -7,19 +7,61 @@ import logging
 import os
 import json
 import sqlite3
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 from decimal import Decimal
 from typing import Optional, Dict, Any, Tuple, List, Set
 import yaml
+import aiohttp
 
 from core.services.interfaces.base import BaseService
-from .models import UniverseRankResult, RebalanceReport
+from .models import UniverseRankResult, RebalanceReport, RegimeDecision
 from .quant_engine import CoinFullPrimeQuant
 from .rebalancer import PortfolioRebalancer
+from .regime_filter import RegimeFilter
 from core.adapters.exchanges.factory import ExchangeFactory
 from core.adapters.exchanges.interface import ExchangeInterface, ExchangeConfig, ExchangeType
 from core.adapters.exchanges.adapters.paper import create_paper_adapter
+
+
+def compute_next_rebalance_run(
+    now: datetime,
+    rebalance_days: int = 7,
+    execution_weekday: int = 3,
+    execution_minute: int = 5,
+    anchor_date: Optional[date] = None
+) -> datetime:
+    """計算下次換倉的 UTC 時刻（固定於 00:{execution_minute} UTC）。
+
+    * rebalance_days == 7（稽核驗證過的主方案）：
+      固定在每週的 execution_weekday 星期幾執行
+      （execution_weekday 採用 Python weekday：Monday=0 ... Sunday=6，週四 = 3）。
+    * rebalance_days != 7（低頻/高頻替代方案）：
+      自 anchor_date 起每 N 日一次（相位固定；N 不是 7 的倍數時換倉日會在週內漂移，
+      與研究重建的 "drift" 行為一致）。
+    """
+    t_hour, t_min = 0, int(execution_minute) % 60
+    n = max(1, int(rebalance_days))
+
+    if n == 7:
+        weekday = int(execution_weekday) % 7
+        for i in range(0, 8):
+            cand = datetime.combine(now.date() + timedelta(days=i), datetime.min.time(), tzinfo=timezone.utc)
+            cand = cand.replace(hour=t_hour, minute=t_min)
+            if cand.weekday() == weekday and cand > now:
+                return cand
+    else:
+        anchor = anchor_date or now.date()
+        k = 0
+        while True:
+            cand = datetime.combine(anchor + timedelta(days=k * n), datetime.min.time(), tzinfo=timezone.utc)
+            cand = cand.replace(hour=t_hour, minute=t_min)
+            if cand > now:
+                return cand
+            k += 1
+            if k > 400:  # 安全閘門（理論上不會觸發）
+                break
+        return datetime.combine(now.date() + timedelta(days=n), datetime.min.time(), tzinfo=timezone.utc).replace(hour=t_hour, minute=t_min)
 
 logger = logging.getLogger("CoinFullPrime.Service")
 
@@ -43,6 +85,7 @@ class CoinFullPrimeService(BaseService):
         self.config: Dict[str, Any] = {}
         self.quant_engine: Optional[CoinFullPrimeQuant] = None
         self.rebalancer: Optional[PortfolioRebalancer] = None
+        self.regime_filter: Optional[RegimeFilter] = None
         self.exchange_adapter: Optional[ExchangeInterface] = None
         self._adapters: Dict[str, ExchangeInterface] = {}
 
@@ -52,6 +95,19 @@ class CoinFullPrimeService(BaseService):
         self.last_rank_result: Optional[UniverseRankResult] = None
         self.last_rebalance_report: Optional[RebalanceReport] = None
         self.last_run_timestamp: Optional[str] = None
+        self.last_regime_decision: Optional[RegimeDecision] = None
+
+        # T2 崩跌日延後換倉狀態（持久化於排程狀態檔，跨重啟保留）
+        self._defer_count: int = int(saved_state.get("defer_count", 0) or 0)
+        self._pending_defer_until: Optional[str] = saved_state.get("pending_defer_until")
+        self._defer_task: Optional[asyncio.Task] = None
+        # 非 7 日換倉週期的相位錨點日期
+        self._schedule_anchor_date: Optional[date] = None
+        if saved_state.get("schedule_anchor_date"):
+            try:
+                self._schedule_anchor_date = date.fromisoformat(str(saved_state["schedule_anchor_date"]))
+            except Exception:
+                self._schedule_anchor_date = None
 
         self._scheduler_task: Optional[asyncio.Task] = None
         self._is_running = False
@@ -191,10 +247,11 @@ class CoinFullPrimeService(BaseService):
             logger.warning(f"登記 CoinFull Prime 機器人身分異常 ({account_id}): {ex}")
 
     async def initialize(self) -> bool:
-        """初始化量化引擎與預設適配器"""
+        """初始化量化引擎、風險閘門與預設適配器"""
         self.load_config()
         self.quant_engine = CoinFullPrimeQuant(self.config)
         self.rebalancer = PortfolioRebalancer(self.config)
+        self.regime_filter = RegimeFilter(self.config)
 
         # 登記所有環境身分至 Canonical Ledger
         for acc in ["paper", "binance_testnet", "binance_live"]:
@@ -489,12 +546,18 @@ class CoinFullPrimeService(BaseService):
         account_id: str = "paper",
         capital: Optional[float] = None,
         leverage: Optional[float] = None,
-        balance_pct: Optional[float] = None
+        balance_pct: Optional[float] = None,
+        ignore_crash_defer: bool = False
     ) -> Tuple[UniverseRankResult, RebalanceReport]:
         """
-        立即執行一次日常算分與換倉管線 (支援指定帳號環境與動態本金/槓桿覆蓋)
+        立即執行一次換倉管線 (支援指定帳號環境與動態本金/槓桿覆蓋)
+
+        流程（依 docs/CoinFull_Prime_03_NoTrade_Trigger_Spec.md 送單前檢查清單）：
+        1. 取宇宙 → 2. 風險閘門 (pts) → 3. T1 平倉停單 / T2 崩跌日延後
+        → 4. 算分 → 5. 依閘門參數換倉 → 6. 落地 regime history 與每日快照。
+        ignore_crash_defer=True 供 T2 延後 24 小時後的補跑使用（避免再被延後）。
         """
-        if not self.quant_engine or not self.rebalancer:
+        if not self.quant_engine or not self.rebalancer or not self.regime_filter:
             await self.initialize()
 
         target_acc = account_id or self.selected_account or "paper"
@@ -543,17 +606,114 @@ class CoinFullPrimeService(BaseService):
             f"CoinFull Prime 專屬持倉籃子現有 {len(managed_symbols)} 個"
         )
 
-        # 4. 抓取特徵與算分 (避碰排除外部機器人標的，帶入支援標的過濾與動態本金/槓桿)
-        rank_result = await self.quant_engine.run_daily_pipeline(
-            allowed_symbols=allowed_symbols,
-            excluded_symbols=protected_symbols,
-            capital_override=effective_capital,
-            leverage_override=leverage
+        is_dry_run = dry_run if dry_run is not None else self.rebalancer.dry_run
+
+        # 4. 取宇宙 + 風險閘門判定 (換倉前必算 pts；資料抓取失敗 → 閘門保守處理)
+        universe: List[str] = []
+        try:
+            async with aiohttp.ClientSession() as session:
+                universe = await self.quant_engine.fetch_universe(
+                    session, allowed_symbols=allowed_symbols, excluded_symbols=protected_symbols
+                )
+                gate_inputs = await self.regime_filter.collect(session, universe)
+        except Exception as ex:
+            logger.error(f"風險閘門資料抓取失敗，所有元件保守計 0: {ex}", exc_info=True)
+            gate_inputs = {
+                "btc_above_ma50": None, "btc_close": None, "btc_ma50": None,
+                "breadth_pct": None, "funding_pctile": None, "btc_ret_1d_pct": None
+            }
+
+        decision = self.regime_filter.decide(
+            btc_above_ma50=gate_inputs.get("btc_above_ma50"),
+            breadth_pct=gate_inputs.get("breadth_pct"),
+            funding_pctile=gate_inputs.get("funding_pctile"),
+            btc_ret_1d_pct=gate_inputs.get("btc_ret_1d_pct"),
+            btc_close=gate_inputs.get("btc_close"),
+            btc_ma50=gate_inputs.get("btc_ma50"),
         )
+        self.last_regime_decision = decision
+        self.append_regime_history(decision, target_acc, note="trigger_once")
+        logger.info(
+            f"🚦 風險閘門判定: pts={decision.pts}/3 (趨勢={decision.trend_flag} 廣度={decision.breadth_flag} "
+            f"費率={decision.funding_flag}), 廣度={decision.breadth_pct if decision.breadth_pct is None else round(decision.breadth_pct, 1)}%, "
+            f"費率百分位={decision.funding_pctile if decision.funding_pctile is None else round(decision.funding_pctile, 1)}, "
+            f"scale={decision.scale}x, flatten={decision.force_flatten}, crash_defer={decision.crash_defer}"
+            f"{' [DEGRADED 資料缺漏]' if decision.degraded else ''}"
+        )
+        for r in decision.reasons:
+            logger.info(f"   └ {r}")
+
+        # log_only 模式：只記錄不改變下單行為（上線初期 2 週建議）
+        if not self.regime_filter.enabled or self.regime_filter.log_only:
+            if decision.force_flatten or not decision.allow_new_entries or decision.scale != 1.0 or decision.crash_defer:
+                logger.info("ℹ️ 風險閘門 log_only/停用模式：決策僅記錄，不改變下單行為")
+            decision = decision.model_copy(
+                update={"scale": 1.0, "allow_new_entries": True, "force_flatten": False, "crash_defer": False}
+            )
+
+        effective_capital_val = effective_capital if effective_capital and float(effective_capital) > 0 \
+            else self.rebalancer.total_capital
+
+        # 5. T2 崩跌日延後換倉（最多連續 max_defers 次；若同時 pts=0 則 T1 平倉優先）
+        if decision.crash_defer and not ignore_crash_defer and not decision.force_flatten:
+            if self._defer_count < self.regime_filter.crash_defer_max:
+                self._defer_count += 1
+                defer_until = datetime.now(timezone.utc) + timedelta(hours=24)
+                self._pending_defer_until = defer_until.isoformat()
+                self.save_scheduler_state()
+                logger.warning(
+                    f"⏸️ T2 崩跌日延後 (BTC 收盤日 {decision.btc_ret_1d_pct:+.2f}% ≤ "
+                    f"{self.regime_filter.crash_defer_pct:+.1f}%)：第 {self._defer_count}/{self.regime_filter.crash_defer_max} 次延後，"
+                    f"換倉推遲至 {defer_until.isoformat()} 執行"
+                )
+                rank_result = UniverseRankResult(
+                    universe_size=len(universe),
+                    status="success",
+                    message="T2 crash-day defer: rebalance postponed 24h"
+                )
+                self.last_rank_result = rank_result
+                deferred_report = RebalanceReport(
+                    dry_run=is_dry_run,
+                    exchange=target_acc,
+                    total_capital_usdt=effective_capital_val,
+                    leverage=self.rebalancer.leverage,
+                    status="deferred_crash_day",
+                    gate_pts=decision.pts,
+                    gate_scale=decision.scale,
+                    gate_allow_new_entries=decision.allow_new_entries,
+                    gate_force_flatten=decision.force_flatten
+                )
+                self.last_rebalance_report = deferred_report
+                self.last_run_timestamp = datetime.now(timezone.utc).isoformat()
+                self.selected_account = target_acc
+                self._schedule_deferred_rebalance(defer_until, target_acc, is_dry_run, effective_capital, leverage, balance_pct)
+                return rank_result, deferred_report
+            else:
+                logger.warning(f"⚠️ T2 延後次數已达上限 ({self._defer_count}/{self.regime_filter.crash_defer_max})，本次照常換倉")
+                self._defer_count = 0
+                self._pending_defer_until = None
+                self.save_scheduler_state()
+
+        # 6. T1 風險關閉 → 強制平倉（不重新算分）；否則正常算分
+        if decision.force_flatten:
+            rank_result = UniverseRankResult(
+                universe_size=len(universe),
+                status="success",
+                message="regime gate T1: force flatten (pts=0)"
+            )
+            logger.warning(f"⛔ T1 風險關閉 (pts=0)：本次僅平倉受管部位，不建立新倉")
+        else:
+            # 抓取特徵與算分 (避碰排除外部機器人標的，帶入支援標的過濾與動態本金/槓桿)
+            async with aiohttp.ClientSession() as session:
+                features = await self.quant_engine.fetch_features(session, universe)
+            rank_result = self.quant_engine.compute_ranks(
+                features,
+                capital_override=effective_capital,
+                leverage_override=leverage
+            )
         self.last_rank_result = rank_result
 
-        # 5. 執行換倉調度 (帶入專屬持倉籃子隔離與外部機器人絕對保護)
-        is_dry_run = dry_run if dry_run is not None else self.rebalancer.dry_run
+        # 7. 執行換倉調度 (帶入專屬持倉籃子隔離、外部機器人絕對保護與風險閘門參數)
         rebalance_report = await self.rebalancer.execute_rebalance(
             rank_result=rank_result,
             exchange_adapter=adapter,
@@ -562,43 +722,235 @@ class CoinFullPrimeService(BaseService):
             leverage_override=leverage,
             managed_symbols=managed_symbols,
             protected_symbols=protected_symbols,
-            account_id=target_acc
+            account_id=target_acc,
+            gross_scale=decision.scale,
+            allow_new_entries=decision.allow_new_entries,
+            force_flatten=decision.force_flatten,
+            gate_pts=decision.pts
         )
         rebalance_report.exchange = target_acc
         self.last_rebalance_report = rebalance_report
         self.last_run_timestamp = datetime.now(timezone.utc).isoformat()
         self.selected_account = target_acc
 
-        # 6. 更新並持久化專屬持倉籃子 (僅登記今日 8多8空 組合標的)
-        if rank_result and rank_result.status == "success":
+        # 8. 更新並持久化專屬持倉籃子 (僅在實際換倉時登記新籃子)
+        if rank_result and rank_result.status == "success" and rank_result.long_list:
             new_basket_symbols = [x.symbol for x in rank_result.long_list + rank_result.short_list]
             self.save_active_basket(target_acc, new_basket_symbols)
 
-        logger.info(f"CoinFull Prime 管線執行完成 (帳號={target_acc}, 本金={rebalance_report.total_capital_usdt}, 槓桿={rebalance_report.leverage}x, DryRun={is_dry_run})")
+        # 9. 成功執行一次換倉 → 重置 T2 延後計數；並落地每日快照（權益/PnL 可追蹤）
+        self._defer_count = 0
+        self._pending_defer_until = None
+        self.save_scheduler_state()
+        self._persist_run_snapshot(target_acc, decision, rebalance_report)
+
+        logger.info(f"CoinFull Prime 管線執行完成 (帳號={target_acc}, 本金={rebalance_report.total_capital_usdt}, 槓桿={rebalance_report.leverage}x, DryRun={is_dry_run}, 閘門 pts={decision.pts}/scale={decision.scale}x)")
         return rank_result, rebalance_report
 
-    def _seconds_until_next_utc_midnight(self) -> float:
-        """計算距離下次 UTC 00:00 的秒數 (零輪詢休眠)"""
-        now = datetime.now(timezone.utc)
-        tomorrow = now.date() + timedelta(days=1)
-        next_run = datetime(tomorrow.year, tomorrow.month, tomorrow.day, 0, 0, 0, tzinfo=timezone.utc)
-        delta = (next_run - now).total_seconds()
+    # ------------------------------------------------------------------
+    # 風險閘門：歷史落地 / T2 延後任務 / 每日快照
+    # ------------------------------------------------------------------
+
+    def _get_data_dir(self) -> Path:
+        base_dir = Path(__file__).resolve().parent.parent.parent.parent
+        return base_dir / "data"
+
+    def append_regime_history(self, decision: RegimeDecision, account_id: str, note: str = ""):
+        """將每次閘門決策以 JSONL 落地 (data/coinfull_prime_regime_history.jsonl，best-effort)"""
+        try:
+            path = self._get_data_dir() / "coinfull_prime_regime_history.jsonl"
+            payload = decision.model_dump(mode="json")
+            payload["account_id"] = account_id
+            payload["note"] = note
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
+        except Exception as ex:
+            logger.warning(f"寫入風險閘門歷史失敗 (不影響交易): {ex}")
+
+    def _persist_run_snapshot(self, target_acc: str, decision: RegimeDecision, report: RebalanceReport):
+        """落地每次換倉的權益/持倉快照 (data/coinfull_prime_run_snapshots.jsonl，best-effort)"""
+        line: Dict[str, Any] = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "account_id": target_acc,
+            "regime": {
+                "pts": decision.pts,
+                "scale": decision.scale,
+                "allow_new_entries": decision.allow_new_entries,
+                "force_flatten": decision.force_flatten,
+                "degraded": decision.degraded,
+                "breadth_pct": decision.breadth_pct,
+                "funding_pctile": decision.funding_pctile,
+                "btc_ret_1d_pct": decision.btc_ret_1d_pct,
+            },
+            "rebalance": {
+                "status": report.status,
+                "dry_run": report.dry_run,
+                "capital": report.total_capital_usdt,
+                "leverage": report.leverage,
+                "orders_count": len(report.orders),
+                "closed_symbols": report.closed_symbols,
+                "opened_symbols": report.opened_symbols,
+            },
+            "portfolio": None,
+        }
+        # 持倉快照（非同步）：以 fire-and-forget 任務補寫，不阻塞換倉主流程
+        async def _fill_portfolio():
+            try:
+                positions = await self.get_positions(target_acc)
+                if positions:
+                    gross = sum(p.get("notional_usdt", 0.0) for p in positions)
+                    long_notional = sum(p.get("notional_usdt", 0.0) for p in positions if p.get("side") == "long")
+                    short_notional = sum(p.get("notional_usdt", 0.0) for p in positions if p.get("side") == "short")
+                    upnl = sum(p.get("unrealized_pnl", 0.0) for p in positions)
+                    line["portfolio"] = {
+                        "position_count": len(positions),
+                        "gross_notional_usdt": round(gross, 2),
+                        "long_notional_usdt": round(long_notional, 2),
+                        "short_notional_usdt": round(short_notional, 2),
+                        "unrealized_pnl_usdt": round(upnl, 2),
+                    }
+            except Exception as ex:
+                logger.debug(f"快照持倉補寫失敗: {ex}")
+            try:
+                path = self._get_data_dir() / "coinfull_prime_run_snapshots.jsonl"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with open(path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(line, ensure_ascii=False, default=str) + "\n")
+            except Exception as ex:
+                logger.warning(f"寫入換倉快照失敗 (不影響交易): {ex}")
+
+        try:
+            asyncio.get_running_loop().create_task(_fill_portfolio())
+        except RuntimeError:
+            # 無事件迴圈（例如純同步測試環境）：只寫入不含持倉的快照
+            try:
+                path = self._get_data_dir() / "coinfull_prime_run_snapshots.jsonl"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with open(path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(line, ensure_ascii=False, default=str) + "\n")
+            except Exception as ex:
+                logger.warning(f"寫入換倉快照失敗 (不影響交易): {ex}")
+
+    def _schedule_deferred_rebalance(
+        self,
+        defer_until: datetime,
+        account_id: str,
+        dry_run: bool,
+        capital: Optional[float],
+        leverage: Optional[float],
+        balance_pct: Optional[float]
+    ):
+        """排定 24 小時後補跑的 T2 延後換倉 one-shot 任務"""
+        if self._defer_task and not self._defer_task.done():
+            logger.info("T2 延後補跑任務已存在，跳過重複排定")
+            return
+
+        async def _run():
+            wait_secs = (defer_until - datetime.now(timezone.utc)).total_seconds()
+            if wait_secs > 0:
+                logger.info(f"⏳ T2 延後換倉任務休眠中，{wait_secs / 3600:.1f} 小時後補跑 ({account_id})...")
+                await asyncio.sleep(wait_secs)
+            try:
+                await self.trigger_once(
+                    dry_run=dry_run,
+                    account_id=account_id,
+                    capital=capital,
+                    leverage=leverage,
+                    balance_pct=balance_pct,
+                    ignore_crash_defer=True
+                )
+                logger.info(f"✅ T2 延後換倉補跑完成 ({account_id})")
+            except Exception as ex:
+                logger.error(f"❌ T2 延後換倉補跑失敗: {ex}", exc_info=True)
+            finally:
+                self._defer_task = None
+
+        try:
+            self._defer_task = asyncio.get_running_loop().create_task(_run())
+        except RuntimeError:
+            logger.warning("無事件迴圈可排定 T2 延後補跑任務（重啟後將由排程器下次喚醒補上）")
+
+    def _rearm_pending_defer(self):
+        """開機恢復時，重排尚未到期的 T2 延後換倉任務"""
+        if not self._pending_defer_until:
+            return
+        try:
+            defer_until = datetime.fromisoformat(self._pending_defer_until)
+        except (TypeError, ValueError):
+            self._pending_defer_until = None
+            return
+        if defer_until <= datetime.now(timezone.utc):
+            # 已過期：清除（將由下次正常排程喚醒處理）
+            self._pending_defer_until = None
+            self.save_scheduler_state()
+            return
+        self._schedule_deferred_rebalance(
+            defer_until,
+            self.selected_account or "paper",
+            self.scheduler_dry_run,
+            self.scheduler_capital,
+            self.scheduler_leverage,
+            self.scheduler_balance_pct
+        )
+
+    def _schedule_params(self) -> Dict[str, int]:
+        """自 config 讀取排程參數（未設定時用稽核建議預設：週四 00:05 UTC 每週一次）"""
+        sched = self.config.get("schedule", {}) or {}
+        return {
+            "rebalance_days": int(sched.get("rebalance_days", 7)),
+            "execution_weekday": int(sched.get("execution_weekday", 3)),   # Python weekday: Mon=0 ... Thu=3
+            "execution_minute_utc": int(sched.get("execution_minute_utc", 5)),
+        }
+
+    def _next_rebalance_run(self, now: Optional[datetime] = None) -> datetime:
+        """下次換倉的 UTC 時刻"""
+        p = self._schedule_params()
+        if p["rebalance_days"] != 7 and self._schedule_anchor_date is None:
+            # 首次以 N 日週期排程時，以今天為相位錨點並持久化
+            self._schedule_anchor_date = (now or datetime.now(timezone.utc)).date()
+            try:
+                self.save_scheduler_state()
+            except Exception:
+                pass
+        return compute_next_rebalance_run(
+            now or datetime.now(timezone.utc),
+            rebalance_days=p["rebalance_days"],
+            execution_weekday=p["execution_weekday"],
+            execution_minute=p["execution_minute_utc"],
+            anchor_date=self._schedule_anchor_date,
+        )
+
+    def _seconds_until_next_run(self) -> float:
+        """計算距離下次換倉的秒數 (零輪詢休眠)"""
+        delta = (self._next_rebalance_run() - datetime.now(timezone.utc)).total_seconds()
         return max(delta, 1.0)
+
+    def _schedule_description(self) -> str:
+        p = self._schedule_params()
+        weekday_names = ["週一 Mon", "週二 Tue", "週三 Wed", "週四 Thu", "週五 Fri", "週六 Sat", "週日 Sun"]
+        if p["rebalance_days"] == 7:
+            return f"每週{weekday_names[p['execution_weekday'] % 7]} UTC 00:{p['execution_minute_utc']:02d} 換倉"
+        return f"每 {p['rebalance_days']} 日 UTC 00:{p['execution_minute_utc']:02d} 換倉（相位錨點 {self._schedule_anchor_date or '未設定'}）"
 
     async def _scheduler_loop(self):
         """排程背景協程 (常態 0.0% CPU 休眠)"""
-        logger.info(f"CoinFull Prime 排程監聽器啟動，每日 UTC 00:00 (台北時間 08:00) 自動喚醒 (帳號={self.selected_account}, DryRun={self.scheduler_dry_run})")
+        logger.info(f"CoinFull Prime 排程監聽器啟動，{self._schedule_description()} 自動喚醒 (帳號={self.selected_account}, DryRun={self.scheduler_dry_run})")
         self._is_running = True
         try:
             while self._is_running:
-                sleep_secs = self._seconds_until_next_utc_midnight()
+                next_run = self._next_rebalance_run()
+                sleep_secs = (next_run - datetime.now(timezone.utc)).total_seconds()
                 hours = int(sleep_secs // 3600)
                 mins = int((sleep_secs % 3600) // 60)
-                logger.info(f"CoinFull Prime 進入休眠，預計 {hours} 小時 {mins} 分後喚醒 (下次執行: 明日 UTC 00:00 / 台北 08:00)")
-                await asyncio.sleep(sleep_secs)
+                logger.info(
+                    f"CoinFull Prime 進入休眠，預計 {hours} 小時 {mins} 分後喚醒 "
+                    f"(下次換倉: {next_run.isoformat()} / {self._schedule_description()})"
+                )
+                await asyncio.sleep(max(sleep_secs, 1.0))
 
                 # 喚醒執行
-                logger.info(f"⏰ 每日排程定時器喚醒，開始執行 CoinFull Prime (目標帳號={self.selected_account}, DryRun={self.scheduler_dry_run})...")
+                logger.info(f"⏰ 排程定時器喚醒，開始執行 CoinFull Prime (目標帳號={self.selected_account}, DryRun={self.scheduler_dry_run})...")
                 try:
                     await self.trigger_once(
                         dry_run=self.scheduler_dry_run,
@@ -608,7 +960,7 @@ class CoinFullPrimeService(BaseService):
                         balance_pct=self.scheduler_balance_pct
                     )
                 except Exception as ex:
-                    logger.error(f"每日換倉執行時發生未捕獲異常: {ex}", exc_info=True)
+                    logger.error(f"定時換倉執行時發生未捕獲異常: {ex}", exc_info=True)
                 # 避免同一秒內重複觸發
                 await asyncio.sleep(5)
         except asyncio.CancelledError:
@@ -643,6 +995,9 @@ class CoinFullPrimeService(BaseService):
             "balance_pct": self.scheduler_balance_pct,
             "enabled": getattr(self, "scheduler_enabled", True),
             "is_running": self._is_running,
+            "defer_count": self._defer_count,
+            "pending_defer_until": self._pending_defer_until,
+            "schedule_anchor_date": self._schedule_anchor_date.isoformat() if self._schedule_anchor_date else None,
             "updated_at": datetime.now(timezone.utc).isoformat()
         }
         try:
@@ -677,6 +1032,8 @@ class CoinFullPrimeService(BaseService):
                     leverage=lev,
                     balance_pct=bp
                 )
+                # 重啟補排：若重啟前已排定 T2 崩跌日延後換倉且尚未到期，重新排定 one-shot 任務
+                self._rearm_pending_defer()
             else:
                 self.selected_account = acc_id
                 self.scheduler_dry_run = dry_run
@@ -684,6 +1041,7 @@ class CoinFullPrimeService(BaseService):
                 self.scheduler_leverage = lev
                 self.scheduler_balance_pct = bp
                 self.scheduler_enabled = False
+                self._rearm_pending_defer()
         else:
             logger.info("ℹ️ 無 CoinFull Prime 歷史排程紀錄，以預設測試網環境啟動排程")
             self.start_scheduler(account_id="binance_testnet", dry_run=False)
@@ -765,11 +1123,12 @@ class CoinFullPrimeService(BaseService):
             self.save_scheduler_state()
 
     def get_status(self) -> Dict[str, Any]:
-        """取得當前運行狀態"""
+        """取得當前運行狀態（含風險閘門最近一次判定與下次換倉時間）"""
         now = datetime.now(timezone.utc)
-        secs_left = self._seconds_until_next_utc_midnight() if self._is_running else None
-        next_run = (now + timedelta(seconds=secs_left)).isoformat() if secs_left else None
-        hours_left = round(secs_left / 3600.0, 1) if secs_left else None
+        next_run_dt = self._next_rebalance_run(now)
+        next_run = next_run_dt.isoformat()
+        secs_left = (next_run_dt - now).total_seconds()
+        hours_left = round(secs_left / 3600.0, 1)
 
         long_summary = [
             {"symbol": x.symbol, "score": x.score, "rank": x.rank} 
@@ -783,6 +1142,7 @@ class CoinFullPrimeService(BaseService):
         target_acc = self.selected_account or "paper"
         active_basket = self.load_active_basket(target_acc)
         protected_bots = self.get_external_bot_symbols()
+        sched_p = self._schedule_params()
 
         return {
             "service": self.name,
@@ -790,15 +1150,23 @@ class CoinFullPrimeService(BaseService):
             "is_running": self._is_running,
             "last_run_timestamp": self.last_run_timestamp,
             "next_scheduled_run_utc": next_run,
-            "seconds_until_next_run": round(secs_left, 1) if secs_left else None,
+            "seconds_until_next_run": round(secs_left, 1),
             "hours_until_next_run": hours_left,
             "scheduler_config": {
                 "account_id": self.selected_account or "paper",
                 "dry_run": getattr(self, "scheduler_dry_run", True),
                 "capital": getattr(self, "scheduler_capital", None),
                 "leverage": getattr(self, "scheduler_leverage", None),
-                "balance_pct": getattr(self, "scheduler_balance_pct", None)
+                "balance_pct": getattr(self, "scheduler_balance_pct", None),
+                "rebalance_days": sched_p["rebalance_days"],
+                "execution_weekday": sched_p["execution_weekday"],
+                "execution_minute_utc": sched_p["execution_minute_utc"],
+                "description": self._schedule_description()
             },
+            "regime": (
+                self.last_regime_decision.model_dump(mode="json")
+                if self.last_regime_decision else None
+            ),
             "managed_symbols": sorted(list(active_basket)),
             "protected_bot_symbols": sorted(list(protected_bots)),
             "current_portfolio": {
@@ -810,3 +1178,29 @@ class CoinFullPrimeService(BaseService):
             "selected_account": self.selected_account,
             "exchange": self.selected_account or self.config.get("portfolio", {}).get("exchange", "paper")
         }
+
+    async def get_regime(self, refresh: bool = False) -> RegimeDecision:
+        """取得最近一次風險閘門判定（refresh=True 時重新抓取即時資料計算）
+
+        供 GET /api/v1/coinfull-prime/regime 端點使用。
+        """
+        if not self.quant_engine or not self.regime_filter:
+            await self.initialize()
+
+        if refresh or self.last_regime_decision is None:
+            protected_symbols = self.get_external_bot_symbols()
+            async with aiohttp.ClientSession() as session:
+                universe = await self.quant_engine.fetch_universe(
+                    session, excluded_symbols=protected_symbols
+                )
+                gate_inputs = await self.regime_filter.collect(session, universe)
+            self.last_regime_decision = self.regime_filter.decide(
+                btc_above_ma50=gate_inputs.get("btc_above_ma50"),
+                breadth_pct=gate_inputs.get("breadth_pct"),
+                funding_pctile=gate_inputs.get("funding_pctile"),
+                btc_ret_1d_pct=gate_inputs.get("btc_ret_1d_pct"),
+                btc_close=gate_inputs.get("btc_close"),
+                btc_ma50=gate_inputs.get("btc_ma50"),
+            )
+            self.append_regime_history(self.last_regime_decision, self.selected_account or "paper", note="api_refresh")
+        return self.last_regime_decision
