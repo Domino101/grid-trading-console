@@ -65,3 +65,10 @@ test('parseHash handles coinfull-prime tab', () => {
   assert.deepEqual(parseHash('#coinfull-prime'), { tab: 'coinfull-prime', gridId: null, dcaBotId: null });
   assert.equal(formatHash({ tab: 'coinfull-prime' }), '#/coinfull-prime');
 });
+
+test('parseHash handles cross-section tab', () => {
+  assert.deepEqual(parseHash('#/cross-section'), { tab: 'cross-section', gridId: null, dcaBotId: null });
+  assert.deepEqual(parseHash('#cross-section'), { tab: 'cross-section', gridId: null, dcaBotId: null });
+  assert.deepEqual(parseHash('#/cross-section-ranking'), { tab: 'cross-section', gridId: null, dcaBotId: null });
+  assert.equal(formatHash({ tab: 'cross-section' }), '#/cross-section');
+});

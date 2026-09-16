@@ -3,6 +3,32 @@
 本專案的重要變更記錄於此檔案，遵循 [Semantic Versioning](https://semver.org/lang/zh-TW/) 與 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/) 規範。
 詳細歷史工程記錄請參閱 [CHANGELOG_LEGACY.md](file:///root/grid-trading-console/CHANGELOG_LEGACY.md)。
 
+## [0.3.3] — 2026-09-16
+
+### Added
+- **DCA 動態冷卻與循環重啟控制 (DCA Dynamic Cooldown & Auto-Repeat Controls)**：
+  - 後端新增 `PATCH /api/v1/dca/{bot_id}/config` 路由，支援機器人運行中動態熱更新 `cooldown_seconds`（冷卻時間）與 `repeat_after_take_profit`（止盈後自動循環開單開關），無需重啟進程。
+  - `POST /api/v1/dca/{bot_id}/start` 支援傳遞 `cooldown_seconds` 參數覆蓋配置。
+  - 前端 DCA 監控工作台 (`DcaDetail.tsx`) 與建立表單 (`DcaForm.tsx`) 補齊冷卻倒數計時器即時視覺反饋，並支援即時開關與滑桿調節。
+- **多空截面即時排行觀測介面 (Cross-Sectional Market Observer)**：
+  - 新增前端獨立分頁 `#cross-section`（`CrossSectionRankings.tsx` 與 `router.ts` 路由註冊），提供純盤面 79 幣截面多空排行榜、動能、主動買賣流、資金費率、大戶多空比等指標全屏沉浸式即時觀測，與實盤下單完全解耦。
+- **多交易所適配擴充與合約格式引導 (Multi-Exchange Expansion & Dynamic Placeholders)**：
+  - 網格創建表單 (`GridForm.tsx`) 與市場行情排行 (`MarketRankings.tsx`) 新增 OKX (歐易) 與 Backpack 交易所選項。
+  - 依交易所動態切換專屬合約格式預填範例（OKX `BTC-USDT-SWAP`、Hyperliquid `SOL/USDC:USDC`、Lighter `BTC-USD`、Backpack `SOL_USDC_PERP` 等）。
+  - `core/adapters/exchanges/factory.py`、`okx.py`、`binance_rest.py` 強化錯誤重試、合約市場資訊提取與連線容錯。
+- **單元測試與安全防護套件擴充**：
+  - 新增 `tests/test_exchange_audit_and_switch.py`，擴充 `tests/test_exchange_reconciler.py` 與 `tests/test_dca_http_contract.py`，完整涵蓋方向衝突過濾與冷卻接口測試。
+
+### Fixed
+- **DCA 對帳方向衝突與外部持倉誤領防護 (Reconciler Direction Filter & External Isolation)**：
+  - 修復 `ExchangeReconciler`：單向機器人（`long` / `short`）僅匹配同向交易所持倉，遇反向持倉時主動略過認領並日誌警告，杜絕單向機器人誤接管反向部位。
+  - 新建立、無歷史快照且無專屬掛單之 DCA 機器人，略過自動認領交易所外部持倉，防止新啟動機器人誤轉入 `AVERAGING` 狀態。
+- **CoinFull Prime 自動換倉穩定度與持久化優化**：
+  - 完善定時排程器狀態持久化 (`data/coinfull_prime_scheduler.json`) 與專屬持倉籃子記帳 (`data/coinfull_prime_active_basket.json`)。
+  - 優化 Binance Live 實盤下單合約步長與精度動態裁切。
+
+---
+
 ## [0.3.2] — 2026-09-08
 
 ### Added

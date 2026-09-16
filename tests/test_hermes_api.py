@@ -877,6 +877,21 @@ class TestSafetyGuardPhase3(unittest.TestCase):
         ok_other, msg_other = self.guard.check_rate_limit("dashboard-test")
         self.assertTrue(ok_other)
 
+    def test_dashboard_rate_limiter(self):
+        source = "dashboard"
+        # 前 10 次應允許
+        for _ in range(10):
+            ok, msg = self.guard.check_rate_limit(source)
+            self.assertTrue(ok)
+            self.guard.record_action(source)
+
+        # 第 11 次應拒絕並帶有剩餘秒數
+        ok, msg = self.guard.check_rate_limit(source)
+        self.assertFalse(ok)
+        self.assertIn("已達寫操作頻率限制", msg)
+        self.assertIn("最多 10 次", msg)
+        self.assertIn("秒後再試", msg)
+
     def test_check_min_investment_pass(self):
         # 總投資額 = 0.1 * 10 (100-90 / 1) * 100.0 = 100.0 >= 10.0
         params = {

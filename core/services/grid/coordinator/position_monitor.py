@@ -68,7 +68,7 @@ class PositionMonitor:
         self._base_query_interval: int = max(10, configured_interval)
         self._rest_query_interval: int = self._base_query_interval
         self._rest_query_debounce: int = 5   # 事件触发去重时间（秒）
-        self._rest_timeout: int = 10         # REST查询超时（秒）
+        self._rest_timeout: int = 25         # REST查询超时（秒，放寬至25秒以容納多機器人限速器排隊）
 
         if configured_interval < 1:
             self.logger.info(

@@ -55,8 +55,8 @@
     "semantic_hash": ""
   },
   "core/adapters/exchanges/adapters/binance_rest.py": {
-    "mtime": 1788774330.4568012,
-    "ast_hash": "3a466da992d38371f6feab9b1657a37f",
+    "mtime": 1789143217.1515934,
+    "ast_hash": "1c901eff83b155ae5e15cbd49dd142eb",
     "semantic_hash": ""
   },
   "core/adapters/exchanges/adapters/binance_websocket.py": {
@@ -145,14 +145,14 @@
     "semantic_hash": "d0fbbfe4584f25e6d9c96a5778f2eb05"
   },
   "core/adapters/exchanges/adapters/okx.py": {
-    "mtime": 1788112345.621973,
-    "ast_hash": "4cf1e439b36a94d42210f8b6c7a5b218",
-    "semantic_hash": "4cf1e439b36a94d42210f8b6c7a5b218"
+    "mtime": 1789291822.1043954,
+    "ast_hash": "169426201b6e420da8363807e1214e8d",
+    "semantic_hash": ""
   },
   "core/adapters/exchanges/adapters/okx_base.py": {
-    "mtime": 1786618842.467677,
-    "ast_hash": "0c9c7e44d0a90dfbf6dbc5c61c92de0a",
-    "semantic_hash": "0c9c7e44d0a90dfbf6dbc5c61c92de0a"
+    "mtime": 1789291835.1183033,
+    "ast_hash": "91314b5f2a10f81fe1b677d072abf067",
+    "semantic_hash": ""
   },
   "core/adapters/exchanges/adapters/okx_rest.py": {
     "mtime": 1788112345.622973,
@@ -165,8 +165,8 @@
     "semantic_hash": "26ee73de21ddfeab5893a832d27f5f01"
   },
   "core/adapters/exchanges/factory.py": {
-    "mtime": 1788632918.728479,
-    "ast_hash": "8501378d42507000165fdba69013f595",
+    "mtime": 1789292496.8883052,
+    "ast_hash": "8ad6bbe49734875fb84ecad0dcc2eb81",
     "semantic_hash": ""
   },
   "core/adapters/exchanges/interface.py": {
@@ -375,8 +375,8 @@
     "semantic_hash": "3e086f7c03c7c6d79f1b8436bc37aa60"
   },
   "core/services/grid/coordinator/grid_coordinator.py": {
-    "mtime": 1788593293.1164055,
-    "ast_hash": "27e90bf83c1718de3c89eb4a932fa8a6",
+    "mtime": 1789143245.4925935,
+    "ast_hash": "862c15a227f1e256416ad93fab735aa6",
     "semantic_hash": ""
   },
   "core/services/grid/coordinator/grid_reset_manager.py": {
@@ -390,9 +390,9 @@
     "semantic_hash": "c95224be6de1627066e17383210eca47"
   },
   "core/services/grid/coordinator/position_monitor.py": {
-    "mtime": 1787199914.3688812,
-    "ast_hash": "85426a8d743d848acd5bc1e8ded042c2",
-    "semantic_hash": "85426a8d743d848acd5bc1e8ded042c2"
+    "mtime": 1789143258.3185937,
+    "ast_hash": "9efae1124e9033a4fddfdf7d740cdeaa",
+    "semantic_hash": ""
   },
   "core/services/grid/coordinator/scalping_operations.py": {
     "mtime": 1786618842.479677,
@@ -415,8 +415,8 @@
     "semantic_hash": "0141c14ea2e69575c703912c8d532c66"
   },
   "core/services/grid/implementations/grid_engine_impl.py": {
-    "mtime": 1788591002.8783755,
-    "ast_hash": "25f604c0c734af7b5c1d7053432b96b6",
+    "mtime": 1789143236.7495935,
+    "ast_hash": "136acfaf2ef2bfedd644e6173d77ce7f",
     "semantic_hash": ""
   },
   "core/services/grid/implementations/grid_strategy_impl.py": {
@@ -855,8 +855,8 @@
     "semantic_hash": "147b63323c0e36b9726321260746b550"
   },
   "run_grid_trading.py": {
-    "mtime": 1788637895.5915792,
-    "ast_hash": "9995c5c72f5d03650a67dd49186ee54b",
+    "mtime": 1789291886.6863034,
+    "ast_hash": "2e5c611756aa7452edf5181d895dd560",
     "semantic_hash": ""
   },
   "run_lighter_volume_maker.py": {
@@ -975,9 +975,9 @@
     "semantic_hash": "651054b19ba250aed932f15cba786aed"
   },
   "tests/test_hermes_api.py": {
-    "mtime": 1788149477.1751227,
-    "ast_hash": "fee979df61bf1da460f57ff297c8ceeb",
-    "semantic_hash": "fee979df61bf1da460f57ff297c8ceeb"
+    "mtime": 1789537466.1136281,
+    "ast_hash": "68e44612fe6319418ac86105f244cf9a",
+    "semantic_hash": ""
   },
   "tests/test_hermes_client.py": {
     "mtime": 1788149481.1261227,
@@ -1065,8 +1065,8 @@
     "semantic_hash": ""
   },
   "web_ui/backend/main.py": {
-    "mtime": 1788784130.7793531,
-    "ast_hash": "725640fd5922a446a2b1ed46cfe5cddf",
+    "mtime": 1789546203.767143,
+    "ast_hash": "a5265a3c0060561ae8486511116a1d24",
     "semantic_hash": ""
   },
   "web_ui/backend/models.py": {
@@ -1100,18 +1100,18 @@
     "semantic_hash": "d26adef9dae9966ce474e91839fb023c"
   },
   "web_ui/backend/safety_guard.py": {
-    "mtime": 1788239990.9620175,
-    "ast_hash": "25412cfd6039ae0574a0bab6b20987ce",
-    "semantic_hash": "25412cfd6039ae0574a0bab6b20987ce"
+    "mtime": 1789537444.721628,
+    "ast_hash": "3188f88081eebf89b1eb0098c0fb7301",
+    "semantic_hash": ""
   },
   "web_ui/backend/schemas.py": {
-    "mtime": 1788637923.8185792,
-    "ast_hash": "8ff20cdd2f3835849b6cb6f074d6899e",
+    "mtime": 1789378334.1086974,
+    "ast_hash": "92093746f9b582ad64bac8abba039ce7",
     "semantic_hash": ""
   },
   "web_ui/backend/yaml_generator.py": {
-    "mtime": 1788596498.6374023,
-    "ast_hash": "e68d49b84f117ea5c569a90f2da3576b",
+    "mtime": 1789291841.1603034,
+    "ast_hash": "2fccf59f4825998f85d90a761aec2d18",
     "semantic_hash": ""
   },
   "web_ui/frontend/eslint.config.js": {
@@ -1120,23 +1120,23 @@
     "semantic_hash": "aad27ae666a14635e4faf66246deb4dd"
   },
   "web_ui/frontend/package.json": {
-    "mtime": 1788255868.59312,
-    "ast_hash": "2ad77aed3ad19f46e5418b06dd08d0e7",
-    "semantic_hash": "2ad77aed3ad19f46e5418b06dd08d0e7"
+    "mtime": 1789546195.114143,
+    "ast_hash": "30e820279225dd383006273cfa4f4c23",
+    "semantic_hash": ""
   },
   "web_ui/frontend/src/App.tsx": {
-    "mtime": 1788772648.7430336,
-    "ast_hash": "891655f5d56f0fa92b51665a0aa50413",
+    "mtime": 1789545524.870141,
+    "ast_hash": "511d3c44cde1c3e0ea2f659f0d926e19",
     "semantic_hash": ""
   },
   "web_ui/frontend/src/components/Dashboard.tsx": {
-    "mtime": 1788594598.1084094,
-    "ast_hash": "5d0aef0de70db2dc471c10b9fc7058c7",
+    "mtime": 1789537476.8766282,
+    "ast_hash": "effe1bd264fef14f1f9131f4f6cea40c",
     "semantic_hash": ""
   },
   "web_ui/frontend/src/components/GridForm.tsx": {
-    "mtime": 1788638124.12158,
-    "ast_hash": "4c8611cd6c3edc46bfa90edf565c7305",
+    "mtime": 1789545466.0801408,
+    "ast_hash": "cac5936ccc344acf276c0c82d940c753",
     "semantic_hash": ""
   },
   "web_ui/frontend/src/main.tsx": {
@@ -1145,8 +1145,8 @@
     "semantic_hash": "ca240e63f02797d0217765ddd0be28bc"
   },
   "web_ui/frontend/src/services/api.ts": {
-    "mtime": 1788850546.031264,
-    "ast_hash": "c577f8ed62ee66b2697c5d186b395987",
+    "mtime": 1789378427.9496977,
+    "ast_hash": "a92abce513b2a5bb949a5d08579cff78",
     "semantic_hash": ""
   },
   "web_ui/frontend/tsconfig.app.json": {
@@ -1970,8 +1970,8 @@
     "semantic_hash": "f4fb22a576bc35b2560a170e13419b67"
   },
   "requirements.txt": {
-    "mtime": 1788635657.9634871,
-    "ast_hash": "d0fdd3c3a1503359081b7f53ab506327",
+    "mtime": 1788957095.8377855,
+    "ast_hash": "b426fae3d9ed841bbfc2fc95bfeecf93",
     "semantic_hash": ""
   },
   "scripts/README.md": {
@@ -2200,8 +2200,8 @@
     "semantic_hash": "f740091170aea6b356ed96fe7e6ab3f2"
   },
   "CHANGELOG.md": {
-    "mtime": 1788597412.266405,
-    "ast_hash": "f3c7eafeb1f410d2e3fb58a3944e755e",
+    "mtime": 1789546212.8559139,
+    "ast_hash": "f7382724a5f127bfcfe593436c3ae22d",
     "semantic_hash": ""
   },
   "docs/archive/README_fake_download_page.md": {
@@ -2310,9 +2310,9 @@
     "semantic_hash": "6c9bea5dac29fe690484c586d6f6c42b"
   },
   "web_ui/frontend/src/components/MarketRankings.tsx": {
-    "mtime": 1788255868.59412,
-    "ast_hash": "b3e7c8c9cff3bf1911f9bdf62f5aa246",
-    "semantic_hash": "b3e7c8c9cff3bf1911f9bdf62f5aa246"
+    "mtime": 1789292066.6879127,
+    "ast_hash": "c569a1c3df984fd9b7a0397c3afb80d4",
+    "semantic_hash": ""
   },
   "config/grid/archive/binance-neutral-perp-1000RATS-0.03-0.089.yaml": {
     "mtime": 1786618842.452677,
@@ -2445,8 +2445,8 @@
     "semantic_hash": "eb7789e8e3d87da3814af39785c1c727"
   },
   "core/services/dca/coordinator/dca_coordinator.py": {
-    "mtime": 1788490169.954749,
-    "ast_hash": "e46e494d609276abc4dc5e90db326fa8",
+    "mtime": 1789487154.8526988,
+    "ast_hash": "12ba6aef8342151f5eedf660ef46aaf7",
     "semantic_hash": ""
   },
   "core/services/dca/coordinator/direction_lock.py": {
@@ -2550,9 +2550,9 @@
     "semantic_hash": "c3fcf32f920d18f46c555294e76a288b"
   },
   "core/services/dca/models/dca_config.py": {
-    "mtime": 1787739469.3997748,
-    "ast_hash": "394b8809335b273f3540d66ce25d78fb",
-    "semantic_hash": "394b8809335b273f3540d66ce25d78fb"
+    "mtime": 1789291848.4233034,
+    "ast_hash": "2218317ccee6f146782d456a407abe33",
+    "semantic_hash": ""
   },
   "core/services/dca/models/dca_order.py": {
     "mtime": 1787739469.3997748,
@@ -2620,9 +2620,9 @@
     "semantic_hash": "876d207d7e775cf0e9e542e47e037429"
   },
   "tests/test_dca_http_contract.py": {
-    "mtime": 1788240004.5815394,
-    "ast_hash": "1a1a5fce661e6573f169d431b1a2648c",
-    "semantic_hash": "1a1a5fce661e6573f169d431b1a2648c"
+    "mtime": 1789378406.0576978,
+    "ast_hash": "d566c840fb98113c06039c187d887b85",
+    "semantic_hash": ""
   },
   "tests/test_dca_indicators.py": {
     "mtime": 1787739469.4647813,
@@ -2660,8 +2660,8 @@
     "semantic_hash": "6ef0877cbad50d7fa027f4ec457ce194"
   },
   "web_ui/backend/routes/dca.py": {
-    "mtime": 1788638003.3715794,
-    "ast_hash": "5b13fe5b86481fd6ef0de58118dbc62f",
+    "mtime": 1789378388.3756976,
+    "ast_hash": "2f16cc0fba0b85c9f56a21f44ab96395",
     "semantic_hash": ""
   },
   "web_ui/frontend/src/components/DcaCard.tsx": {
@@ -2675,13 +2675,13 @@
     "semantic_hash": "db6ad0a33bbde4158cb33393c3d9a3ec"
   },
   "web_ui/frontend/src/components/DcaDetail.tsx": {
-    "mtime": 1788112345.710973,
-    "ast_hash": "21b24d036fc41d0a45af7927ddb99120",
-    "semantic_hash": "21b24d036fc41d0a45af7927ddb99120"
+    "mtime": 1789486513.924697,
+    "ast_hash": "d635b73f6b82050b1e07c97f626202d0",
+    "semantic_hash": ""
   },
   "web_ui/frontend/src/components/DcaForm.tsx": {
-    "mtime": 1788638133.0465798,
-    "ast_hash": "8587fd490b31783521435a792b86841c",
+    "mtime": 1789378466.4999406,
+    "ast_hash": "33c291f7bcfdd21408575030d3a86ec8",
     "semantic_hash": ""
   },
   "web_ui/frontend/src/components/DcaLadderPreview.tsx": {
@@ -2870,9 +2870,9 @@
     "semantic_hash": "dde66fea438743ebb3e238c5a92d8e05"
   },
   "web_ui/backend/kline_service.py": {
-    "mtime": 1788112345.707973,
-    "ast_hash": "6e2932be31c6fea2beacf3fa6432a4f5",
-    "semantic_hash": "6e2932be31c6fea2beacf3fa6432a4f5"
+    "mtime": 1789292076.123304,
+    "ast_hash": "4c5dc65d19c67cdd45abe3936c191808",
+    "semantic_hash": ""
   },
   "web_ui/frontend/src/components/DcaBacktestPanel.tsx": {
     "mtime": 1788112345.710973,
@@ -2908,16 +2908,6 @@
     "mtime": 1788112345.712973,
     "ast_hash": "6de5014bd7fb732d01705b560542d6c3",
     "semantic_hash": "6de5014bd7fb732d01705b560542d6c3"
-  },
-  "config/grid/binance-neutral-perp-sol-usdc-usdc-84-250.yaml": {
-    "mtime": 1788169866.4337208,
-    "ast_hash": "9c2441e9891702ad721daeea0bb21909",
-    "semantic_hash": ""
-  },
-  "config/grid/binance-neutral-perp-sui-usdc-usdc-0-0.yaml": {
-    "mtime": 1788169866.4337208,
-    "ast_hash": "07f6de42c2475b7d596b4a0f4c227e66",
-    "semantic_hash": ""
   },
   "docs/dca_bot_dual_stage_audit_20260826.md": {
     "mtime": 1787739469.3997748,
@@ -2990,13 +2980,13 @@
     "semantic_hash": "059d58fe50db4feb3114ebe0b1c4fc9d"
   },
   "web_ui/frontend/src/utils/router.ts": {
-    "mtime": 1788772555.786168,
-    "ast_hash": "a81b15d65722b7b3526fcea1c7e92e12",
+    "mtime": 1789545368.7221406,
+    "ast_hash": "1cf737827e9c78cfa8bdc19b6a2394d0",
     "semantic_hash": ""
   },
   "web_ui/frontend/tests/router.test.ts": {
-    "mtime": 1788772561.332168,
-    "ast_hash": "87f454a277e0045178e87eb99bb73717",
+    "mtime": 1789545376.9051404,
+    "ast_hash": "8db12b36110786e2d81042d9e8058892",
     "semantic_hash": ""
   },
   "tests/services/dca/test_dca_snapshot_recovery.py": {
@@ -3018,16 +3008,6 @@
     "mtime": 1788148777.8641207,
     "ast_hash": "14839460ce255c4b7c7600d3c926faa5",
     "semantic_hash": "14839460ce255c4b7c7600d3c926faa5"
-  },
-  "config/grid/binance-neutral-perp-prom-usdt-usdt-2-8.yaml": {
-    "mtime": 1788169866.4337208,
-    "ast_hash": "f16654e4ab00df3882345897d7be39e3",
-    "semantic_hash": ""
-  },
-  "config/grid/binance-neutral-perp-uni-usdc-usdc-4-12.yaml": {
-    "mtime": 1788169866.4347208,
-    "ast_hash": "ebca6645791aa9c202be8cc00cbdaaba",
-    "semantic_hash": ""
   },
   "core/infrastructure/database/async_writer.py": {
     "mtime": 1788629369.4856071,
@@ -3090,8 +3070,8 @@
     "semantic_hash": "cebccc3be57122c6226074f8f1050aa9"
   },
   "core/services/reconciler/exchange_reconciler.py": {
-    "mtime": 1788490177.395112,
-    "ast_hash": "0c0a19b1524e4aa4f3045360d5ee57a8",
+    "mtime": 1789374930.3503606,
+    "ast_hash": "a0966aa4cbde69d3a9d29d83881759d4",
     "semantic_hash": ""
   },
   "migrations/env.py": {
@@ -3175,8 +3155,8 @@
     "semantic_hash": "46e0b1e8dd675273c8b2ec61444fa5f2"
   },
   "tests/test_exchange_reconciler.py": {
-    "mtime": 1788257440.2051249,
-    "ast_hash": "d5d54bc4d94fc36316338c237f0dceea",
+    "mtime": 1789375000.9233608,
+    "ast_hash": "5a92a50d6e0a02765e6fb783c1f8a128",
     "semantic_hash": ""
   },
   "tests/test_grid_fill_ledger.py": {
@@ -3345,9 +3325,9 @@
     "semantic_hash": "34bcc46f2796e1cd452ebc379be36f33"
   },
   "web_ui/backend/grid_backtest_service.py": {
-    "mtime": 1788255868.59212,
-    "ast_hash": "9136809a56ad500495f5a2672f126df7",
-    "semantic_hash": "9136809a56ad500495f5a2672f126df7"
+    "mtime": 1789292096.9770145,
+    "ast_hash": "05d98d903e268b827e6e0de489cd25aa",
+    "semantic_hash": ""
   },
   "web_ui/backend/routes/grid_backtest.py": {
     "mtime": 1788255868.59212,
@@ -3355,9 +3335,9 @@
     "semantic_hash": "89c9b1e81e4e6a718e74e28af5a00223"
   },
   "web_ui/frontend/src/components/GridBacktestPage.tsx": {
-    "mtime": 1788255868.59412,
-    "ast_hash": "def5a12bb1ff42efc619f36cdc142e39",
-    "semantic_hash": "def5a12bb1ff42efc619f36cdc142e39"
+    "mtime": 1789292059.925375,
+    "ast_hash": "0975320df71243ed6e26c46f8ad7362b",
+    "semantic_hash": ""
   },
   "docs/grid_backtest_audit_report_zh-TW.md": {
     "mtime": 1788255868.53212,
@@ -3374,16 +3354,6 @@
     "ast_hash": "ae9703b4cad69d414396e85b8ae0deb4",
     "semantic_hash": "ae9703b4cad69d414396e85b8ae0deb4"
   },
-  "config/dca/dca-binance-long-eth-usdc-usdc-20260901171027.yaml": {
-    "mtime": 1788255868.5301201,
-    "ast_hash": "8812b19dbf26cd1ee60f09a87eea84c0",
-    "semantic_hash": ""
-  },
-  "config/dca/dca-binance-both-arb-usdc-20260901195111.yaml": {
-    "mtime": 1788263471.181064,
-    "ast_hash": "cf911b926a0f2b5a68d0201595c4b319",
-    "semantic_hash": ""
-  },
   "config/dca/dca-binance-short-cl-usdt-20260902170448.yaml": {
     "mtime": 1788339888.6553626,
     "ast_hash": "9e9b8df6f578cdd0a45e8e4fb8c696b9",
@@ -3397,16 +3367,6 @@
   "tests/test_dca_self_healing_and_oneway_fallback.py": {
     "mtime": 1788489134.213109,
     "ast_hash": "ee894c2ac8c1595726931e264c53b1ba",
-    "semantic_hash": ""
-  },
-  "config/dca/dca-binance-long-sol-usdc-usdc-20260905141030.yaml": {
-    "mtime": 1788588630.1149042,
-    "ast_hash": "299dee074cc19874b0dcbf3735e6affd",
-    "semantic_hash": ""
-  },
-  "config/grid/binance-neutral-perp-eth-usdc-usdc-2180-2720.yaml": {
-    "mtime": 1788588552.6120605,
-    "ast_hash": "f5fa2e1d5a62446614888cd9d42d4771",
     "semantic_hash": ""
   },
   "docs/ai_trader_operating_guide.md": {
@@ -3645,8 +3605,8 @@
     "semantic_hash": ""
   },
   "core/services/coinfull_prime/service.py": {
-    "mtime": 1788850470.6322637,
-    "ast_hash": "8f10b01c558d3f5c9e1e8ce0c7dd5545",
+    "mtime": 1789545042.9961395,
+    "ast_hash": "e32f1da2bde85b42e38cdb9434bd48b6",
     "semantic_hash": ""
   },
   "run_coinfull_prime.py": {
@@ -3670,8 +3630,8 @@
     "semantic_hash": ""
   },
   "web_ui/frontend/src/components/CoinFullPrimePage.tsx": {
-    "mtime": 1788850624.9382641,
-    "ast_hash": "f3aefb9a6b159f852cd63fff3b9c083d",
+    "mtime": 1789545595.9801412,
+    "ast_hash": "937c3655d39284d800db65c6cc432dd1",
     "semantic_hash": ""
   },
   "config/coinfull_prime/strategy_config.yaml": {
@@ -3689,9 +3649,24 @@
     "ast_hash": "c1d19009531170968697978051e99cd7",
     "semantic_hash": ""
   },
-  "config/grid/binance-neutral-perp-soph-usdt-usdt-0_003607-0_011924.yaml": {
-    "mtime": 1788846423.6216328,
-    "ast_hash": "c848548e001ddec906567607513284c0",
+  "tests/test_exchange_audit_and_switch.py": {
+    "mtime": 1789292611.1933057,
+    "ast_hash": "7f92f7f45dc7b5cfc179db4b0a70084f",
+    "semantic_hash": ""
+  },
+  "config/dca/dca-binance-both-eth-usdc-usdc-20260915224640.yaml": {
+    "mtime": 1789483600.0389605,
+    "ast_hash": "bf11c6bea16037232c51db3da26ddb2c",
+    "semantic_hash": ""
+  },
+  "config/dca/dca-binance-short-br-usdt-usdt-20260914201623.yaml": {
+    "mtime": 1789388183.4266906,
+    "ast_hash": "1c2bdaed032a837459a28682a479a17c",
+    "semantic_hash": ""
+  },
+  "web_ui/frontend/src/components/CrossSectionRankings.tsx": {
+    "mtime": 1789545553.302141,
+    "ast_hash": "faaca4bc5cd1e3bae8c5976349862a9a",
     "semantic_hash": ""
   }
 }

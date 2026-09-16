@@ -718,6 +718,14 @@ class DcaInfo(BaseModel):
     base_order_amount: Optional[float] = None
     max_safety_orders: Optional[int] = None
     take_profit_percent: Optional[float] = None
+    cooldown_seconds: Optional[int] = None
+    repeat_after_take_profit: Optional[bool] = None
+
+
+class UpdateDcaConfigRequest(BaseModel):
+    """PATCH /api/v1/dca/{bot_id}/config 請求體（更新既有 DCA 參數，例如每輪冷卻時間）。"""
+    cooldown_seconds: Optional[int] = Field(default=None, ge=0, description="每輪止盈後冷卻秒數")
+    repeat_after_take_profit: Optional[bool] = Field(default=None, description="止盈後自動循環")
 
 
 class DcaListResponse(BaseModel):
@@ -753,6 +761,8 @@ class DcaSnapshotItem(BaseModel):
     max_safety_orders: Optional[int] = None
     take_profit_percent: Optional[float] = None
     stop_loss_percent: Optional[float] = None
+    cooldown_seconds: Optional[int] = None
+    repeat_after_take_profit: Optional[bool] = None
     # Phase 5（卡片欄位表）：入場設定與執行期導出值；未知一律 None（G-5）。
     entry_mode: Optional[str] = None
     entry_logic: Optional[str] = None

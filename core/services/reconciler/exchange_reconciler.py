@@ -18,7 +18,7 @@ class ExchangeReconciler:
     """Three-way state reconciler: Local Ledger <-> Exchange Positions <-> Open Orders."""
 
     @classmethod
-    async def reconcile_dca(cls, coordinator: Any) -> Dict[str, Any]:
+    async def reconcile_dca(cls, coordinator: Any, has_snapshot: bool = False) -> Dict[str, Any]:
         """Perform exchange-as-truth reconciliation for DCA bot.
 
         Guarantees that any open position on the exchange is rehydrated and protected by TP.
@@ -28,6 +28,13 @@ class ExchangeReconciler:
         executor = getattr(coordinator, "_executor", None)
         if not executor:
             return {"status": "skipped", "reason": "no_executor"}
+
+        def _normalize_dir(val: Any) -> Optional[str]:
+            if val is None:
+                return None
+            inner = getattr(val, "value", val)
+            s = str(inner).lower()
+            return s if s in ("long", "short", "both") else None
 
         result = {
             "bot_id": bot_id,
@@ -44,7 +51,9 @@ class ExchangeReconciler:
 
             # 2. Query Exchange Position Truth
             exchange_pos_qty = Decimal("0")
+            exchange_pos_side: Optional[str] = None
             exchange_avg_cost = Decimal("0")
+            bot_dir = _normalize_dir(getattr(coordinator._config, "direction", "long"))
 
             # Try executor method or underlying exchange adapter
             exchange = getattr(executor, "_exchange", None)
@@ -56,7 +65,24 @@ class ExchangeReconciler:
                             sym = getattr(p, "symbol", "")
                             if sym == symbol or sym.replace("/", "").replace(":", "") == symbol.replace("/", "").replace(":", ""):
                                 raw_amt = getattr(p, "amount", getattr(p, "size", 0))
-                                exchange_pos_qty = abs(Decimal(str(raw_amt or 0)))
+                                qty = abs(Decimal(str(raw_amt or 0)))
+                                if qty <= Decimal("0"):
+                                    continue
+                                p_side = getattr(p, "side", None)
+                                side_str = str(getattr(p_side, "value", p_side) or "").lower()
+                                if side_str not in ("long", "short"):
+                                    side_str = "long" if float(raw_amt or 0) >= 0 else "short"
+
+                                # 方向相容性過濾：單向機器人只匹配同向持倉
+                                if bot_dir in ("long", "short") and side_str != bot_dir:
+                                    logger.warning(
+                                        f"⚠️ [Reconciler {symbol}] 發現交易所持倉 {qty} ({side_str})，但機器人方向設定為 {bot_dir}，方向衝突，略過認領",
+                                        extra={"bot_id": bot_id, "symbol": symbol, "exchange_side": side_str, "bot_direction": bot_dir},
+                                    )
+                                    continue
+
+                                exchange_pos_qty = qty
+                                exchange_pos_side = side_str
                                 raw_entry = getattr(p, "entry_price", 0)
                                 if raw_entry:
                                     exchange_avg_cost = Decimal(str(raw_entry))
@@ -66,28 +92,41 @@ class ExchangeReconciler:
 
             # 3. Detect discrepancy: Exchange has position but Coordinator is empty or missing TP
             local_qty = coordinator.state.position_quantity
+            # 新機器人隔離防線：無快照、未接管任何屬於本 bot 的掛單、本地持倉為 0 時，交易所部位視為外部部位，不主動轉入 AVERAGING
+            is_uninitialized_bot = (not has_snapshot) and (taken == 0) and (local_qty == Decimal("0"))
+
             if exchange_pos_qty > Decimal("0") and local_qty == Decimal("0"):
-                logger.warning(
-                    f"🚨 [Reconciler {symbol}] 檢測到狀態不一致！交易所存在持倉 {exchange_pos_qty} 但本地為 0。啟動自癒回補！",
-                    extra={"bot_id": bot_id, "symbol": symbol, "exchange_qty": str(exchange_pos_qty)},
-                )
+                if is_uninitialized_bot:
+                    logger.info(
+                        f"ℹ️ [Reconciler {symbol}] 新建立之 DCA 機器人無歷史快照且無專屬掛單，交易所持倉 ({exchange_pos_qty} {exchange_pos_side}) 視為外部獨立部位，不予自動認領",
+                        extra={"bot_id": bot_id, "symbol": symbol, "exchange_qty": str(exchange_pos_qty)},
+                    )
+                else:
+                    logger.warning(
+                        f"🚨 [Reconciler {symbol}] 檢測到狀態不一致！交易所存在持倉 {exchange_pos_qty} ({exchange_pos_side}) 但本地為 0。啟動自癒回補！",
+                        extra={"bot_id": bot_id, "symbol": symbol, "exchange_qty": str(exchange_pos_qty), "side": exchange_pos_side},
+                    )
 
-                # Rehydrate average cost
-                if exchange_avg_cost <= Decimal("0"):
-                    try:
-                        exchange_avg_cost = await executor.last_price()
-                    except Exception:
-                        exchange_avg_cost = Decimal("0")
+                    # Rehydrate average cost
+                    if exchange_avg_cost <= Decimal("0"):
+                        try:
+                            exchange_avg_cost = await executor.last_price()
+                        except Exception:
+                            exchange_avg_cost = Decimal("0")
 
-                coordinator.state.position_quantity = exchange_pos_qty
-                coordinator.state.total_cost = exchange_pos_qty * (exchange_avg_cost or Decimal("0"))
-                if not coordinator.state.entry_price and exchange_avg_cost > 0:
-                    coordinator.state.entry_price = exchange_avg_cost
+                    coordinator.state.position_quantity = exchange_pos_qty
+                    coordinator.state.total_cost = exchange_pos_qty * (exchange_avg_cost or Decimal("0"))
+                    if not coordinator.state.entry_price and exchange_avg_cost > 0:
+                        coordinator.state.entry_price = exchange_avg_cost
 
-                # Transition to AVERAGING
-                from core.services.dca.models import DcaStatus
-                coordinator.state.status = DcaStatus.AVERAGING
-                result["rehydrated"] = True
+                    # 鎖定正確的持倉方向
+                    if exchange_pos_side in ("long", "short"):
+                        coordinator.state.active_direction = exchange_pos_side
+
+                    # Transition to AVERAGING
+                    from core.services.dca.models import DcaStatus
+                    coordinator.state.status = DcaStatus.AVERAGING
+                    result["rehydrated"] = True
             elif local_qty > Decimal("0") and exchange_pos_qty == Decimal("0"):
                 logger.warning(
                     f"🚨 [Reconciler {symbol}] 檢測到狀態不一致！本地記錄持倉 {local_qty} 但交易所端已無持倉（外部已平倉）。啟動自癒收輪！",
@@ -103,7 +142,7 @@ class ExchangeReconciler:
             if coordinator.state.position_quantity > Decimal("0") and coordinator.state.status not in (DcaStatus.COMPLETED, DcaStatus.COOLING, DcaStatus.ARMED):
                 from core.services.dca.coordinator.take_profit_manager import TakeProfitManager
 
-                direction = coordinator.state.active_direction or getattr(coordinator._config, "direction", "long")
+                direction = _normalize_dir(coordinator.state.active_direction) or _normalize_dir(getattr(coordinator._config, "direction", "long"))
                 if direction not in ("long", "short"):
                     direction = "long"
                 coordinator.state.active_direction = direction

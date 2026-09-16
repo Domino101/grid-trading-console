@@ -375,6 +375,12 @@ class BinanceRest(BinanceBase):
                         BinanceRest._update_adapter_circuit(str(e), self.logger)
                     raise
 
+                # 🔥 -2013 / 訂單不存在：立即停止重試（不可逆終端狀態，避免阻塞限速器隊列）
+                if '-2013' in err_str or 'order does not exist' in err_str or 'ordernotfound' in type(e).__name__.lower():
+                    if self.logger:
+                        self.logger.debug(f"ℹ️ 訂單不存在（-2013 / OrderNotFound），停止重試: {str(e)}")
+                    raise
+
                 if attempt < self.max_retries - 1:
                     # 指数退避：1s → 3s → 9s...（避免瞬断时暴力重试）
                     delay = self.retry_delay * (3 ** attempt)

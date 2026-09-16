@@ -52,12 +52,16 @@ class OKXAdapter(ExchangeAdapter):
         # 🚀 初始化订阅管理器 - 加载OKX配置文件
         try:
             subscription_config = {
-                'exchange': 'okx',
-                'data_types': ['ticker', 'orderbook', 'trades'],
-                'symbols': ['BTC-USDT-SWAP', 'ETH-USDT-SWAP', 'SOL-USDT-SWAP'],  # 默认符号
-                'update_interval': 100  # 100ms
+                'exchange_id': 'okx',
+                'subscription_mode': {
+                    'mode': 'predefined',
+                    'predefined': {
+                        'symbols': ['BTC-USDT-SWAP', 'ETH-USDT-SWAP', 'SOL-USDT-SWAP'],
+                        'data_types': {'ticker': True, 'orderbook': True, 'trades': True}
+                    }
+                }
             }
-            self.subscription_manager = create_subscription_manager('okx', subscription_config)
+            self.subscription_manager = create_subscription_manager(subscription_config, logger=self.logger)
             if self.logger:
                 self.logger.info("✅ OKX订阅管理器初始化成功")
         except Exception as e:

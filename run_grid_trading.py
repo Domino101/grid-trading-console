@@ -516,6 +516,14 @@ def detect_market_type(symbol: str, exchange_name: str) -> ExchangeType:
         # 符号格式：BTC-USD, ETH-USD, SOL-USD等
         return ExchangeType.PERPETUAL
 
+    # OKX 交易所
+    elif exchange_lower == "okx":
+        if "-SWAP" in symbol_upper or "-FUTURES" in symbol_upper or ":SWAP" in symbol_upper:
+            return ExchangeType.PERPETUAL
+        elif "/" in symbol_upper or "-" in symbol_upper:
+            return ExchangeType.SPOT
+        return ExchangeType.PERPETUAL
+
     # 其他交易所默认为永续合约
     else:
         return ExchangeType.PERPETUAL
@@ -578,6 +586,8 @@ async def create_exchange_adapter(config_data: dict):
     # 优先级：环境变量 > 交易所配置文件 > 空字符串
     api_key = os.getenv(f"{exchange_name.upper()}_API_KEY")
     api_secret = os.getenv(f"{exchange_name.upper()}_API_SECRET")
+    api_passphrase = os.getenv(f"{exchange_name.upper()}_PASSPHRASE") or os.getenv(
+        f"{exchange_name.upper()}_API_PASSPHRASE")
     wallet_address = os.getenv(
         f"{exchange_name.upper()}_WALLET_ADDRESS")  # 用于 Hyperliquid
 
@@ -620,6 +630,8 @@ async def create_exchange_adapter(config_data: dict):
                     api_key = api_key or auth_config.get('api_key', "")
                     api_secret = api_secret or auth_config.get(
                         'private_key', "") or auth_config.get('api_secret', "")
+                    api_passphrase = api_passphrase or auth_config.get(
+                        'passphrase', "") or auth_config.get('api_passphrase', "")
                     wallet_address = wallet_address or auth_config.get(
                         'wallet_address', "")
 
@@ -645,6 +657,11 @@ async def create_exchange_adapter(config_data: dict):
             print(f"   💡 Hyperliquid 需要配置:")
             print(f"      - private_key: 钱包私钥")
             print(f"      - wallet_address: 钱包地址")
+        elif exchange_name == "okx":
+            print(f"   💡 OKX 需要配置:")
+            print(f"      - api_key: OKX API Key")
+            print(f"      - api_secret: OKX API Secret")
+            print(f"      - passphrase: OKX API Passphrase")
         elif exchange_name == "o1exchange":
             print(f"   💡 O1Exchange 需要配置:")
             print(f"      - api_key: O1Exchange API Key")
@@ -723,6 +740,7 @@ async def create_exchange_adapter(config_data: dict):
             exchange_type=market_type,  # 🔥 使用自动检测的市场类型
             api_key=api_key or "public_data_only",
             api_secret=api_secret or "public_data_only",
+            api_passphrase=api_passphrase,
             wallet_address=wallet_address,  # Hyperliquid 需要
             testnet=False,
             enable_websocket=True,

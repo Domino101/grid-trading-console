@@ -45,7 +45,9 @@ class CoinFullPrimeService(BaseService):
         self.rebalancer: Optional[PortfolioRebalancer] = None
         self.exchange_adapter: Optional[ExchangeInterface] = None
         self._adapters: Dict[str, ExchangeInterface] = {}
-        self.selected_account: str = "paper"
+
+        saved_state = self.load_scheduler_state()
+        self.selected_account: str = saved_state.get("account_id") or "paper"
 
         self.last_rank_result: Optional[UniverseRankResult] = None
         self.last_rebalance_report: Optional[RebalanceReport] = None
@@ -53,10 +55,10 @@ class CoinFullPrimeService(BaseService):
 
         self._scheduler_task: Optional[asyncio.Task] = None
         self._is_running = False
-        self.scheduler_dry_run: bool = False
-        self.scheduler_capital: Optional[float] = None
-        self.scheduler_leverage: Optional[float] = None
-        self.scheduler_balance_pct: Optional[float] = None
+        self.scheduler_dry_run: bool = saved_state.get("dry_run", False)
+        self.scheduler_capital: Optional[float] = saved_state.get("capital")
+        self.scheduler_leverage: Optional[float] = saved_state.get("leverage")
+        self.scheduler_balance_pct: Optional[float] = saved_state.get("balance_pct")
 
     def get_external_bot_symbols(self, account_mode: Optional[str] = None) -> Set[str]:
         """
@@ -587,6 +589,78 @@ class CoinFullPrimeService(BaseService):
         finally:
             self._is_running = False
 
+    def _get_scheduler_state_file(self) -> Path:
+        base_dir = Path(__file__).resolve().parent.parent.parent.parent
+        return base_dir / "data" / "coinfull_prime_scheduler.json"
+
+    def load_scheduler_state(self) -> Dict[str, Any]:
+        """讀取保存的排程器配置與狀態"""
+        path = self._get_scheduler_state_file()
+        if not path.exists():
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f) or {}
+        except Exception as ex:
+            logger.warning(f"讀取 CoinFull Prime 排程持久化狀態失敗: {ex}")
+            return {}
+
+    def save_scheduler_state(self):
+        """原子寫入持久化排程器狀態"""
+        path = self._get_scheduler_state_file()
+        data = {
+            "account_id": self.selected_account,
+            "dry_run": self.scheduler_dry_run,
+            "capital": self.scheduler_capital,
+            "leverage": self.scheduler_leverage,
+            "balance_pct": self.scheduler_balance_pct,
+            "enabled": getattr(self, "scheduler_enabled", True),
+            "is_running": self._is_running,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temp_file = path.with_suffix(".tmp")
+            with open(temp_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            temp_file.replace(path)
+            logger.debug(f"💾 已成功持久化 CoinFull Prime 排程狀態: {data}")
+        except Exception as ex:
+            logger.error(f"持久化 CoinFull Prime 排程狀態失敗: {ex}")
+
+    def restore_scheduler(self):
+        """
+        伺服器開機時調用：恢復先前的排程配置並啟動排程。
+        若無歷史保存檔，則以預設測試網環境啟動。
+        """
+        saved = self.load_scheduler_state()
+        if saved:
+            acc_id = saved.get("account_id") or "binance_testnet"
+            dry_run = saved.get("dry_run", False)
+            cap = saved.get("capital")
+            lev = saved.get("leverage")
+            bp = saved.get("balance_pct")
+            should_run = saved.get("enabled", saved.get("is_running", True))
+            logger.info(f"🔄 從持久化紀錄恢復 CoinFull Prime 排程: 帳號={acc_id}, DryRun={dry_run}, 啟用狀態={should_run}")
+            if should_run:
+                self.start_scheduler(
+                    account_id=acc_id,
+                    dry_run=dry_run,
+                    capital=cap,
+                    leverage=lev,
+                    balance_pct=bp
+                )
+            else:
+                self.selected_account = acc_id
+                self.scheduler_dry_run = dry_run
+                self.scheduler_capital = cap
+                self.scheduler_leverage = lev
+                self.scheduler_balance_pct = bp
+                self.scheduler_enabled = False
+        else:
+            logger.info("ℹ️ 無 CoinFull Prime 歷史排程紀錄，以預設測試網環境啟動排程")
+            self.start_scheduler(account_id="binance_testnet", dry_run=False)
+
     def start_scheduler(
         self,
         account_id: Optional[str] = None,
@@ -596,6 +670,7 @@ class CoinFullPrimeService(BaseService):
         balance_pct: Optional[float] = None
     ):
         """啟動定時排程 (支援配置定時換倉的目標環境與資金配置)"""
+        self.scheduler_enabled = True
         if account_id:
             self.selected_account = account_id
         if dry_run is not None:
@@ -613,9 +688,11 @@ class CoinFullPrimeService(BaseService):
 
         if self._scheduler_task and not self._scheduler_task.done():
             logger.warning("排程已經在運行中，已即時更新配置參數")
+            self.save_scheduler_state()
             return
         self._is_running = True
         self._scheduler_task = asyncio.create_task(self._scheduler_loop())
+        self.save_scheduler_state()
 
     def set_scheduler_target(
         self,
@@ -641,18 +718,24 @@ class CoinFullPrimeService(BaseService):
         if balance_pct is not None:
             self.scheduler_balance_pct = balance_pct
 
+        self.save_scheduler_state()
+
         logger.info(
             f"🔄 CoinFull Prime 定時排程目標已更新: 目標帳號={self.selected_account}, "
             f"DryRun={self.scheduler_dry_run}, 本金={self.scheduler_capital}, 槓桿={self.scheduler_leverage}, 餘額%={self.scheduler_balance_pct}"
         )
         return self.get_status()
 
-    def stop_scheduler(self):
-        """停止定時排程"""
+    def stop_scheduler(self, disable: bool = True):
+        """停止定時排程 (disable=False 代表服務重啟時的優雅關閉，不改變用戶設定的啟用狀態)"""
+        if disable:
+            self.scheduler_enabled = False
         self._is_running = False
         if self._scheduler_task:
             self._scheduler_task.cancel()
             self._scheduler_task = None
+        if disable:
+            self.save_scheduler_state()
 
     def get_status(self) -> Dict[str, Any]:
         """取得當前運行狀態"""

@@ -555,6 +555,8 @@ export interface DcaSnapshotItem {
     max_safety_orders: number | null;
     take_profit_percent: number | null;
     stop_loss_percent: number | null;
+    cooldown_seconds?: number | null;
+    repeat_after_take_profit?: boolean | null;
     // Phase 5 卡片欄位（入場設定與執行期導出值）
     entry_mode: 'immediate' | 'indicator' | (string & {}) | null;
     entry_logic: 'all' | 'any' | (string & {}) | null;
@@ -623,6 +625,8 @@ export interface DcaInfoResponse {
     base_order_amount: number | null;
     max_safety_orders: number | null;
     take_profit_percent: number | null;
+    cooldown_seconds?: number | null;
+    repeat_after_take_profit?: boolean | null;
 }
 
 export interface DcaStatsResponse {
@@ -1289,12 +1293,29 @@ export const api = {
         return requestJson(`/v1/dca/${encodeURIComponent(botId)}/events`, { headers: authHeaders(), signal }, `無法讀取 DCA ${botId} 事件`);
     },
 
-    async startDca(botId: string, source: string = 'dashboard', idempotencyKey?: string): Promise<DcaActionResponse> {
+    async startDca(botId: string, source: string = 'dashboard', idempotencyKey?: string, cooldownSeconds?: number): Promise<DcaActionResponse> {
         const key = idempotencyKey || generateUUID();
+        const cdParam = cooldownSeconds !== undefined ? `&cooldown_seconds=${encodeURIComponent(cooldownSeconds)}` : '';
         return requestJson(
-            `/v1/dca/${encodeURIComponent(botId)}/start?source=${encodeURIComponent(source)}`,
+            `/v1/dca/${encodeURIComponent(botId)}/start?source=${encodeURIComponent(source)}${cdParam}`,
             { method: 'POST', headers: authHeaders(key) },
             `無法啟動 DCA ${botId}`,
+        );
+    },
+
+    async updateDcaConfig(
+        botId: string,
+        params: { cooldown_seconds?: number; repeat_after_take_profit?: boolean },
+        source: string = 'dashboard',
+    ): Promise<DcaInfoResponse> {
+        return requestJson(
+            `/v1/dca/${encodeURIComponent(botId)}/config?source=${encodeURIComponent(source)}`,
+            {
+                method: 'PATCH',
+                headers: authHeaders(),
+                body: JSON.stringify(params),
+            },
+            `無法更新 DCA ${botId} 參數`,
         );
     },
 

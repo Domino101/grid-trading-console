@@ -95,6 +95,7 @@ from web_ui.backend.schemas import (
     SweepRequest,
     SweepResponse,
     SweepRunResult,
+    UpdateDcaConfigRequest,
 )
 from core.services.dca.config_loader import dca_account_mode_from_yaml, load_dca_config
 from core.services.dca.ladder import build_ladder, stop_loss_price, take_profit_price
@@ -341,6 +342,8 @@ def _build_dca_read_model(
         "max_safety_orders": _int(section.get("max_safety_orders")),
         "take_profit_percent": _number(section.get("take_profit_percent")),
         "stop_loss_percent": _number(section.get("stop_loss_percent")),
+        "cooldown_seconds": _int(section.get("cooldown_seconds")) if section.get("cooldown_seconds") is not None else 300,
+        "repeat_after_take_profit": bool(section.get("repeat_after_take_profit", True)),
         "entry_mode": str(entry_section.get("mode")) if isinstance(entry_section, Mapping) and entry_section.get("mode") else "immediate",
         "entry_logic": str(entry_section.get("logic")) if isinstance(entry_section, Mapping) and entry_section.get("logic") else None,
         "entry_timeframe": str(entry_section.get("timeframe")) if isinstance(entry_section, Mapping) and entry_section.get("timeframe") else None,
@@ -431,6 +434,8 @@ def _build_dca_info(config_path: str, active_dca: dict) -> DcaInfo:
         base_order_amount=model["base_order_amount"],
         max_safety_orders=model["max_safety_orders"],
         take_profit_percent=model["take_profit_percent"],
+        cooldown_seconds=model.get("cooldown_seconds", 300),
+        repeat_after_take_profit=model.get("repeat_after_take_profit", True),
     )
 
 
@@ -987,6 +992,7 @@ async def start_dca(
     bot_id: str,
     source: str = Query(default="hermes", description="來源"),
     reason: Optional[str] = Query(default=None, description="原因"),
+    cooldown_seconds: Optional[int] = Query(default=None, ge=0, description="開啟時可自訂每輪冷卻秒數"),
     idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
     _token: str = Depends(verify_token),
 ):
@@ -1012,6 +1018,14 @@ async def start_dca(
                             detail=f"DCA 配置 {bot_id} 不存在")
 
     yaml_data = _read_dca_yaml(config_path) or {}
+
+    # 開啟時若傳入冷卻秒數，寫回配置 YAML
+    if cooldown_seconds is not None:
+        if "dca" in yaml_data and isinstance(yaml_data["dca"], dict):
+            yaml_data["dca"]["cooldown_seconds"] = cooldown_seconds
+            with open(abs_path, "w", encoding="utf-8") as f:
+                yaml.dump(yaml_data, f, allow_unicode=True, sort_keys=False)
+
     blocked = start_rejection(dca_account_mode_from_yaml(yaml_data), live_trading_enabled())
     if blocked:
         audit_logger.log(source=source, action="start", grid_id=bot_id,
@@ -1095,6 +1109,56 @@ async def start_dca(
                          error_msg=f"啟動 DCA 異常: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail=f"啟動 DCA 異常: {e}")
+
+
+# ────────────────────────────────────────────────────────
+# PATCH /api/v1/dca/{bot_id}/config — 修改冷卻時間等參數
+# ────────────────────────────────────────────────────────
+@router.patch("/{bot_id}/config", response_model=DcaInfo)
+async def update_dca_config(
+    bot_id: str,
+    payload: UpdateDcaConfigRequest,
+    source: str = Query(default="hermes", description="來源"),
+    reason: Optional[str] = Query(default=None, description="原因"),
+    _token: str = Depends(verify_token),
+):
+    _validate_bot_id(bot_id)
+    project_root = _get_project_root()
+    audit_logger = AuditLogger.get_instance(project_root)
+
+    config_path = DcaYAMLGenerator.path_from_bot_id(bot_id)
+    abs_path = os.path.join(project_root, config_path)
+    if not os.path.exists(abs_path):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"DCA 配置 {bot_id} 不存在")
+
+    active_dca = _read_active_dca()
+    if active_dca.get(config_path, False):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"DCA {bot_id} 正在運行中，請先停止機器人再修改參數",
+        )
+
+    yaml_data = _read_dca_yaml(config_path) or {}
+    if "dca" not in yaml_data or not isinstance(yaml_data["dca"], dict):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="無效的 DCA 配置結構")
+
+    changed = False
+    if payload.cooldown_seconds is not None:
+        yaml_data["dca"]["cooldown_seconds"] = payload.cooldown_seconds
+        changed = True
+    if payload.repeat_after_take_profit is not None:
+        yaml_data["dca"]["repeat_after_take_profit"] = payload.repeat_after_take_profit
+        changed = True
+
+    if changed:
+        with open(abs_path, "w", encoding="utf-8") as f:
+            yaml.dump(yaml_data, f, allow_unicode=True, sort_keys=False)
+        audit_logger.log(
+            source=source, action="update_config", grid_id=bot_id,
+            params=payload.model_dump(exclude_unset=True), result="success", reason=reason
+        )
+
+    return _build_dca_info(config_path, active_dca)
 
 
 # ────────────────────────────────────────────────────────

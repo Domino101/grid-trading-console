@@ -119,7 +119,7 @@ class GridYAMLGenerator:
 
         # exchange 合法值
         exchange = params.get("exchange")
-        valid_exchanges = ["binance", "lighter", "backpack", "hyperliquid"]
+        valid_exchanges = ["binance", "okx", "hyperliquid", "lighter", "backpack"]
         if exchange is not None and exchange.lower() not in valid_exchanges:
             errors.append(
                 f"無效的 exchange: {exchange}，"

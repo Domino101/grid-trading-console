@@ -219,8 +219,14 @@ class GridCoordinator:
         订单成交回调 - 核心逻辑
         """
         if self._paused:
-            self.logger.info(f"網格處於暫停狀態，忽略成交事件：{filled_order.order_id}")
-            return
+            if self._paused_reason == 'network':
+                self.logger.info(
+                    f"🔌 收到交易所實盤成交通知 ({filled_order.order_id})，證明網絡通訊正常，自動解除 network 暫停！"
+                )
+                await self.resume(auto=True)
+            else:
+                self.logger.info(f"網格處於暫停狀態（原因: {self._paused_reason}），忽略成交事件：{filled_order.order_id}")
+                return
 
         # 0. 價格鎖定判斷（極速行情防護）
         if self.config.price_lock_enabled:

@@ -71,7 +71,10 @@ def _default_fetch_ccxt_ohlcv(
     ex_lower = exchange_id.lower()
     exchange_class = getattr(ccxt, ex_lower, None)
     if not exchange_class:
-        exchange_class = ccxt.binance
+        logger.warning(
+            "交易所 '%s' 未原生支援 CCXT 歷史 K 棒獲取，拒絕靜默偽裝幣安以防數據污染", exchange_id
+        )
+        return []
 
     client = exchange_class({
         "enableRateLimit": True,

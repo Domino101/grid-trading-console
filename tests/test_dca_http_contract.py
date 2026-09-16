@@ -457,6 +457,41 @@ class DcaHttpContractTests(unittest.TestCase):
         self.assertFalse(body["available"])
         self.assertEqual(body["orders"], [])
 
+    def test_dca_config_cooldown_and_patch(self):
+        created = self._create(cooldown_seconds=300)
+        bot_id = created.json()["bot_id"]
+
+        # GET checks cooldown_seconds and repeat_after_take_profit
+        info = self.client.get(f"/api/v1/dca/{bot_id}", headers=self._headers())
+        self.assertEqual(info.status_code, 200)
+        ibody = info.json()
+        self.assertEqual(ibody.get("cooldown_seconds"), 300)
+        self.assertEqual(ibody.get("repeat_after_take_profit"), True)
+
+        # PATCH /config to change cooldown_seconds to 600
+        patch_res = self.client.patch(
+            f"/api/v1/dca/{bot_id}/config",
+            json={"cooldown_seconds": 600},
+            headers=self._headers(),
+        )
+        self.assertEqual(patch_res.status_code, 200)
+        pbody = patch_res.json()
+        self.assertEqual(pbody.get("cooldown_seconds"), 600)
+
+        # Verify persisted in GET
+        info2 = self.client.get(f"/api/v1/dca/{bot_id}", headers=self._headers())
+        self.assertEqual(info2.json().get("cooldown_seconds"), 600)
+
+        # Start with cooldown_seconds query override
+        start_res = self.client.post(
+            f"/api/v1/dca/{bot_id}/start?cooldown_seconds=120",
+            headers=self._headers(),
+        )
+        self.assertEqual(start_res.status_code, 200)
+        info3 = self.client.get(f"/api/v1/dca/{bot_id}", headers=self._headers())
+        self.assertEqual(info3.json().get("cooldown_seconds"), 120)
+
 
 if __name__ == "__main__":
     unittest.main()
+

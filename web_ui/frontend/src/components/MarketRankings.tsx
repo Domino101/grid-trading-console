@@ -195,10 +195,10 @@ const MarketRankings: React.FC<MarketRankingsProps> = ({ onSelectSymbol, onBackt
             </button>
             <button
               type="button"
-              className={`select-pill ${exchange === 'lighter' ? 'active' : ''}`}
-              onClick={() => setExchange('lighter')}
+              className={`select-pill ${exchange === 'okx' ? 'active' : ''}`}
+              onClick={() => setExchange('okx')}
             >
-              Lighter
+              OKX
             </button>
             <button
               type="button"
@@ -206,6 +206,20 @@ const MarketRankings: React.FC<MarketRankingsProps> = ({ onSelectSymbol, onBackt
               onClick={() => setExchange('hyperliquid')}
             >
               Hyperliquid
+            </button>
+            <button
+              type="button"
+              className={`select-pill ${exchange === 'lighter' ? 'active' : ''}`}
+              onClick={() => setExchange('lighter')}
+            >
+              Lighter
+            </button>
+            <button
+              type="button"
+              className={`select-pill ${exchange === 'backpack' ? 'active' : ''}`}
+              onClick={() => setExchange('backpack')}
+            >
+              Backpack
             </button>
           </div>
 

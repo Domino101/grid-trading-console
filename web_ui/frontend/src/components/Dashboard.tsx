@@ -157,14 +157,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenGrid, onCreateNew, onUnauth
       if (action === 'start') await api.startGrid(grid.grid_id);
       if (action === 'stop') await api.stopGrid(grid.grid_id);
       if (action === 'delete') {
-        const isRunningOrPending = grid.status === 'running' || grid.status === 'starting' || grid.status === 'stopping';
-        if (isRunningOrPending) {
-          try {
-            await api.stopGrid(grid.grid_id);
-          } catch {
-            // continue to delete if already stopping/stopped
-          }
-        }
         await api.deleteGrid(grid.grid_id, 'dashboard', true);
       }
       await fetchSnapshot();
