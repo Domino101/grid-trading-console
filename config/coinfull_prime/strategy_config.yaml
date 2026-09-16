@@ -77,7 +77,7 @@ schedule:
 # 實作：core/services/coinfull_prime/regime_filter.py
 regime_gate:
   enabled: true
-  log_only: false          # true = 僅計算與記錄、不改變下單行為（上線初期建議先開 2 週）
+  log_only: true          # true = 僅計算與記錄、不改變下單行為（上線初期建議先開 2 週）
   mode: "flatten"          # flatten(保守版) pts=0→0x 停單 | soft(積極版) pts=0→0.35x
   trend_ma_days: 50        # 元件1 趨勢：BTC 收盤 > N 日 SMA
   breadth_threshold_pct: 30.0   # 元件2 廣度：宇宙站上 50 日 SMA 比例 > 30%

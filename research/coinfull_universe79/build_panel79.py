@@ -71,13 +71,15 @@ def load_funding_symbol(csv_paths: List[str], symbol: str) -> "pd.DataFrame | No
     for p in sorted(csv_paths):
         df = pd.read_csv(p)
         df.columns = [c.lower().strip() for c in df.columns]
-        if "fundingtime" not in df.columns or "fundingrate" not in df.columns:
+        time_col = next((c for c in ["calc_time", "fundingtime", "funding_time", "time", "timestamp"] if c in df.columns), None)
+        rate_col = next((c for c in ["last_funding_rate", "fundingrate", "funding_rate", "rate"] if c in df.columns), None)
+        if not time_col or not rate_col:
             continue
-        frames.append(df[["fundingtime", "fundingrate"]])
+        sub = df[[time_col, rate_col]].rename(columns={time_col: "timestamp_ms", rate_col: "funding_rate"})
+        frames.append(sub)
     if not frames:
         return None
     d = pd.concat(frames, ignore_index=True)
-    d = d.rename(columns={"fundingtime": "timestamp_ms", "fundingrate": "funding_rate"})
     d["symbol"] = symbol
     d = d.drop_duplicates(["timestamp_ms"]).sort_values("timestamp_ms")
     return d
