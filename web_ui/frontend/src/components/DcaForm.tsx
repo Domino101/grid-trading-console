@@ -535,9 +535,10 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                                 <span>交易所 (Exchange)</span>
                                 <select value={form.exchange} onChange={(e) => update('exchange', e.target.value)}>
                                     <option value="binance">Binance (幣安)</option>
+                                    <option value="okx">OKX (歐易)</option>
+                                    <option value="hyperliquid">Hyperliquid L1</option>
                                     <option value="lighter">Lighter DEX</option>
                                     <option value="backpack">Backpack</option>
-                                    <option value="hyperliquid">Hyperliquid L1</option>
                                 </select>
                             </label>
 
@@ -547,7 +548,13 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                                     value={form.symbol}
                                     exchange={form.exchange}
                                     onChange={(val) => update('symbol', val)}
-                                    placeholder="例如: ETH/USDC:USDC 或 牛来USDT"
+                                    placeholder={
+                                        form.exchange === 'okx' ? '例如: ETH-USDT-SWAP 或 BTC-USDT-SWAP' :
+                                        form.exchange === 'hyperliquid' ? '例如: ETH/USDC:USDC 或 SOL/USDC:USDC' :
+                                        form.exchange === 'lighter' ? '例如: ETH-USD 或 BTC-USD' :
+                                        form.exchange === 'backpack' ? '例如: ETH_USDC_PERP' :
+                                        '例如: ETH/USDC:USDC 或 牛来USDT'
+                                    }
                                     ariaDescribedBy="dca-market-info"
                                 />
                             </label>
@@ -803,25 +810,61 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                                 </span>
                             </label>
 
-                            <label className="dca-checkbox">
-                                <input
-                                    type="checkbox"
-                                    checked={form.repeat_after_take_profit}
-                                    onChange={(e) => update('repeat_after_take_profit', e.target.checked)}
-                                />
-                                <span>止盈後自動循環（repeat after take profit）</span>
-                            </label>
+                            <div className="field-full" style={{ padding: '0.85rem', background: 'rgba(255,255,255,0.02)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                                <label className="dca-checkbox" style={{ margin: 0 }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={form.repeat_after_take_profit}
+                                        onChange={(e) => update('repeat_after_take_profit', e.target.checked)}
+                                    />
+                                    <span style={{ fontWeight: 600 }}>止盈後自動循環（Repeat after Take Profit）</span>
+                                </label>
 
-                            <label className="input-label">
-                                <span>冷卻秒數 (Cooldown seconds)</span>
-                                <input
-                                    type="number"
-                                    value={Number.isFinite(form.cooldown_seconds) ? form.cooldown_seconds : ''}
-                                    min={0}
-                                    step={30}
-                                    onChange={(e) => update('cooldown_seconds', Number(e.target.value))}
-                                />
-                            </label>
+                                {form.repeat_after_take_profit && (
+                                    <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                                        <label className="input-label" style={{ marginBottom: '0.35rem' }}>
+                                            <span style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+                                                <span>每輪冷卻時間 (Cooldown)</span>
+                                                <span className="muted" style={{ fontSize: '0.78rem', fontWeight: 'normal' }}>
+                                                    {form.cooldown_seconds === 0
+                                                        ? '⚡ 0 秒（立即重進，不冷卻）'
+                                                        : `⏱️ ${form.cooldown_seconds} 秒（約 ${(form.cooldown_seconds / 60).toFixed(1).replace(/\.0$/, '')} 分鐘）`}
+                                                </span>
+                                            </span>
+                                            <input
+                                                type="number"
+                                                value={Number.isFinite(form.cooldown_seconds) ? form.cooldown_seconds : ''}
+                                                min={0}
+                                                step={30}
+                                                onChange={(e) => update('cooldown_seconds', Math.max(0, Number(e.target.value)))}
+                                                placeholder="300"
+                                            />
+                                        </label>
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.4rem' }}>
+                                            {[
+                                                { label: '0s (立即重進)', val: 0 },
+                                                { label: '60s (1分鐘)', val: 60 },
+                                                { label: '300s (5分鐘·預設)', val: 300 },
+                                                { label: '600s (10分鐘)', val: 600 },
+                                                { label: '1800s (30分鐘)', val: 1800 },
+                                            ].map((preset) => (
+                                                <button
+                                                    key={preset.val}
+                                                    type="button"
+                                                    className={`btn btn-xs ${form.cooldown_seconds === preset.val ? 'btn-primary' : 'btn-outline'}`}
+                                                    style={{ fontSize: '0.72rem', padding: '0.2rem 0.55rem', borderRadius: '4px' }}
+                                                    onClick={() => update('cooldown_seconds', preset.val)}
+                                                >
+                                                    {preset.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <p className="muted" style={{ fontSize: '0.74rem', margin: '0.4rem 0 0 0' }}>
+                                            每輪止盈完成後進入冷卻（cooling）狀態，倒數結束後才解除鎖定回到監控（armed），防止同一波行情立即追高/殺跌。
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
 
                             <OptionalNumberInput
                                 label="最大循環數（留空 = 無限）"
@@ -908,6 +951,29 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                                 <div className="dca-review-row"><span>止盈</span><strong>{form.take_profit_percent}%</strong></div>
                                 {form.stop_loss_percent != null && (
                                     <div className="dca-review-row"><span>止損</span><strong>{form.stop_loss_percent}%</strong></div>
+                                )}
+                                <div className="dca-review-row">
+                                    <span>止盈後循環</span>
+                                    <strong>{form.repeat_after_take_profit ? '啟用（自動循環）' : '停用（單輪結束即停止）'}</strong>
+                                </div>
+                                {form.repeat_after_take_profit && (
+                                    <div className="dca-review-row" style={{ alignItems: 'center' }}>
+                                        <span title="開啟/建立前可直接於此微調">每輪冷卻時間（可微調）</span>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                            <input
+                                                type="number"
+                                                value={Number.isFinite(form.cooldown_seconds) ? form.cooldown_seconds : ''}
+                                                min={0}
+                                                step={30}
+                                                style={{ width: '85px', padding: '0.2rem 0.4rem', fontSize: '0.85rem', textAlign: 'right', borderRadius: '4px', background: 'var(--bg-input, rgba(0,0,0,0.3))', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+                                                onChange={(e) => update('cooldown_seconds', Math.max(0, Number(e.target.value)))}
+                                                title="開啟前可手動調整每輪冷卻秒數"
+                                            />
+                                            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                                                秒 ({form.cooldown_seconds === 0 ? '不冷卻' : `${(form.cooldown_seconds / 60).toFixed(1).replace(/\.0$/, '')} 分鐘`})
+                                            </span>
+                                        </div>
+                                    </div>
                                 )}
                             </div>
 

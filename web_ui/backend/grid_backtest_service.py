@@ -24,6 +24,14 @@ from core.services.grid.backtest.simulator import GridBacktestSimulator
 from core.services.grid.backtest.stress import run_stress
 
 DEFAULT_FEE_RATE = Decimal("0.0002")
+DEFAULT_EXCHANGE_FEE_RATES: Dict[str, Decimal] = {
+    "binance": Decimal("0.0002"),      # 0.02% Maker
+    "okx": Decimal("0.0002"),          # 0.02% Maker
+    "hyperliquid": Decimal("0.0001"),  # 0.01% Maker
+    "lighter": Decimal("0.0000"),      # 0.00% Maker
+    "backpack": Decimal("0.0002"),     # 0.02% Maker
+    "paper": Decimal("0.0002"),
+}
 DEFAULT_MAINTENANCE_MARGIN_RATE = Decimal("0.005")
 DEFAULT_TIMEFRAME = "1h"
 DEFAULT_BARS = 720
@@ -96,10 +104,11 @@ def build_spec_from_request(payload: Dict[str, Any]) -> GridBacktestSpec:
 
     initial_capital = Decimal(str(payload.get("initial_capital")))
     leverage = max(1, int(payload.get("leverage") or 10))
+    default_fee = DEFAULT_EXCHANGE_FEE_RATES.get(exchange, DEFAULT_FEE_RATE)
     fee_rate = (
         Decimal(str(payload["fee_rate"]))
         if payload.get("fee_rate") is not None
-        else DEFAULT_FEE_RATE
+        else default_fee
     )
     mm_rate = (
         Decimal(str(payload["maintenance_margin_rate"]))

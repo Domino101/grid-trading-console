@@ -90,7 +90,13 @@ const num = (v: unknown): number | null =>
 const str = (v: unknown): string | null =>
     typeof v === 'string' ? v : v == null ? null : String(v);
 
-const DcaDetail: React.FC<DcaDetailProps> = ({ bot, onBack, onUnauthorized }) => {
+const DcaDetail: React.FC<DcaDetailProps> = ({ bot: initialBot, onBack, onUnauthorized }) => {
+    const [currentBot, setCurrentBot] = useState<DcaSnapshotItem>(initialBot);
+    useEffect(() => {
+        setCurrentBot(initialBot);
+    }, [initialBot]);
+    const bot = currentBot;
+
     const [activeTab, setActiveTab] = useState<TabType>('ladder');
     const [stats, setStats] = useState<DcaStatsResponse | null>(null);
     const [ladder, setLadder] = useState<DcaLadderResponse | null>(null);
@@ -129,6 +135,12 @@ const DcaDetail: React.FC<DcaDetailProps> = ({ bot, onBack, onUnauthorized }) =>
     const [swRunning, setSwRunning] = useState(false);
     const swAbortRef = useRef<AbortController | null>(null);
 
+    // ── 冷卻時間設置狀態（stopped 時可修改）──
+    const [cooldownVal, setCooldownVal] = useState<number>(bot.cooldown_seconds ?? 300);
+    const [isEditingCooldown, setIsEditingCooldown] = useState(false);
+    const [savingCooldown, setSavingCooldown] = useState(false);
+    const [cooldownMsg, setCooldownMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
     const botId = bot.bot_id;
 
     const load = useCallback(async () => {
@@ -137,18 +149,25 @@ const DcaDetail: React.FC<DcaDetailProps> = ({ bot, onBack, onUnauthorized }) =>
         abortRef.current = controller;
         setLoading(true);
         try {
-            const [nextStats, nextLadder, nextOrders, nextFills, nextEvents] = await Promise.all([
+            const [nextStats, nextLadder, nextOrders, nextFills, nextEvents, nextSnapshot] = await Promise.all([
                 api.getDcaStats(botId, controller.signal),
                 api.getDcaLadder(botId, controller.signal),
                 api.getDcaOrders(botId, controller.signal),
                 api.getDcaFills(botId, controller.signal),
                 api.listDcaEvents(botId, controller.signal),
+                api.getDcaSnapshot(controller.signal).catch(() => null),
             ]);
             setStats(nextStats);
             setLadder(nextLadder);
             setOrders(nextOrders);
             setFills(nextFills);
             setEvents(nextEvents.events);
+            if (nextSnapshot?.bots) {
+                const refreshed = nextSnapshot.bots.find((b) => b.bot_id === botId);
+                if (refreshed) {
+                    setCurrentBot(refreshed);
+                }
+            }
             setError(null);
         } catch (caught) {
             if (caught instanceof ApiError && caught.isUnauthorized) {
@@ -270,6 +289,34 @@ const DcaDetail: React.FC<DcaDetailProps> = ({ bot, onBack, onUnauthorized }) =>
             setBtRunning(false);
         }
     }, [botId, btTimeframe, btBars, btCapital, bot.symbol, bot.exchange, onUnauthorized]);
+
+    // 修改冷卻時間處理
+    const handleSaveCooldown = async () => {
+        if (!Number.isFinite(cooldownVal) || cooldownVal < 0) {
+            setCooldownMsg({ type: 'error', text: '冷卻秒數必須是 ≥ 0 的數字' });
+            return;
+        }
+        setSavingCooldown(true);
+        setCooldownMsg(null);
+        try {
+            const updated = await api.updateDcaConfig(botId, { cooldown_seconds: cooldownVal });
+            if (updated.cooldown_seconds !== undefined && updated.cooldown_seconds !== null) {
+                setCooldownVal(updated.cooldown_seconds);
+            }
+            const text = await api.getConfig(bot.config_path);
+            setYamlText(text);
+            setCooldownMsg({ type: 'success', text: `冷卻時間已成功更新為 ${cooldownVal} 秒！` });
+            setIsEditingCooldown(false);
+        } catch (caught) {
+            if (caught instanceof ApiError && caught.isUnauthorized) {
+                onUnauthorized();
+                return;
+            }
+            setCooldownMsg({ type: 'error', text: caught instanceof Error ? caught.message : '更新失敗' });
+        } finally {
+            setSavingCooldown(false);
+        }
+    };
 
     const runSweep = useCallback(async () => {
         swAbortRef.current?.abort();
@@ -886,7 +933,15 @@ const DcaDetail: React.FC<DcaDetailProps> = ({ bot, onBack, onUnauthorized }) =>
                                                 </td>
                                                 <td>
                                                     {live.isTriggered ? (
-                                                        <span className="badge badge-dca-triggering">條件成立</span>
+                                                        <span className="badge badge-dca-triggering">
+                                                            {ind.triggered_long && ind.triggered_short
+                                                                ? '多空條件皆成立'
+                                                                : ind.triggered_long
+                                                                ? '多方條件成立'
+                                                                : ind.triggered_short
+                                                                ? '空方條件成立'
+                                                                : '條件成立'}
+                                                        </span>
                                                     ) : live.isWarming ? (
                                                         <span className="badge badge-dca-armed">暖機中</span>
                                                     ) : live.valueText != null ? (
@@ -911,7 +966,99 @@ const DcaDetail: React.FC<DcaDetailProps> = ({ bot, onBack, onUnauthorized }) =>
             {/* Tab: 設定 */}
             {activeTab === 'specs' && (
                 <section className="glass-panel" style={{ padding: '1.25rem' }}>
-                    <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.5rem' }}>設定（唯讀）</h3>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                        <div>
+                            <h3 style={{ fontSize: '1rem', fontWeight: 600, margin: 0 }}>策略參數與規格</h3>
+                            <p className="muted" style={{ fontSize: '0.78rem', margin: 0 }}>
+                                停止狀態下可手動修改每輪冷卻時間等運行參數。
+                            </p>
+                        </div>
+                        {status === 'stopped' && !isEditingCooldown && (
+                            <button
+                                className="btn btn-outline btn-xs"
+                                type="button"
+                                onClick={() => {
+                                    setIsEditingCooldown(true);
+                                    setCooldownMsg(null);
+                                }}
+                            >
+                                <Sliders size={13} />
+                                <span>修改冷卻時間</span>
+                            </button>
+                        )}
+                    </div>
+
+                    {cooldownMsg && (
+                        <div className={`notice notice-${cooldownMsg.type}`} role="alert" style={{ marginBottom: '1rem' }}>
+                            <span>{cooldownMsg.text}</span>
+                        </div>
+                    )}
+
+                    {isEditingCooldown && (
+                        <div className="glass-panel" style={{ padding: '1rem', marginBottom: '1.25rem', border: '1px solid var(--accent-primary, #6366f1)', background: 'rgba(99, 102, 241, 0.05)' }}>
+                            <h4 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem' }}>修改每輪冷卻時間 (Cooldown)</h4>
+                            <p className="muted" style={{ fontSize: '0.76rem', marginBottom: '0.75rem' }}>
+                                修改將直接寫入設定檔（{bot.config_path}），下次啟動（start）時生效。
+                            </p>
+                            <label className="input-label" style={{ marginBottom: '0.5rem' }}>
+                                <span style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <span>每輪冷卻秒數</span>
+                                    <span className="muted">
+                                        {cooldownVal === 0 ? '⚡ 0 秒（立即重進）' : `⏱️ ${cooldownVal} 秒（約 ${(cooldownVal / 60).toFixed(1).replace(/\.0$/, '')} 分鐘）`}
+                                    </span>
+                                </span>
+                                <input
+                                    type="number"
+                                    min={0}
+                                    step={30}
+                                    value={cooldownVal}
+                                    onChange={(e) => setCooldownVal(Math.max(0, Number(e.target.value)))}
+                                    placeholder="300"
+                                />
+                            </label>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginBottom: '0.85rem' }}>
+                                {[
+                                    { label: '0s (立即重進)', val: 0 },
+                                    { label: '60s (1分鐘)', val: 60 },
+                                    { label: '300s (5分鐘·預設)', val: 300 },
+                                    { label: '600s (10分鐘)', val: 600 },
+                                    { label: '1800s (30分鐘)', val: 1800 },
+                                ].map((preset) => (
+                                    <button
+                                        key={preset.val}
+                                        type="button"
+                                        className={`btn btn-xs ${cooldownVal === preset.val ? 'btn-primary' : 'btn-outline'}`}
+                                        style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem' }}
+                                        onClick={() => setCooldownVal(preset.val)}
+                                    >
+                                        {preset.label}
+                                    </button>
+                                ))}
+                            </div>
+                            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                                <button
+                                    className="btn btn-outline btn-xs"
+                                    type="button"
+                                    disabled={savingCooldown}
+                                    onClick={() => {
+                                        setIsEditingCooldown(false);
+                                        setCooldownVal(bot.cooldown_seconds ?? 300);
+                                    }}
+                                >
+                                    取消
+                                </button>
+                                <button
+                                    className="btn btn-primary btn-xs"
+                                    type="button"
+                                    disabled={savingCooldown}
+                                    onClick={() => void handleSaveCooldown()}
+                                >
+                                    {savingCooldown ? '保存中…' : '確認保存'}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
                     <div className="dca-specs-grid">
                         <div><dt>交易對</dt><dd className="font-mono">{bot.symbol ?? '—'}</dd></div>
                         <div><dt>交易所</dt><dd className="font-mono">{bot.exchange ?? '—'}</dd></div>
@@ -921,6 +1068,8 @@ const DcaDetail: React.FC<DcaDetailProps> = ({ bot, onBack, onUnauthorized }) =>
                         <div><dt>Max DCA orders</dt><dd className="font-mono">{bot.max_safety_orders ?? '—'}</dd></div>
                         <div><dt>止盈 %</dt><dd className="font-mono">{bot.take_profit_percent ?? '—'}</dd></div>
                         <div><dt>止損 %</dt><dd className="font-mono">{bot.stop_loss_percent ?? '停用'}</dd></div>
+                        <div><dt>止盈後循環</dt><dd className="font-mono">{bot.repeat_after_take_profit !== false ? '啟用' : '停用'}</dd></div>
+                        <div><dt>每輪冷卻時間</dt><dd className="font-mono">{cooldownVal} 秒 ({cooldownVal === 0 ? '不冷卻' : `${(cooldownVal / 60).toFixed(1).replace(/\.0$/, '')} 分鐘`})</dd></div>
                         <div><dt>入場模式</dt><dd className="font-mono">{bot.entry_mode ?? 'immediate'}</dd></div>
                         <div><dt>設定檔</dt><dd className="font-mono" style={{ fontSize: '0.72rem' }}>{bot.config_path}</dd></div>
                     </div>

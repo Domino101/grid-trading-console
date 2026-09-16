@@ -56,7 +56,7 @@ class EntryMode(Enum):
     INDICATOR = "indicator"
 
 
-VALID_EXCHANGES: Tuple[str, ...] = ("binance", "lighter", "backpack", "hyperliquid")
+VALID_EXCHANGES: Tuple[str, ...] = ("binance", "okx", "hyperliquid", "lighter", "backpack")
 
 # 各交易所做空能力表（DCA v1 為合約策略；one-way 帳戶即可，見決策 D-2）。
 # 未列入的交易所僅允許 direction=long。

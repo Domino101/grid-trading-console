@@ -176,7 +176,7 @@ class DcaCoordinator:
 
             # 4. 執行交易所真值雙軌自癒對帳 (Exchange-as-Truth Reconciler)
             from core.services.reconciler import ExchangeReconciler
-            reconcile_res = await ExchangeReconciler.reconcile_dca(self)
+            reconcile_res = await ExchangeReconciler.reconcile_dca(self, has_snapshot=bool(matched))
 
             return bool(matched) or reconcile_res.get("rehydrated", False)
         except Exception as e:
@@ -638,7 +638,8 @@ class DcaCoordinator:
             return
         if self._tp_manager is None:
             from .take_profit_manager import TakeProfitManager
-            direction = self.state.active_direction or getattr(self._config, "direction", "long")
+            raw_dir = self.state.active_direction or getattr(self._config, "direction", "long")
+            direction = str(getattr(raw_dir, "value", raw_dir)).lower()
             if direction not in ("long", "short"):
                 direction = "long"
             self._tp_manager = TakeProfitManager(self._executor, direction)
@@ -966,34 +967,72 @@ class DcaCoordinator:
         if not hasattr(self, "_entry_monitor") or self._entry_monitor is None:
             return []
 
-        target_direction = self.state.active_direction
-        if target_direction not in ("long", "short"):
-            cfg_dir = self._config.direction
-            target_direction = cfg_dir if cfg_dir in ("long", "short") else "long"
+        active_dir = self.state.active_direction
+        cfg_dir = str(getattr(self._config.direction, "value", self._config.direction)).lower()
 
-        results_for_dir = self._entry_monitor.last_indicator_results.get(target_direction)
-        if not results_for_dir and self._entry_monitor.last_indicator_results:
-            first_dir = next(iter(self._entry_monitor.last_indicator_results))
-            results_for_dir = self._entry_monitor.last_indicator_results.get(first_dir)
+        long_results = self._entry_monitor.last_indicator_results.get("long") or []
+        short_results = self._entry_monitor.last_indicator_results.get("short") or []
 
-        indicators_cfg = getattr(self._config.entry, "indicators", ())
-        if not results_for_dir:
+        if not long_results and not short_results:
             return []
 
+        indicators_cfg = getattr(self._config.entry, "indicators", ())
+        num_indicators = len(indicators_cfg)
+        if not num_indicators:
+            num_indicators = max(len(long_results), len(short_results))
+
         snapshots = []
-        for i, res in enumerate(results_for_dir):
+        for i in range(num_indicators):
             cfg = indicators_cfg[i] if i < len(indicators_cfg) else None
-            t = getattr(cfg, "type", "unknown") if cfg else "unknown"
+            t = getattr(cfg, "type", None)
+            if not t and cfg:
+                cname = cfg.__class__.__name__
+                if cname.startswith("Rsi"):
+                    t = "rsi"
+                elif cname.startswith("Macd"):
+                    t = "macd"
+                elif cname.startswith("Bollinger"):
+                    t = "bollinger"
+                elif cname.startswith("PriceChange"):
+                    t = "price_change"
+                else:
+                    t = cname.lower().replace("config", "")
+            if not t:
+                t = "unknown"
+
+            res_long = long_results[i] if i < len(long_results) else None
+            res_short = short_results[i] if i < len(short_results) else None
+
+            primary_res = (
+                res_long if active_dir == "long"
+                else res_short if active_dir == "short"
+                else (res_long or res_short)
+            )
+
+            trig_long = res_long.triggered if res_long is not None else None
+            trig_short = res_short.triggered if res_short is not None else None
+
+            if active_dir == "long":
+                triggered = bool(trig_long)
+            elif active_dir == "short":
+                triggered = bool(trig_short)
+            elif cfg_dir == "both":
+                triggered = bool(trig_long or trig_short)
+            elif cfg_dir == "short":
+                triggered = bool(trig_short)
+            else:
+                triggered = bool(trig_long)
+
             snapshots.append({
                 "type": t,
-                "value": float(res.value) if res.value is not None else None,
-                "triggered": res.triggered,
-                "triggered_long": getattr(res, "triggered_long", None),
-                "triggered_short": getattr(res, "triggered_short", None),
-                "insufficient_data": getattr(res, "insufficient_data", False),
-                "warmup_have": getattr(res, "warmup_have", 0),
-                "warmup_need": getattr(res, "warmup_need", 0),
-                "details": getattr(res, "details", None),
+                "value": float(primary_res.value) if primary_res and primary_res.value is not None else None,
+                "triggered": triggered,
+                "triggered_long": trig_long,
+                "triggered_short": trig_short,
+                "insufficient_data": getattr(primary_res, "insufficient_data", False) if primary_res else False,
+                "warmup_have": getattr(primary_res, "warmup_have", 0) if primary_res else 0,
+                "warmup_need": getattr(primary_res, "warmup_need", 0) if primary_res else 0,
+                "details": getattr(primary_res, "details", None) if primary_res else None,
             })
         return snapshots
 

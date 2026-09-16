@@ -1421,14 +1421,12 @@ class GridEngineImpl(IGridEngine):
                                 f"WS-only 模式：使用緩存價格（WS 健康，報價超過5秒未更新）"
                             )
                             await self._handle_price_success()
+                            return self._current_price
                         else:
-                            self.logger.warning(
-                                f"⚠️ WS-only 模式：WS 超過60秒無訊息，使用過期緩存價格"
+                            self.logger.info(
+                                f"ℹ️ WS-only 模式：WS 超過60秒無訊息，降級向 REST 獲取最新報價"
                             )
-                            await self._handle_price_failure()
-                        return self._current_price
-                    await self._handle_price_failure()
-                    raise Exception("WS-only 模式下無價格緩存且WS未更新")
+                            # 不直接 return 過期價格，向下執行 REST get_ticker 兜底
 
                 ticker_res = self.exchange.get_ticker(self.config.symbol)
                 if inspect.isawaitable(ticker_res):
@@ -1923,13 +1921,25 @@ class GridEngineImpl(IGridEngine):
                 try:
                     ex_order = await self.exchange.get_order(order_id, self.config.symbol)
                 except Exception as query_err:
+                    err_msg = str(query_err).lower()
+                    if "-2013" in err_msg or "order does not exist" in err_msg or "ordernotfound" in type(query_err).__name__.lower():
+                        self.logger.info(
+                            f"ℹ️ 交易所確認訂單 {order_id} 不存在（-2013 / 已撤單或已過期），移出 pending（不計入成交）"
+                        )
+                        grid_order.mark_cancelled()
+                        self._remove_order_from_pending(order_id)
+                        continue
                     self.logger.warning(
                         f"⚠️ 反查訂單 {order_id} 狀態失敗（保留 pending 待下輪重試）: {query_err}"
                     )
                     continue
 
                 if ex_order is None:
-                    self.logger.warning(f"⚠️ 交易所無訂單 {order_id} 記錄，保留 pending 待下輪重試")
+                    self.logger.info(
+                        f"ℹ️ 交易所無訂單 {order_id} 記錄，移出 pending（不計入成交）"
+                    )
+                    grid_order.mark_cancelled()
+                    self._remove_order_from_pending(order_id)
                     continue
 
                 status_val = (

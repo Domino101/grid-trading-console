@@ -26,9 +26,10 @@ import {
 
 interface CoinFullPrimePageProps {
   onUnauthorized?: () => void;
+  onGoToRankings?: () => void;
 }
 
-export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthorized }) => {
+export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthorized, onGoToRankings }) => {
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [rebalancing, setRebalancing] = useState<boolean>(false);
@@ -74,9 +75,59 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
     return saved ? parseFloat(saved) : 1.0;
   });
 
-  const updateDryRunMode = (val: boolean) => {
+  // 當前選取的帳號物件
+  const currentAccount = useMemo(() => {
+    return accounts.find(a => a.id === selectedAccount) || {
+      id: selectedAccount,
+      name: selectedAccount === 'binance_testnet' ? 'Binance 合約測試網' : selectedAccount === 'binance_live' ? 'Binance 合約實盤' : 'Paper 本地模擬盤',
+      environment: (selectedAccount === 'binance_testnet' ? 'testnet' : selectedAccount === 'binance_live' ? 'live' : 'paper') as 'paper' | 'testnet' | 'live',
+      is_ready: selectedAccount === 'paper',
+      balance_usdt: selectedAccount === 'paper' ? 10000 : null,
+      missing_keys: selectedAccount === 'binance_testnet' ? ['BINANCE_TESTNET_API_KEY', 'BINANCE_TESTNET_API_SECRET'] : [],
+      description: '',
+      endpoint: ''
+    };
+  }, [accounts, selectedAccount]);
+
+  // 計算有效總名義本金 (Effective Capital)
+  const effectiveCapital = useMemo(() => {
+    if (sizingMode === 'percent') {
+      const avail = currentAccount.balance_usdt ?? 10000;
+      return Math.max(0, Math.round((avail * (balancePctInput / 100)) * 100) / 100);
+    }
+    const val = parseFloat(capitalInput);
+    return isNaN(val) || val <= 0 ? 1000 : val;
+  }, [sizingMode, capitalInput, balancePctInput, currentAccount.balance_usdt]);
+
+  // 總名義曝險與單幣目標金額 (8 多 8 空平配)
+  const grossExposure = useMemo(() => {
+    return Math.round((effectiveCapital * leverageInput) * 100) / 100;
+  }, [effectiveCapital, leverageInput]);
+
+  const perSymbolNotional = useMemo(() => {
+    return Math.round(((grossExposure * 0.5) / 8) * 100) / 100;
+  }, [grossExposure]);
+
+  const updateDryRunMode = (val: boolean, overrideAcc?: string) => {
     setDryRunMode(val);
     try { localStorage.setItem('coinfull_dry_run_mode', String(val)); } catch {}
+
+    const accId = overrideAcc || selectedAccount;
+    // 即時雙向同步後端背景定時排程下單模式
+    void api.updateCoinFullPrimeSchedulerTarget({
+      accountId: accId,
+      dryRun: val,
+      capital: sizingMode === 'fixed' ? effectiveCapital : undefined,
+      leverage: leverageInput,
+      balancePct: sizingMode === 'percent' ? balancePctInput : undefined
+    }).then(() => {
+      // 局部刷新排程狀態卡片
+      void api.getCoinFullPrimeStatus().then(st => {
+        if (st) setStatusInfo(st);
+      });
+    }).catch(e => {
+      console.warn('同步後端排程下單模式異常:', e);
+    });
   };
 
   const handleFilterTabChange = (tab: 'baskets' | 'long' | 'short' | 'all') => {
@@ -158,13 +209,19 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
           const savedAcc = localStorage.getItem('coinfull_selected_account');
           const validAcc = (savedAcc && accountsData.accounts.some(a => a.id === savedAcc))
             ? savedAcc
-            : (accountsData.selected_account || 'binance_live');
+            : (status?.scheduler_config && (status.scheduler_config as Record<string, any>).account_id
+                ? (status.scheduler_config as Record<string, any>).account_id
+                : (accountsData.selected_account || 'binance_live'));
           setSelectedAccount(validAcc);
           try { localStorage.setItem('coinfull_selected_account', validAcc); } catch {}
 
           const savedDry = localStorage.getItem('coinfull_dry_run_mode');
           if (savedDry !== null) {
             setDryRunMode(savedDry === 'true');
+          } else if (status?.scheduler_config && (status.scheduler_config as Record<string, any>).dry_run !== undefined) {
+            const backendDry = Boolean((status.scheduler_config as Record<string, any>).dry_run);
+            setDryRunMode(backendDry);
+            try { localStorage.setItem('coinfull_dry_run_mode', String(backendDry)); } catch {}
           } else {
             const defaultDry = validAcc === 'binance_testnet' ? false : true;
             setDryRunMode(defaultDry);
@@ -200,56 +257,26 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
     try { localStorage.setItem('coinfull_selected_account', accId); } catch {}
 
     const isDry = (accId !== 'binance_testnet');
-    updateDryRunMode(isDry);
+    updateDryRunMode(isDry, accId);
     void loadPositions(accId);
+  };
 
-    // 即時雙向同動後端定時排程目標帳號
+  // 手動同步排程目標：保留使用者當前選取的發單模式 (避免誤重置為安全試算)
+  const handleSyncSchedulerTarget = async () => {
     try {
       await api.updateCoinFullPrimeSchedulerTarget({
-        accountId: accId,
-        dryRun: isDry,
+        accountId: selectedAccount,
+        dryRun: dryRunMode,
         capital: sizingMode === 'fixed' ? effectiveCapital : undefined,
         leverage: leverageInput,
         balancePct: sizingMode === 'percent' ? balancePctInput : undefined
       });
+      setLastActionMsg(`✅ 已成功將背景定時換倉排程同步至【${currentAccount.name}】(${dryRunMode ? '🛡️ 安全試算保護' : '🚀 實盤真實發單'})`);
       void loadData(false);
     } catch (e) {
-      console.warn('同步後端排程目標帳號失敗:', e);
+      setError(e instanceof Error ? e.message : '同步排程失敗');
     }
   };
-
-  // 當前選取的帳號物件
-  const currentAccount = useMemo(() => {
-    return accounts.find(a => a.id === selectedAccount) || {
-      id: selectedAccount,
-      name: selectedAccount === 'binance_testnet' ? 'Binance 合約測試網' : selectedAccount === 'binance_live' ? 'Binance 合約實盤' : 'Paper 本地模擬盤',
-      environment: (selectedAccount === 'binance_testnet' ? 'testnet' : selectedAccount === 'binance_live' ? 'live' : 'paper') as 'paper' | 'testnet' | 'live',
-      is_ready: selectedAccount === 'paper',
-      balance_usdt: selectedAccount === 'paper' ? 10000 : null,
-      missing_keys: selectedAccount === 'binance_testnet' ? ['BINANCE_TESTNET_API_KEY', 'BINANCE_TESTNET_API_SECRET'] : [],
-      description: '',
-      endpoint: ''
-    };
-  }, [accounts, selectedAccount]);
-
-  // 計算有效總名義本金 (Effective Capital)
-  const effectiveCapital = useMemo(() => {
-    if (sizingMode === 'percent') {
-      const avail = currentAccount.balance_usdt ?? 10000;
-      return Math.max(0, Math.round((avail * (balancePctInput / 100)) * 100) / 100);
-    }
-    const val = parseFloat(capitalInput);
-    return isNaN(val) || val <= 0 ? 1000 : val;
-  }, [sizingMode, capitalInput, balancePctInput, currentAccount.balance_usdt]);
-
-  // 總名義曝險與單幣目標金額 (8 多 8 空平配)
-  const grossExposure = useMemo(() => {
-    return Math.round((effectiveCapital * leverageInput) * 100) / 100;
-  }, [effectiveCapital, leverageInput]);
-
-  const perSymbolNotional = useMemo(() => {
-    return Math.round(((grossExposure * 0.5) / 8) * 100) / 100;
-  }, [grossExposure]);
 
   // 手動觸發換倉
   const handleTriggerRebalance = async () => {
@@ -262,7 +289,7 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
       ? `帳戶可用保證金 ${balancePctInput}% (約 $${effectiveCapital.toLocaleString()} USDT)`
       : `固定本金 $${effectiveCapital.toLocaleString()} USDT`;
 
-    let confirmMsg = '';
+    let confirmMsg: string;
     const rebalanceRuleNotice = `\n\n💡 換倉執行邏輯：\n1. 查詢交易所當前持倉。\n2. 掉出今日 Top 8 / Bottom 8 的標的將自動全數平倉 (釋放保證金)。\n3. 留榜標的僅微調數量差額 (不重複平開，節省摩擦手續費)。\n4. 新進榜標的建立全新多/空部位。`;
 
     if (dryRunMode) {
@@ -394,8 +421,8 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
       <header className="coinfull-header">
         <div className="header-title-block">
           <div className="title-with-badge">
-            <h2>CoinFull Prime 每日截面多空排行</h2>
-            <span className="badge badge-accent">市場中性 Alpha (Beta ≈ 0)</span>
+            <h2>CoinFull Prime 策略機器人</h2>
+            <span className="badge badge-accent">8 多 8 空市場中性量化對沖</span>
             {currentAccount.environment === 'testnet' && !dryRunMode && (
               <span className="badge badge-warning" title="已連線幣安合約測試網，發送 API 真實撮合訂單">
                 🧪 測試網 API 撮合中
@@ -413,11 +440,23 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
             )}
           </div>
           <p className="text-muted">
-            每日對 Top 79 主流幣合約進行「動能 (35%) + Taker 買賣流 (35%) + 資金費率反向 (20%) + 大戶博弈 (10%)」橫截面打分
+            專屬調倉與運行控制台 · 自動防護隔離網格與 DCA 標的 · 依據每日截面因子打分動態對沖調倉
           </p>
         </div>
 
         <div className="header-actions">
+          {onGoToRankings && (
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={onGoToRankings}
+              title="前往查看今日 79 幣因子評分與客觀盤面多空排行榜"
+            >
+              <span>📊 查看多空截面排行</span>
+              <ExternalLink size={13} style={{ marginLeft: '0.2rem' }} />
+            </button>
+          )}
+
           <button
             type="button"
             className="btn btn-outline"
@@ -747,23 +786,33 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
                 <strong> (約 {statusInfo.hours_until_next_run || Math.round((statusInfo.seconds_until_next_run || 0) / 3600)} 小時後)</strong>
               )}
             </span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-              <span>
-                定時排程實際目標: <strong>{String(accounts.find(a => a.id === ((statusInfo?.scheduler_config as Record<string, any>)?.account_id || statusInfo?.selected_account))?.name || (statusInfo?.scheduler_config as Record<string, any>)?.account_id || selectedAccount)}</strong>
-                · {(statusInfo?.scheduler_config as Record<string, any>)?.dry_run ? '🛡️ 安全試算 (Dry-Run)' : '🚀 真實發單'}
-              </span>
-              {Boolean((statusInfo?.scheduler_config as Record<string, any>)?.account_id && (statusInfo?.scheduler_config as Record<string, any>)?.account_id !== selectedAccount) && (
-                <button
-                  type="button"
-                  className="btn btn-outline"
-                  style={{ padding: '0.1rem 0.4rem', fontSize: '0.68rem', borderColor: 'var(--accent)', color: 'var(--accent)' }}
-                  onClick={() => handleAccountChange(selectedAccount)}
-                  title="將後端背景定時排程目標同步更新為目前選取的帳號"
-                >
-                  🔄 同步排程至【{currentAccount.name}】
-                </button>
-              )}
-            </div>
+            {(() => {
+              const schedCfg = statusInfo?.scheduler_config as Record<string, unknown> | undefined;
+              const schedAccId = (typeof schedCfg?.account_id === 'string' ? schedCfg.account_id : null) || statusInfo?.selected_account || selectedAccount;
+              const schedDryRun = schedCfg?.dry_run !== undefined ? Boolean(schedCfg.dry_run) : true;
+              const targetAccName = accounts.find(a => a.id === schedAccId)?.name || schedAccId;
+              const needsSync = Boolean(schedCfg?.account_id && schedCfg.account_id !== selectedAccount);
+
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                  <span>
+                    定時排程實際目標: <strong>{targetAccName}</strong>
+                    · {schedDryRun ? '🛡️ 安全試算 (Dry-Run)' : '🚀 真實發單'}
+                  </span>
+                  {needsSync && (
+                    <button
+                      type="button"
+                      className="btn btn-outline"
+                      style={{ padding: '0.1rem 0.4rem', fontSize: '0.68rem', borderColor: 'var(--accent)', color: 'var(--accent)' }}
+                      onClick={handleSyncSchedulerTarget}
+                      title="將後端背景定時排程目標同步更新為目前選取的帳號與下單模式"
+                    >
+                      🔄 同步排程至【{currentAccount.name}】
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
               🛡️ 三層防護護欄啟用：已自動隔離 <strong>{(statusInfo as unknown as { protected_bot_symbols?: string[] })?.protected_bot_symbols?.length || 0}</strong> 個網格/DCA外部機器人標的
             </div>
@@ -832,7 +881,7 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
               const inShort = rankResult?.short_list?.some(x => x.symbol === pos.symbol);
               const stillInBasket = inLong || inShort;
 
-              let statusBadge = null;
+              let statusBadge: React.ReactNode;
               if (pos.role === 'external_bot' || pos.is_protected) {
                 statusBadge = (
                   <span className="status-tag tag-protected" title="此標的屬於運行中的網格或DCA機器人，CoinFull Prime 已啟用三層防護護欄，絕對不平倉、不干擾。">

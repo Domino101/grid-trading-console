@@ -57,6 +57,8 @@ interface GridFormProps {
   onClearInitialConfig?: () => void;
   onOpenGrid?: (gridId: string) => void;
   onNavigateDashboard?: () => void;
+  onNavigateDca?: () => void;
+  onNavigateCoinFullPrime?: () => void;
 }
 
 const initialForm: CreateGridRequest = {
@@ -78,6 +80,8 @@ const GridForm: React.FC<GridFormProps> = ({
   onClearInitialConfig,
   onOpenGrid,
   onNavigateDashboard,
+  onNavigateDca,
+  onNavigateCoinFullPrime,
 }) => {
   const [step, setStep] = useState(initialConfig ? 2 : 1);
   const [formData, setFormData] = useState<CreateGridRequest>(() => ({
@@ -318,12 +322,46 @@ const GridForm: React.FC<GridFormProps> = ({
 
   return (
     <main className="grid-form-page">
+      {/* Strategy Scope Notice Banner */}
+      <div className="strategy-wizard-notice glass-panel" style={{ margin: '0 0 1.25rem 0', padding: '0.85rem 1.2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', borderLeft: '3px solid var(--accent-primary)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <Info size={18} color="var(--accent-primary)" style={{ flexShrink: 0 }} />
+          <div style={{ fontSize: '0.82rem', lineHeight: 1.5 }}>
+            <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>💡 本建立精靈僅支援【量化網格機器人 (Grid Trading Bot)】。</span>
+            <span style={{ color: 'var(--text-muted)', marginLeft: '0.35rem' }}>若欲建立 DCA 馬丁格爾分批加倉策略，或運行截面多空對沖，請透過右側捷徑切換。</span>
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          {onNavigateDca && (
+            <button
+              type="button"
+              className="btn btn-outline"
+              style={{ fontSize: '0.74rem', padding: '0.2rem 0.6rem' }}
+              onClick={onNavigateDca}
+            >
+              建立 DCA ➔
+            </button>
+          )}
+          {onNavigateCoinFullPrime && (
+            <button
+              type="button"
+              className="btn btn-outline"
+              style={{ fontSize: '0.74rem', padding: '0.2rem 0.6rem' }}
+              onClick={onNavigateCoinFullPrime}
+            >
+              CoinFull Prime 機器人 ➔
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* Header */}
       <header className="form-header">
-        <p className="eyebrow">Strategy Wizard</p>
+        <p className="eyebrow">Grid Strategy Wizard</p>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <Settings size={22} color="var(--accent-primary)" />
-          <h2>建立量化網格策略</h2>
+          <h2>建立量化網格策略 (Grid Bot)</h2>
+          <span className="badge badge-accent" style={{ fontSize: '0.72rem' }}>網格專屬</span>
         </div>
         <p className="muted">
           引導式參數配置。PAPER 使用虛擬模擬撮合；LIVE 模式下單即進入實盤，需具備 <code>GRID_LIVE_TRADING_ENABLED</code> 授權。
@@ -428,8 +466,10 @@ const GridForm: React.FC<GridFormProps> = ({
               <span>交易所 (Exchange)</span>
               <select value={formData.exchange} onChange={(e) => update('exchange', e.target.value)}>
                 <option value="binance">Binance (幣安)</option>
-                <option value="lighter">Lighter DEX</option>
+                <option value="okx">OKX (歐易)</option>
                 <option value="hyperliquid">Hyperliquid L1</option>
+                <option value="lighter">Lighter DEX</option>
+                <option value="backpack">Backpack</option>
               </select>
             </label>
 
@@ -439,7 +479,13 @@ const GridForm: React.FC<GridFormProps> = ({
                 value={formData.symbol}
                 exchange={formData.exchange}
                 onChange={(val) => update('symbol', val)}
-                placeholder="例如: BTC/USDT 或 牛来USDT"
+                placeholder={
+                  formData.exchange === 'okx' ? '例如: BTC-USDT-SWAP 或 BTC/USDT' :
+                  formData.exchange === 'hyperliquid' ? '例如: SOL/USDC:USDC 或 BTC/USDC' :
+                  formData.exchange === 'lighter' ? '例如: BTC-USD 或 ETH-USD' :
+                  formData.exchange === 'backpack' ? '例如: SOL_USDC_PERP' :
+                  '例如: BTC/USDT 或 牛来USDT'
+                }
               />
             </label>
 

@@ -1,11 +1,12 @@
 import React, { lazy, Suspense, useState, useEffect } from 'react';
-import { Activity, Menu, PlusCircle, BarChart3, Trophy, X, LogOut, Terminal, Repeat, Wand2, Gauge, TrendingUp } from 'lucide-react';
+import { Activity, Menu, PlusCircle, BarChart3, Trophy, X, LogOut, Terminal, Repeat, Wand2, Gauge, TrendingUp, Layers } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import DcaDashboard from './components/DcaDashboard';
 import DcaForm from './components/DcaForm';
 import GridForm, { type InitialGridConfig } from './components/GridForm';
 import GridBacktestPage, { type GridBacktestInitialConfig } from './components/GridBacktestPage';
 import MarketRankings from './components/MarketRankings';
+import CrossSectionRankings from './components/CrossSectionRankings';
 import { CoinFullPrimePage } from './components/CoinFullPrimePage';
 import LoginPage from './components/LoginPage';
 import { api, type MarketRankingItem } from './services/api';
@@ -77,7 +78,7 @@ const App: React.FC = () => {
     setAuthError(message ?? null);
   };
 
-  const go = (tab: 'dashboard' | 'market' | 'configs' | 'dca' | 'dca-create' | 'grid-backtest' | 'coinfull-prime') => {
+  const go = (tab: 'dashboard' | 'market' | 'configs' | 'dca' | 'dca-create' | 'grid-backtest' | 'coinfull-prime' | 'cross-section') => {
     if (tab !== 'configs') {
       setPrefilledGridConfig(null);
     }
@@ -189,6 +190,11 @@ const App: React.FC = () => {
         </div>
 
         <nav className="app-nav" aria-label="系統導航">
+          {/* 網格交易策略群組 */}
+          <div className="nav-group-header">
+            <span>網格交易 (Grid)</span>
+          </div>
+
           <button
             className={`btn ${activeTab === 'dashboard' ? 'active' : ''}`}
             type="button"
@@ -216,26 +222,21 @@ const App: React.FC = () => {
             <span>網格回測</span>
           </button>
 
-          {/* CoinFull Prime 每日多空截面排行 */}
-          <button
-            className={`btn ${activeTab === 'coinfull-prime' ? 'active' : ''}`}
-            type="button"
-            onClick={() => go('coinfull-prime')}
-          >
-            <TrendingUp size={17} />
-            <span>多空截面排行</span>
-          </button>
-
           <button
             className={`btn ${activeTab === 'configs' ? 'active' : ''}`}
             type="button"
             onClick={() => go('configs')}
+            title="量化網格機器人專屬建立精靈"
           >
             <PlusCircle size={17} />
-            <span>建立策略</span>
+            <span>建立網格</span>
           </button>
 
           {/* DCA 機器人分頁（與網格完全隔離的獨立分頁） */}
+          <div className="nav-group-header">
+            <span>馬丁 DCA (DCA)</span>
+          </div>
+
           <button
             className={`btn ${activeTab === 'dca' ? 'active' : ''}`}
             type="button"
@@ -252,6 +253,31 @@ const App: React.FC = () => {
           >
             <Wand2 size={17} />
             <span>建立 DCA</span>
+          </button>
+
+          {/* CoinFull Prime 截面多空對沖策略群組 */}
+          <div className="nav-group-header">
+            <span>截面多空 (CoinFull)</span>
+          </div>
+
+          <button
+            className={`btn ${activeTab === 'cross-section' ? 'active' : ''}`}
+            type="button"
+            onClick={() => go('cross-section')}
+            title="純盤面客觀 79 幣因子評分與多空名單"
+          >
+            <TrendingUp size={17} />
+            <span>多空截面排行</span>
+          </button>
+
+          <button
+            className={`btn ${activeTab === 'coinfull-prime' ? 'active' : ''}`}
+            type="button"
+            onClick={() => go('coinfull-prime')}
+            title="CoinFull Prime 8多8空對沖策略機器人運行與調倉控制台"
+          >
+            <Layers size={17} />
+            <span>CoinFull 策略機器人</span>
           </button>
         </nav>
 
@@ -308,6 +334,8 @@ const App: React.FC = () => {
             onClearInitialConfig={() => setPrefilledGridConfig(null)}
             onOpenGrid={handleOpenGrid}
             onNavigateDashboard={() => go('dashboard')}
+            onNavigateDca={() => go('dca-create')}
+            onNavigateCoinFullPrime={() => go('coinfull-prime')}
           />
         )}
 
@@ -341,9 +369,17 @@ const App: React.FC = () => {
           <DcaForm onNavigateDashboard={() => go('dca')} />
         )}
 
+        {activeTab === 'cross-section' && (
+          <CrossSectionRankings
+            onUnauthorized={() => lock('Token 無效或已過期，請重新登入。')}
+            onGoToBot={() => go('coinfull-prime')}
+          />
+        )}
+
         {activeTab === 'coinfull-prime' && (
           <CoinFullPrimePage
             onUnauthorized={() => lock('Token 無效或已過期，請重新登入。')}
+            onGoToRankings={() => go('cross-section')}
           />
         )}
       </div>

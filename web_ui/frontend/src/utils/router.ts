@@ -1,4 +1,4 @@
-export type AppTab = 'dashboard' | 'market' | 'configs' | 'detail' | 'dca' | 'dca-create' | 'grid-backtest' | 'coinfull-prime';
+export type AppTab = 'dashboard' | 'market' | 'configs' | 'detail' | 'dca' | 'dca-create' | 'grid-backtest' | 'coinfull-prime' | 'cross-section';
 
 export interface RouteState {
   tab: AppTab;
@@ -6,7 +6,7 @@ export interface RouteState {
   dcaBotId: string | null;
 }
 
-const VALID_TABS = new Set<AppTab>(['dashboard', 'market', 'configs', 'detail', 'dca', 'dca-create', 'grid-backtest', 'coinfull-prime']);
+const VALID_TABS = new Set<AppTab>(['dashboard', 'market', 'configs', 'detail', 'dca', 'dca-create', 'grid-backtest', 'coinfull-prime', 'cross-section']);
 
 function safeDecode(val: string): string {
   try {
@@ -25,6 +25,8 @@ function safeDecode(val: string): string {
  * - #/dca 或 #dca -> { tab: 'dca' }
  * - #/dca?id=xxx 或 #/dca/xxx -> { tab: 'dca', dcaBotId: 'xxx' }
  * - #/dca-create 或 #dca-create -> { tab: 'dca-create' }
+ * - #/cross-section 或 #cross-section -> { tab: 'cross-section' }
+ * - #/coinfull-prime 或 #coinfull-prime -> { tab: 'coinfull-prime' }
  * - #/detail?id=xxx 或 #/detail/xxx 或 #/grid/xxx -> { tab: 'detail', gridId: 'xxx' }
  */
 export function parseHash(rawHash: string): RouteState {
@@ -57,7 +59,12 @@ export function parseHash(rawHash: string): RouteState {
     return { tab: 'grid-backtest', gridId: null, dcaBotId: null };
   }
 
-  // 0.1 CoinFull Prime 截面多空排行分頁
+  // 0.1 多空截面排行（純盤面行情觀測）
+  if (pathPart === 'cross-section' || pathPart === 'cross-section-ranking') {
+    return { tab: 'cross-section', gridId: null, dcaBotId: null };
+  }
+
+  // 0.2 CoinFull Prime 策略機器人分頁
   if (pathPart === 'coinfull-prime') {
     return { tab: 'coinfull-prime', gridId: null, dcaBotId: null };
   }
@@ -124,6 +131,8 @@ export function formatHash(state: { tab: AppTab; gridId?: string | null; dcaBotI
       return '#/dca-create';
     case 'grid-backtest':
       return '#/grid-backtest';
+    case 'cross-section':
+      return '#/cross-section';
     case 'coinfull-prime':
       return '#/coinfull-prime';
     case 'detail':

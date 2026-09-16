@@ -373,8 +373,10 @@ const GridBacktestPage: React.FC<GridBacktestPageProps> = ({ initialConfig, onCl
             <span>交易所</span>
             <select value={exchange} onChange={(e) => setExchange(e.target.value)}>
               <option value="binance">Binance</option>
-              <option value="lighter">Lighter</option>
+              <option value="okx">OKX</option>
               <option value="hyperliquid">Hyperliquid</option>
+              <option value="lighter">Lighter</option>
+              <option value="backpack">Backpack</option>
             </select>
           </label>
           <label className="backtest-field">
@@ -546,8 +548,10 @@ const GridBacktestPage: React.FC<GridBacktestPageProps> = ({ initialConfig, onCl
                     <span>交易所</span>
                     <select value={dcaExchange} onChange={(e) => setDcaExchange(e.target.value)}>
                       <option value="binance">Binance</option>
-                      <option value="lighter">Lighter</option>
+                      <option value="okx">OKX</option>
                       <option value="hyperliquid">Hyperliquid</option>
+                      <option value="lighter">Lighter</option>
+                      <option value="backpack">Backpack</option>
                     </select>
                   </label>
                   <label className="backtest-field">

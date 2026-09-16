@@ -115,7 +115,7 @@ async def lifespan(app: FastAPI):
     try:
         from core.services.coinfull_prime.service import CoinFullPrimeService
         prime_service = CoinFullPrimeService.instance()
-        prime_service.start_scheduler(account_id="binance_testnet", dry_run=False)
+        prime_service.restore_scheduler()
     except Exception as e:
         logger.warning(f"CoinFull Prime 排程開機自啟異常: {e}")
 
@@ -124,7 +124,7 @@ async def lifespan(app: FastAPI):
     _stop_redis_subscriber()
     try:
         from core.services.coinfull_prime.service import CoinFullPrimeService
-        CoinFullPrimeService.instance().stop_scheduler()
+        CoinFullPrimeService.instance().stop_scheduler(disable=False)
     except Exception:
         pass
     monitor_task.cancel()
@@ -137,7 +137,7 @@ app = FastAPI(
     lifespan=lifespan,
     title="grid-trading-console API",
     description="Grid trading engine control API",
-    version="0.3.0",
+    version="0.3.3",
 )
 
 _cors_origins, _cors_credentials = cors_settings(os.getenv("GRID_CORS_ORIGINS"))

@@ -58,6 +58,30 @@ class ExchangeFactory:
             from .adapters.edgex import EdgeXAdapter
             from .adapters.lighter import LighterAdapter
             from .adapters.o1exchange import O1ExchangeAdapter
+            from .adapters.okx import OKXAdapter
+
+            # 注册 OKX 适配器
+            self.register_adapter(
+                exchange_id="okx",
+                adapter_class=OKXAdapter,
+                exchange_type=ExchangeType.PERPETUAL,
+                name="OKX",
+                description="OKX欧易交易所",
+                supported_features=[
+                    "spot_trading", "perpetual_trading", "futures_trading",
+                    "websocket", "orderbook", "ticker", "ohlcv", "user_stream"
+                ],
+                default_config={
+                    "testnet": False,
+                    "default_leverage": 1,
+                    "enable_websocket": True,
+                    "rate_limits": {
+                        "ticker": {"max_requests": 60, "time_window": 60},
+                        "orderbook": {"max_requests": 60, "time_window": 60},
+                        "trading": {"max_requests": 60, "time_window": 60}
+                    }
+                }
+            )
 
             # 注册 Hyperliquid 适配器
             self.register_adapter(
@@ -305,8 +329,12 @@ class ExchangeFactory:
         entry = self._registry[exchange_id]
 
         try:
-            # 如果没有提供配置，创建默认配置
-            if config is None:
+            # 如果配置是字典，转换为默认配置并合并
+            if isinstance(config, dict):
+                user_kwargs = dict(config)
+                user_kwargs.update(kwargs)
+                config = self._create_default_config(exchange_id, **user_kwargs)
+            elif config is None:
                 config = self._create_default_config(exchange_id, **kwargs)
             else:
                 # 合并默认配置和用户配置

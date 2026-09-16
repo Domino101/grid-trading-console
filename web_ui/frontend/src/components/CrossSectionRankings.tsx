@@ -1,0 +1,449 @@
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { api, ApiError } from '../services/api';
+import type { UniverseRankResult, RankedItem } from '../services/api';
+import {
+  Activity,
+  RefreshCw,
+  TrendingUp,
+  TrendingDown,
+  Search,
+  Sliders,
+  Info,
+  ArrowRight,
+  Bot,
+  Sparkles,
+  AlertTriangle,
+} from 'lucide-react';
+
+interface CrossSectionRankingsProps {
+  onUnauthorized?: () => void;
+  onGoToBot?: () => void;
+}
+
+export const CrossSectionRankings: React.FC<CrossSectionRankingsProps> = ({
+  onUnauthorized,
+  onGoToBot,
+}) => {
+  const [loading, setLoading] = useState<boolean>(true);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [rankResult, setRankResult] = useState<UniverseRankResult | null>(null);
+
+  // 篩選與搜尋狀態
+  const [filterTab, setFilterTab] = useState<'baskets' | 'long' | 'short' | 'all'>(() => {
+    const saved = localStorage.getItem('cross_section_filter_tab');
+    if (saved === 'baskets' || saved === 'long' || saved === 'short' || saved === 'all') return saved;
+    return 'baskets';
+  });
+  const [searchQuery, setSearchQuery] = useState<string>('');
+
+  const loadData = useCallback(async (isRefresh = false) => {
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+    setError(null);
+
+    try {
+      const rankings = await api.getCoinFullPrimeRankings(isRefresh);
+      setRankResult(rankings);
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.status === 401 && onUnauthorized) {
+        onUnauthorized();
+        return;
+      }
+      const msg = err instanceof Error ? err.message : '載入多空截面排行數據失敗';
+      setError(msg);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [onUnauthorized]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadData(false);
+  }, [loadData]);
+
+  const handleFilterTabChange = (tab: 'baskets' | 'long' | 'short' | 'all') => {
+    setFilterTab(tab);
+    try {
+      localStorage.setItem('cross_section_filter_tab', tab);
+    } catch {
+      // ignore
+    }
+  };
+
+  const displayedItems = useMemo(() => {
+    if (!rankResult) return [];
+
+    let items: RankedItem[];
+    if (filterTab === 'baskets') {
+      items = [...(rankResult.long_list || []), ...(rankResult.short_list || [])];
+    } else if (filterTab === 'long') {
+      items = rankResult.long_list || [];
+    } else if (filterTab === 'short') {
+      items = rankResult.short_list || [];
+    } else {
+      items = rankResult.all_rankings || [];
+    }
+
+    if (!searchQuery.trim()) return items;
+    const q = searchQuery.trim().toUpperCase();
+    return items.filter(x => x.symbol.toUpperCase().includes(q));
+  }, [rankResult, filterTab, searchQuery]);
+
+  const getScoreBadgeClass = (score: number) => {
+    if (score >= 1.0) return 'score-very-strong';
+    if (score > 0.3) return 'score-strong';
+    if (score <= -1.0) return 'score-very-weak';
+    if (score < -0.3) return 'score-weak';
+    return 'score-neutral';
+  };
+
+  if (loading && !rankResult) {
+    return (
+      <div className="coinfull-container">
+        <div className="glass-panel" style={{ padding: '3.5rem 1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+          <Activity size={32} className="spin text-accent" style={{ margin: '0 auto 1rem' }} />
+          <h3 style={{ color: 'var(--text-primary)', marginBottom: '0.5rem' }}>正在計算全市場多空截面量化矩陣…</h3>
+          <p style={{ fontSize: '0.88rem' }}>透過非同步並行管線聚合 79 幣動能、主動買賣流、資金費率與大戶多空比</p>
+        </div>
+      </div>
+    );
+  }
+
+  const top1Long = rankResult?.long_list?.[0];
+  const top1Short = rankResult?.short_list?.[rankResult.short_list.length - 1];
+
+  return (
+    <div className="coinfull-container">
+      {/* 頁頭與控制列 */}
+      <header className="coinfull-header">
+        <div className="header-title-block">
+          <div className="title-with-badge">
+            <h2>多空截面排行</h2>
+            <span className="badge badge-accent">市場中性 Alpha (Beta ≈ 0)</span>
+            <span className="badge badge-secondary" title="純盤面行情客觀分析與量化矩陣打分">
+              📊 盤面分析視角
+            </span>
+          </div>
+          <p className="text-muted">
+            每日對 Top 79 主流幣合約進行「動能 (35%) + Taker 買賣流 (35%) + 資金費率反向 (20%) + 大戶博弈 (10%)」橫截面量化打分
+          </p>
+        </div>
+
+        <div className="header-actions">
+          <button
+            type="button"
+            className="btn btn-outline"
+            onClick={() => loadData(true)}
+            disabled={refreshing}
+          >
+            <RefreshCw size={15} className={refreshing ? 'spin' : ''} />
+            <span>{refreshing ? '重新計算中…' : '即時重新計算'}</span>
+          </button>
+
+          {onGoToBot && (
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={onGoToBot}
+              title="前往 CoinFull Prime 策略機器人進行實盤/測試網調倉與自動排程管理"
+            >
+              <Bot size={15} />
+              <span>CoinFull Prime 策略機器人</span>
+              <ArrowRight size={14} />
+            </button>
+          )}
+        </div>
+      </header>
+
+      {/* 提示或錯誤訊息 */}
+      {error && (
+        <div className="alert-banner alert-danger">
+          <AlertTriangle size={18} />
+          <span>{error}</span>
+          <button type="button" className="close-btn" onClick={() => setError(null)}>✕</button>
+        </div>
+      )}
+
+      {/* 核心資訊摘要卡片 */}
+      <section className="coinfull-summary-cards">
+        <div className="glass-card summary-card long-card">
+          <div className="card-top">
+            <span className="card-label">🟢 最強多頭首選 (Top 1)</span>
+            <TrendingUp size={20} className="text-positive" />
+          </div>
+          <div className="card-symbol">{top1Long?.symbol || '—'}</div>
+          <div className="card-score-row">
+            <span className="score-val text-positive">+{top1Long?.score.toFixed(4)}</span>
+            <span className="eval-tag">{top1Long?.evaluations.overall_eval}</span>
+          </div>
+          <div className="card-detail-sub">
+            動能: {(top1Long?.raw_params?.price_change_pct ?? 0) > 0 ? '+' : ''}{top1Long?.raw_params?.price_change_pct ?? 0}% ({top1Long?.evaluations?.momentum_eval || '—'}) · 費率: {top1Long?.raw_params?.funding_rate_pct ?? 0}% ({top1Long?.evaluations?.funding_eval || '—'})
+          </div>
+        </div>
+
+        <div className="glass-card summary-card short-card">
+          <div className="card-top">
+            <span className="card-label">🔴 最弱空頭重災 (Bottom 1)</span>
+            <TrendingDown size={20} className="text-negative" />
+          </div>
+          <div className="card-symbol">{top1Short?.symbol || '—'}</div>
+          <div className="card-score-row">
+            <span className="score-val text-negative">{top1Short?.score.toFixed(4)}</span>
+            <span className="eval-tag">{top1Short?.evaluations.overall_eval}</span>
+          </div>
+          <div className="card-detail-sub">
+            動能: {(top1Short?.raw_params?.price_change_pct ?? 0) > 0 ? '+' : ''}{top1Short?.raw_params?.price_change_pct ?? 0}% ({top1Short?.evaluations?.momentum_eval || '—'}) · 流向: {top1Short?.raw_params?.taker_flow_ratio ?? 1} ({top1Short?.evaluations?.flow_eval || '—'})
+          </div>
+        </div>
+
+        <div className="glass-card summary-card neutral-card">
+          <div className="card-top">
+            <span className="card-label">⚖️ 對沖籃子組合配置</span>
+            <Sliders size={20} className="text-accent" />
+          </div>
+          <div className="card-stats-grid">
+            <div className="stat-box">
+              <span className="stat-num text-positive">8 隻</span>
+              <span className="stat-desc">做多標的 (各 12.5%)</span>
+            </div>
+            <div className="stat-divider">VS</div>
+            <div className="stat-box">
+              <span className="stat-num text-negative">8 隻</span>
+              <span className="stat-desc">做空標的 (各 12.5%)</span>
+            </div>
+          </div>
+          <div className="card-detail-sub text-center">
+            做多強勢標的 vs 做空劣勢標的 · 消除市場系統性 Beta 波動風險
+          </div>
+        </div>
+
+        <div className="glass-card summary-card info-card">
+          <div className="card-top">
+            <span className="card-label">🤖 策略執行導引</span>
+            <Sparkles size={20} className="text-accent" />
+          </div>
+          <div className="schedule-status-row">
+            <span className="status-dot online"></span>
+            <span className="status-title">CoinFull Prime 策略機器人</span>
+          </div>
+          <div className="schedule-detail">
+            <span>母體覆蓋: <strong>{rankResult?.universe_size || 79}</strong> 個主流合約</span>
+            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.2rem', lineHeight: 1.5 }}>
+              本分頁專注於展示即時客觀盤面排行。如需執行調倉、設定本金槓桿或開啟定時排程，請切換至專屬機器人分頁。
+            </div>
+          </div>
+          {onGoToBot && (
+            <div className="card-detail-sub" style={{ marginTop: '0.4rem', textAlign: 'right' }}>
+              <button
+                type="button"
+                className="btn btn-outline"
+                style={{ padding: '0.2rem 0.6rem', fontSize: '0.72rem', borderRadius: '4px', width: '100%', justifyContent: 'center' }}
+                onClick={onGoToBot}
+              >
+                前往機器人控制台 ➔
+              </button>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* 篩選與搜尋工具列 */}
+      <section className="coinfull-toolbar glass-panel">
+        <div className="tab-pills">
+          <button
+            type="button"
+            className={`pill-btn ${filterTab === 'baskets' ? 'active' : ''}`}
+            onClick={() => handleFilterTabChange('baskets')}
+          >
+            🌟 今日多空組合 ({((rankResult?.long_list?.length || 0) + (rankResult?.short_list?.length || 0))})
+          </button>
+          <button
+            type="button"
+            className={`pill-btn ${filterTab === 'long' ? 'active' : ''}`}
+            onClick={() => handleFilterTabChange('long')}
+          >
+            🟢 Top 8 做多籃子 ({rankResult?.long_list?.length || 0})
+          </button>
+          <button
+            type="button"
+            className={`pill-btn ${filterTab === 'short' ? 'active' : ''}`}
+            onClick={() => handleFilterTabChange('short')}
+          >
+            🔴 Bottom 8 做空籃子 ({rankResult?.short_list?.length || 0})
+          </button>
+          <button
+            type="button"
+            className={`pill-btn ${filterTab === 'all' ? 'active' : ''}`}
+            onClick={() => handleFilterTabChange('all')}
+          >
+            📋 全部 79 幣完整截面總榜 ({rankResult?.universe_size || 0})
+          </button>
+        </div>
+
+        <div className="search-box">
+          <Search size={16} className="search-icon" />
+          <input
+            type="text"
+            placeholder="搜尋幣種代號 (例: BTC, SOL, DOGE)..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
+      </section>
+
+      {/* 主表格：數值與相關參數及評價 */}
+      <section className="coinfull-table-panel glass-panel">
+        <div className="table-responsive">
+          <table className="coinfull-table">
+            <thead>
+              <tr>
+                <th style={{ width: '80px' }}>排名</th>
+                <th style={{ width: '130px' }}>幣種 / 市價</th>
+                <th style={{ width: '180px' }}>綜合評分 & 策略結論</th>
+                <th>24h 動能 (35%)</th>
+                <th>Taker 主動買賣流 (35%)</th>
+                <th>資金費率反向 (20%)</th>
+                <th>大戶多空比 (10%)</th>
+                <th style={{ width: '130px' }}>目標配置權重</th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayedItems.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="empty-cell">
+                    查無符合條件之幣種數據
+                  </td>
+                </tr>
+              ) : (
+                displayedItems.map((item) => {
+                  const raw = item.raw_params;
+                  const sig = item.signals;
+                  const evals = item.evaluations;
+                  const isLong = item.side === 'long';
+                  const isShort = item.side === 'short';
+
+                  return (
+                    <tr
+                      key={item.symbol}
+                      className={`rank-row ${isLong ? 'row-long' : ''} ${isShort ? 'row-short' : ''}`}
+                    >
+                      {/* 1. 排名 */}
+                      <td className="rank-cell">
+                        {isLong ? (
+                          <span className="rank-pill rank-long">#{item.rank} 多</span>
+                        ) : isShort ? (
+                          <span className="rank-pill rank-short">#{item.rank} 空</span>
+                        ) : (
+                          <span className="rank-pill rank-neutral">#{item.rank}</span>
+                        )}
+                      </td>
+
+                      {/* 2. 幣種代號與市價 */}
+                      <td className="symbol-cell">
+                        <div className="symbol-name">{item.symbol}</div>
+                        <div className="price-tag">
+                          {raw.price > 0 ? `$${raw.price >= 1 ? raw.price.toFixed(3) : raw.price.toFixed(5)}` : '—'}
+                        </div>
+                      </td>
+
+                      {/* 3. 綜合得分與評價 */}
+                      <td className="score-cell">
+                        <div className={`score-badge ${getScoreBadgeClass(item.score)}`}>
+                          <span className="score-number">{item.score > 0 ? `+${item.score.toFixed(4)}` : item.score.toFixed(4)}</span>
+                        </div>
+                        <div className="verdict-label">{evals.overall_eval}</div>
+                      </td>
+
+                      {/* 4. 動能參數 (漲跌幅 + 評價 + Z) */}
+                      <td className="param-cell">
+                        <div className="param-main-val">
+                          <span className={raw.price_change_pct >= 0 ? 'text-positive' : 'text-negative'}>
+                            {raw.price_change_pct >= 0 ? `+${raw.price_change_pct.toFixed(2)}%` : `${raw.price_change_pct.toFixed(2)}%`}
+                          </span>
+                          <span className="eval-tag-inline">({evals.momentum_eval})</span>
+                        </div>
+                        <div className="zscore-sub">Z-Score: {sig.mom_z >= 0 ? `+${sig.mom_z.toFixed(2)}` : sig.mom_z.toFixed(2)}</div>
+                      </td>
+
+                      {/* 5. Taker 買賣流 (比例 + 評價 + Z) */}
+                      <td className="param-cell">
+                        <div className="param-main-val">
+                          <span className="font-mono">{raw.taker_flow_ratio.toFixed(3)}</span>
+                          <span className="eval-tag-inline">({evals.flow_eval})</span>
+                        </div>
+                        <div className="zscore-sub">Z-Score: {sig.flow_z >= 0 ? `+${sig.flow_z.toFixed(2)}` : sig.flow_z.toFixed(2)}</div>
+                      </td>
+
+                      {/* 6. 資金費率 (費率 + 評價 + Z) */}
+                      <td className="param-cell">
+                        <div className="param-main-val">
+                          <span className={raw.funding_rate_pct > 0.01 ? 'text-negative font-mono' : 'text-positive font-mono'}>
+                            {raw.funding_rate_pct >= 0 ? `+${raw.funding_rate_pct.toFixed(4)}%` : `${raw.funding_rate_pct.toFixed(4)}%`}
+                          </span>
+                          <span className="eval-tag-inline">({evals.funding_eval})</span>
+                        </div>
+                        <div className="zscore-sub">反向 Z: {sig.fund_z >= 0 ? `+${sig.fund_z.toFixed(2)}` : sig.fund_z.toFixed(2)}</div>
+                      </td>
+
+                      {/* 7. 大戶多空比 (比率 + 評價 + Z) */}
+                      <td className="param-cell">
+                        <div className="param-main-val">
+                          <span className="font-mono">{raw.top_trader_ratio.toFixed(3)}</span>
+                          <span className="eval-tag-inline">({evals.liquidation_eval})</span>
+                        </div>
+                        <div className="zscore-sub">Z-Score: {sig.liq_z >= 0 ? `+${sig.liq_z.toFixed(2)}` : sig.liq_z.toFixed(2)}</div>
+                      </td>
+
+                      {/* 8. 目標配置權重 */}
+                      <td className="allocation-cell">
+                        {(item.target_weight ?? 0) > 0 ? (
+                          <>
+                            <div className={`alloc-amount ${isLong ? 'text-positive' : 'text-negative'}`}>
+                              {isLong ? '🟢 做多' : '🔴 做空'}
+                            </div>
+                            <div className="alloc-pct">權重: {((item.target_weight ?? 0) * 100).toFixed(1)}%</div>
+                          </>
+                        ) : (
+                          <span className="text-muted">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* 策略說明與底層數學原理註釋 */}
+      <footer className="coinfull-footer-note glass-panel">
+        <div className="note-title">
+          <Info size={16} className="text-accent" />
+          <span>策略指標評價與決策原則說明</span>
+        </div>
+        <div className="note-grid">
+          <div className="note-item">
+            <strong>🔥 動能 (35%)</strong>：結合 24h 與多週期漲跌幅。Z &gt; 1.5 判定為「動能極強」，Z &lt; -1.5 判定為「動能極弱」。
+          </div>
+          <div className="note-item">
+            <strong>🟢 主動買賣流 (35%)</strong>：合約主動市價吃單比 (Taker Buy / Taker Sell)。數值 &gt; 1.3 代表大戶主動搶購多單。
+          </div>
+          <div className="note-item">
+            <strong>⚠️ 資金費率反向 (20%)</strong>：多頭擁擠度反轉因子。費率過高代表多頭過熱，反向下修得分；深度負費率代表貼水超賣，反向加分。
+          </div>
+          <div className="note-item">
+            <strong>🐂 大戶博弈 (10%)</strong>：頂級交易員帳戶多空比。反映聰明錢（Smart Money）即時持倉偏好與博弈力量。
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
+};
+
+export default CrossSectionRankings;

@@ -364,18 +364,32 @@ class SafetyGuard:
 
 
 class WriteRateLimiter:
-    """寫操作頻率限制器 (單一來源 60 秒內最多 3 次寫操作)"""
+    """寫操作頻率限制器 (dashboard 60 秒內最多 10 次，hermes 60 秒內最多 3 次)"""
 
     def __init__(self):
         self._lock = threading.Lock()
         self._history = defaultdict(list)
 
+    def _get_limit_for_source(self, source: str) -> int:
+        if source == "dashboard" or (isinstance(source, str) and source.startswith("dashboard")):
+            try:
+                return int(os.getenv("WRITE_RATE_LIMIT_DASHBOARD", "10"))
+            except ValueError:
+                return 10
+        try:
+            return int(os.getenv("WRITE_RATE_LIMIT_HERMES", "3"))
+        except ValueError:
+            return 3
+
     def check_rate_limit(self, source: str) -> Tuple[bool, Optional[str]]:
         now = time.time()
+        max_limit = self._get_limit_for_source(source)
         with self._lock:
             self._history[source] = [t for t in self._history[source] if now - t <= 60.0]
-            if len(self._history[source]) >= 3:
-                return False, f"來源 '{source}' 已達寫操作頻率限制 (60 秒內最多 3 次)，請稍後再試"
+            if len(self._history[source]) >= max_limit:
+                oldest = min(self._history[source])
+                wait_sec = max(1, int(60.0 - (now - oldest)) + 1)
+                return False, f"來源 '{source}' 已達寫操作頻率限制 (60 秒內最多 {max_limit} 次)，請在 {wait_sec} 秒後再試"
             return True, None
 
     def record_action(self, source: str) -> None:

@@ -162,4 +162,6 @@ config/dca/archived/
 *.sqlite3
 graphify-out/cache/
 graphify-out/cost.json
+graphify-out/2026-*/
+
 

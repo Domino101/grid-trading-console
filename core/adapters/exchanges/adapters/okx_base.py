@@ -194,7 +194,7 @@ class OKXBase:
         if self.config:
             config['apiKey'] = getattr(self.config, 'api_key', '')
             config['secret'] = getattr(self.config, 'api_secret', '')
-            config['password'] = getattr(self.config, 'passphrase', '')  # OKX需要passphrase
+            config['password'] = getattr(self.config, 'api_passphrase', '') or getattr(self.config, 'passphrase', '')  # OKX需要passphrase
             
             if self.testnet:
                 config['sandbox'] = True

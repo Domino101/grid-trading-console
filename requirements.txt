@@ -15,7 +15,7 @@ injector==0.21.0              # 依赖注入容器
 # 🔄 异步和网络 (Async & Networking)
 # ────────────────────────────────────────────────────────────────────────────
 asyncio                       # 异步编程（Python 内置）
-aiohttp==3.9.1                # 异步 HTTP 客户端（稳定版本）
+aiohttp>=3.14.3                # 异步 HTTP 客户端（修復 CVE-2024-23334、CVE-2026-69244 等高危漏洞）
 websockets==12.0              # WebSocket 客户端/服务器
 websocket-client==1.6.4       # 同步 WebSocket 客户端（某些库需要）
 
@@ -51,7 +51,7 @@ numpy>=1.26.0                 # 数值计算
 # ⚙️ 配置管理 (Configuration)
 # ────────────────────────────────────────────────────────────────────────────
 pyyaml==6.0.1                 # YAML 配置文件解析
-python-dotenv==1.0.0          # 环境变量管理（可选）
+python-dotenv>=1.2.2          # 环境变量管理（修復 CVE-2026-28684）
 
 # ────────────────────────────────────────────────────────────────────────────
 # 🗄️ 基础设施 (Infrastructure)
@@ -60,7 +60,7 @@ redis==5.0.1                  # Redis 缓存客户端
 sqlalchemy==2.0.23            # ORM 框架
 alembic==1.13.1               # 数据库迁移工具
 psycopg[binary]==3.1.19       # PostgreSQL 驱动（Phase 2 真相源，postgresql:// 会自动正規化為 +psycopg）
-cryptography>=41.0.7          # 本地金鑰保險箱 AES-256-GCM 加密 (P2-2)
+cryptography>=42.0.8          # 本地金鑰保險箱 AES-256-GCM 加密 (P2-2, 修復 CVE-2023-50782、CVE-2024-26130)
 protobuf>=4.25.0              # 二進位 IPC 協議序列化 (P3-1)
 rich==13.7.1                  # 终端 UI（core/services/grid/__init__.py 硬依賴，稽核 F9 補 pin）
 
