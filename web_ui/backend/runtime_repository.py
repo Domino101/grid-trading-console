@@ -12,7 +12,7 @@ from typing import Optional
 
 from core.infrastructure.database.guard import EnvironmentGuard
 from core.infrastructure.database.ledger_repository import LedgerRepository
-from core.infrastructure.database.models import BotPosition, BotRecord, TradeFill
+from core.infrastructure.database.models import BotPosition, TradeFill
 from core.infrastructure.database.redis_support import RedisStateCache
 from core.infrastructure.identity import resolve_bot_id
 from web_ui.backend.lifecycle import connect_sqlite
@@ -27,6 +27,12 @@ class RuntimeSnapshotRepository:
         if self.database_path != ":memory:":
             os.makedirs(os.path.dirname(self.database_path), exist_ok=True)
         self._ledger = LedgerRepository(self.database_path)
+        # P4-1: 統一記帳門面（綁定本實例的 repository，保留自訂 DB 路徑語意），
+        # 使 grid / DCA heartbeat 的成交與身分寫入和 CoinFull Prime 走同一條路徑，
+        # 並共用記帳健康度計數（可觀測降級）。
+        from core.infrastructure.database.strategy_ledger import StrategyLedger
+
+        self._accounting = StrategyLedger(repository=self._ledger)
         if cache is not None:
             self._redis_cache = cache
         elif EnvironmentGuard.is_production_database_path(self.database_path):
@@ -80,17 +86,16 @@ class RuntimeSnapshotRepository:
         if acc_mode not in ("live", "paper"):
             acc_mode = "live"
 
-        bot_record = BotRecord(
+        self._accounting.ensure_bot(
             bot_id=bot_id,
             strategy_type=stats.get("strategy_type", "dca" if "dca" in config_path else "grid"),
             symbol=stats.get("symbol", "unknown"),
             exchange=stats.get("exchange", "binance"),
             account_mode=acc_mode,
-            config_path=config_path,
             status=stats.get("status", "running"),
+            config_path=config_path,
             created_at=timestamp,
         )
-        self._ledger.register_or_update_bot(bot_record)
 
         # 2. Extract and record any discrete fills
         fills = stats.get("fills") or []
@@ -111,13 +116,8 @@ class RuntimeSnapshotRepository:
                     realized_pnl=float(f.get("realized_pnl", 0.0) or 0.0),
                     executed_at=float(f.get("executed_at", timestamp) or timestamp),
                 )
-                self._ledger.record_fill(fill)
-                # P3-1: 同步寫入 canonical 事件流（fill，以 fill_id 冪等）
-                try:
-                    from core.infrastructure.database.bot_events import emit_fill_event
-                    emit_fill_event(fill)
-                except Exception:
-                    pass  # 事件擷取不影響主路徑
+                # P4-1 統一門面：trade_fills + P3-1 canonical fill 事件（以 fill_id 冪等）
+                self._accounting.record_fill(fill)
 
         # 3. Update Position & Metrics
         pos_data = stats.get("position") or {}

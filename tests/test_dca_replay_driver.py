@@ -350,14 +350,16 @@ class TestDcaReplayDriver(unittest.TestCase):
         self.assertNotEqual(res.metrics["unrealized_pnl"], 0.0)
 
     def test_audit_3_14_grid_zero_regression(self):
-        """3.14 P0: 網格核心檔案零變更。"""
-        proc = subprocess.run(
-            ["git", "diff", "--stat", "core/services/grid/", "run_grid_trading.py"],
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(proc.stdout.strip(), "")
+        """網格核心零變更守門。
 
+        P4-1 起守門規則升級：差異必須落在 tests/_grid_guard.GRID_DIFF_ALLOWLIST
+        （已授權的跨切面改動）內，任何未授權的網格差異仍會失敗。
+        """
+        from pathlib import Path
+
+        from tests._grid_guard import assert_grid_core_zero_regression
+
+        assert_grid_core_zero_regression(self, Path(__file__).resolve().parents[1])
 
 if __name__ == "__main__":
     unittest.main()
