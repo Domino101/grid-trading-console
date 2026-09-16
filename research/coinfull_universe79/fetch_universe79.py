@@ -42,12 +42,18 @@ MANIFEST_INTERVAL = 500
 
 
 # --------------------------------------------------------------------------- http
+from urllib.parse import quote, urlsplit, urlunsplit
+
+
 def http_get(url: str, timeout: float = 30.0, retries: int = 3) -> "tuple[int, bytes | None, str]":
     """GET with retries. Returns (status, body, note). status 404 = not found (no retry)."""
+    parts = urlsplit(url)
+    safe_path = quote(parts.path, safe="/:")
+    safe_url = urlunsplit((parts.scheme, parts.netloc, safe_path, parts.query, parts.fragment))
     last = ""
     for attempt in range(retries + 1):
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": UA})
+            req = urllib.request.Request(safe_url, headers={"User-Agent": UA})
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 return r.status, r.read(), ""
         except urllib.error.HTTPError as e:
@@ -98,6 +104,8 @@ def _extract(zip_path: str, csv_path: str) -> int:
 
 
 def _fetch_one(task: Dict[str, str], timeout: float, retries: int) -> Dict[str, str]:
+    if task.get("cached_status") == "404":
+        return {**task, "status": "404"}
     zip_p, csv_p = task["zip"], task["csv"]
     if _csv_complete(csv_p):
         return {**task, "status": "skip"}
@@ -163,12 +171,17 @@ def main() -> int:
 
     # resume manifest (previous run state)
     mani_p = os.path.join(raw, "manifest.json")
-    manifest: Dict[str, Dict] = {}
+    manifest: Dict[str, str] = {}
     if os.path.isfile(mani_p):
         try:
             manifest = json.loads(open(mani_p).read())
+            manifest = {k: v for k, v in manifest.items() if not str(v).startswith("error")}
         except Exception:
             manifest = {}
+    for t in tasks:
+        key = f"{t['kind']}:{t['symbol']}:{t['month']}"
+        if manifest.get(key) == "404":
+            t["cached_status"] = "404"
     lock = threading.Lock()
     stats = {"ok": 0, "skip": 0, "404": 0, "error": 0}
     t0 = time.time()

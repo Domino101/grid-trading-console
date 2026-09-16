@@ -30,7 +30,7 @@ STABLECOINS: frozenset = frozenset({
 })
 
 VISION_BASE = "https://data.binance.vision/data/futures/um"
-START_MONTH = "2021-01"
+START_MONTH = "2024-01"
 END_MONTH = "2026-07"
 TOP_N = 79
 GATE_TOP_N = 40          # production gate uses the top-40-by-volume universe
@@ -59,7 +59,7 @@ def month_range(start: str = START_MONTH, end: str = END_MONTH) -> List[str]:
 
 
 def klines_url(sym: str, month: str) -> str:
-    return f"{VISION_BASE}/daily/klines/{sym}/1d/{sym}-1d-{month}.zip"
+    return f"{VISION_BASE}/monthly/klines/{sym}/1d/{sym}-1d-{month}.zip"
 
 
 def funding_url(sym: str, month: str) -> str:
@@ -68,7 +68,7 @@ def funding_url(sym: str, month: str) -> str:
 
 def symbols_listing_url() -> str:
     """Directory listing of every USDT-M perp that ever had Vision data (incl. delisted)."""
-    return f"{VISION_BASE}/daily/klines/"
+    return f"{VISION_BASE}/monthly/klines/"
 
 
 def plan_tasks(symbols: Sequence[str],

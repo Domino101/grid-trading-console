@@ -82,6 +82,9 @@ def build_gates(close: pd.DataFrame, fund: pd.DataFrame, m40: pd.DataFrame) -> D
 
 
 def show(name: str, m: dict, tag: str = "FULL") -> None:
+    if not np.isfinite(m.get("cagr_pct", np.nan)):
+        print(f"  {tag}  {name:38s} (period not in dataset)")
+        return
     print(f"  {tag}  {name:38s} cagr={m['cagr_pct']:7.1f}%  vol={m['vol_pct']:5.1f}%  sharpe={m['sharpe']:5.2f}  "
           f"maxdd={m['max_dd_pct']:7.1f}%  calmar={m['calmar']:5.2f}  hit={m['hit_pct']:4.1f}%  "
           f"turn={m['turnover']:.3f}  fee=${m['fees']:6.0f}  fund=${m['funding']:6.0f}  net=${m['net']:7.0f}")
@@ -139,9 +142,18 @@ def main() -> int:
     meta = json.loads(open(meta_p).read()) if os.path.isfile(meta_p) else {}
 
     def run_pack(cfg: dict, collect: bool = False, start=None, end=None) -> "tuple[dict, dict]":
+        if end and pd.Timestamp(end) < dates[0]:
+            return {"cagr_pct": np.nan, "vol_pct": np.nan, "sharpe": np.nan, "max_dd_pct": np.nan,
+                    "calmar": np.nan, "hit_pct": np.nan, "turnover": np.nan, "fees": 0.0, "funding": 0.0, "net": 0.0}, {}
         c = {**cfg, "start": start, "end": end}
         r = bt.run(E2.CFG(**c), collect_positions=collect)
         return E.perf(r["frame"], 1000.0), r
+
+    def _fmt(m: dict, w: int = 7) -> str:
+        if not np.isfinite(m.get("cagr_pct", np.nan)):
+            return f"{'N/A':>{w}}   N/A"
+        return f"{m['cagr_pct']:{w}.1f}% {m['sharpe']:5.2f}"
+
 
     # ---------------------------------------------------------------- 0. data
     print("=" * 158)
@@ -193,7 +205,7 @@ def main() -> int:
             m_i, _ = run_pack(cfg, start=IS[0], end=IS[1])
             m_o, _ = run_pack(cfg, start=OOS[0], end=OOS[1])
             print(f"  {rb:>4} | {m_f['cagr_pct']:8.1f}% {m_f['sharpe']:6.2f} {m_f['max_dd_pct']:7.1f} | "
-                  f"{m_i['cagr_pct']:7.1f}% {m_i['sharpe']:6.2f} | {m_o['cagr_pct']:7.1f}% {m_o['sharpe']:6.2f} {m_o['max_dd_pct']:7.1f}")
+                  f"{_fmt(m_i, 7)} | {_fmt(m_o, 7)} {m_o['max_dd_pct']:7.1f}")
 
     # ---------------------------------------------------------------- 3. weekday phase
     if not args.quick:
@@ -208,8 +220,7 @@ def main() -> int:
             m_o, _ = run_pack(cfg, start=OOS[0], end=OOS[1])
             mark = " <- prod" if w == 3 else ""
             print(f"  {wd_names[w]:>3}{mark:8s} FULL cagr={m_f['cagr_pct']:7.1f}% sh={m_f['sharpe']:5.2f} "
-                  f"dd={m_f['max_dd_pct']:6.1f}% | IS cagr={m_i['cagr_pct']:7.1f}% sh={m_i['sharpe']:5.2f} | "
-                  f"OOS cagr={m_o['cagr_pct']:7.1f}% sh={m_o['sharpe']:5.2f}")
+                  f"dd={m_f['max_dd_pct']:6.1f}% | IS {_fmt(m_i, 7)} | OOS {_fmt(m_o, 7)}")
 
     # ---------------------------------------------------------------- 4. K scan
     if not args.quick:
@@ -221,8 +232,8 @@ def main() -> int:
             m_i, _ = run_pack(cfg, start=IS[0], end=IS[1])
             m_o, _ = run_pack(cfg, start=OOS[0], end=OOS[1])
             print(f"  K={k}  FULL cagr={m_f['cagr_pct']:7.1f}% sh={m_f['sharpe']:5.2f} dd={m_f['max_dd_pct']:6.1f}% "
-                  f"turn={m_f['turnover']:.3f} | IS cagr={m_i['cagr_pct']:7.1f}% sh={m_i['sharpe']:5.2f} | "
-                  f"OOS cagr={m_o['cagr_pct']:7.1f}% sh={m_o['sharpe']:5.2f}")
+                  f"turn={m_f['turnover']:.3f} | IS {_fmt(m_i, 7)} | OOS {_fmt(m_o, 7)}")
+
 
     # ---------------------------------------------------------------- 5. costs
     print("\n" + "=" * 158)

@@ -31,12 +31,12 @@ def test_month_range():
     assert m == ["2021-01", "2021-02", "2021-03"]
     m = L.month_range("2025-12", "2026-01")
     assert m == ["2025-12", "2026-01"]
-    assert len(L.month_range()) == 67  # 2021-01 .. 2026-07 inclusive
+    assert len(L.month_range()) == 31  # 2024-01 .. 2026-07 inclusive
 
 
 def test_urls():
     assert L.klines_url("BTCUSDT", "2021-01") == \
-        "https://data.binance.vision/data/futures/um/daily/klines/BTCUSDT/1d/BTCUSDT-1d-2021-01.zip"
+        "https://data.binance.vision/data/futures/um/monthly/klines/BTCUSDT/1d/BTCUSDT-1d-2021-01.zip"
     assert L.funding_url("ETHUSDT", "2023-05") == \
         "https://data.binance.vision/data/futures/um/monthly/fundingRate/ETHUSDT/ETHUSDT-fundingRate-2023-05.zip"
 
