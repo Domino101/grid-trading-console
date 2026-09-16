@@ -3,6 +3,95 @@
 本專案的重要變更記錄於此檔案，遵循 [Semantic Versioning](https://semver.org/lang/zh-TW/) 與 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/) 規範。
 詳細歷史工程記錄請參閱 [CHANGELOG_LEGACY.md](file:///root/grid-trading-console/CHANGELOG_LEGACY.md)。
 
+## [0.3.6] — 2026-09-16
+
+### Added
+- **三策略統一記帳層 (Unified Strategy Accounting, P4-1)**：Grid / DCA / CoinFull Prime 與 API 層全面收斂至**單一記帳埠**
+  `core/infrastructure/database/strategy_ledger.py::StrategyLedger`（→ `LedgerRepository` → `create_ledger_store()`），
+  後端（SQLite / PostgreSQL）一律由工廠依 `DATABASE_URL` 解析，**杜絕直接 `new SqliteLedgerStore()` 造成的幽靈資料源**。
+  - 新增 canonical 表：`bot_baskets`（PK `bot_id+account_id+symbol`，均價法 `entry_price`/`quantity`/`realized_pnl`/`status`）、
+    `bot_regime_decisions`（風險閘門決策，`dedupe_key` 冪等）、`bot_runtime_state`（PK `bot_id+key`，排程/延後/回填標記等 KV）。
+    **不建立 DB 層外鍵**（跨後端可攜 + 回填順序彈性），改由稽核引擎以邏輯不變式強制（L1/L2/L8）。
+  - `schema.sql` 與 Alembic `migrations/versions/0003_unified_strategy_accounting.py`（`down_revision = 0002_bot_events`）同步新增；
+    兩者 parity 由 `tests/test_accounting_path_policy.py` 靜態守門。**既有 SQLite 仍禁止 `alembic upgrade head`**，
+    新表由 `ledger_store.initialize()`（SQLAlchemy `create_all`）自動補齊（遵守 AGENTS.md 遷移政策）。
+  - **DB 為唯一真相源，檔案降為匯出鏡像**：`coinfull_prime_active_basket.json`、`coinfull_prime_regime_history.jsonl`、
+    `coinfull_prime_run_snapshots.jsonl`、`coinfull_prime_scheduler.json` 四份檔案型帳本改由 DB 反向匯出
+    （鏡像標注 `source: canonical_ledger:*`），並提供**冪等回填** `ledger_backfill.py`
+    （啟動自我修復 + CLI `--backfill` + API `?backfill=true`；回填一律 `close_missing=False`，非破壞性）。
+    0.3.6 鏡像另含 `entries` 明細（side/quantity/entry_price/realized_pnl），使「DB 遺失、僅剩鏡像」可**無損還原**。
+  - **損益可由 DB 獨立重算**：`apply_basket_fill()` 以均價法結算已實現損益（多/空符號相反），
+    回寫 `trade_fills.realized_pnl` 與事件 payload；`RebalanceReport` 新增 `realized_pnl_usdt`/`fees_usdt`/`batch_id`。
+  - **冪等鍵齊備**：`fill_id` 唯一；`record_fill()` 先寫 `trade_fills`、**成功後**才 emit canonical `fill` 事件
+    （`dedupe_key="fill:{fill_id}"`，寫入失敗不產生孤立事件）；可重跑事件一律帶 `dedupe_key`
+    （`rebalance:{account}:{batch_id}`、`regime:{account}:{ts}`）。
+  - **可觀測降級**：`AccountingHealth`（`writes_ok`/`writes_failed`/`write_success_rate`/`degraded`/`errors_by_op`/`last_error`）——
+    記帳失敗**絕不阻斷交易**，但必可觀測（API `accounting_health`、稽核 L12）。
+- **統一記帳一致性稽核引擎 (L1–L15)**：`core/infrastructure/database/ledger_audit.py`，以帳本不變式驗證「三者是否真的共用同一套資料庫記帳」：
+  L1 孤兒成交、L2 孤兒事件、L3 schema 漂移、L4 記帳路徑政策繞過（靜態掃描 + 白名單）、L5 fill 事件缺口、L6 事件非冪等、
+  L7 檔案型帳本分歧、L8 記帳契約違反、L9 幽靈機器人、L10 操作稽核日誌健康、L11 會計恆等式、L12 記帳降級、
+  L13 重複入帳、L14 環境模式錯置、L15 幽靈後端。輸出支援 JSON / Markdown / 文字，含 `healthy`、`worst_severity`、
+  各策略覆蓋與契約判定。
+- **稽核 CLI**：`tools/ledger_consistency_audit.py`（`--json` / `--markdown` / `--backfill` / `--export-mirror` /
+  `--db <帳本檔>` / `--data-dir` / `--no-policy-scan` / `--fail-on {critical,high,medium,low,none}`）；
+  退出碼 `0` 通過、`1` 達閘門嚴重度、`2` 執行失敗。
+- **稽核 API**：`GET /api/v1/system/ledger-audit`（`?backfill=&policy_scan=&markdown=`，需 Bearer token，唯讀、零交易所權重）。
+- **CoinFull Prime 讀取端點（DB 真相源）**：`GET /api/v1/coinfull-prime/basket`、`/accounting`、`/regime/history`；
+  `/fills`、`/history` 改由 canonical ledger 讀取（`_infer_symbol()` 依 ID 命名契約還原標的，因 `trade_fills` 無 `symbol` 欄）。
+- **測試**：新增 `tests/test_unified_ledger_accounting.py`（30）、`tests/test_ledger_consistency_audit.py`（17）、
+  `tests/test_accounting_path_policy.py`（12）共 **59 項**；`scripts/ci.sh` `TEST_MODULES` 57 → 60。
+- **稽核報告**：`docs/unified_ledger_accounting_audit_report_20260916.md`（0.3.4 宣稱逐項驗證、D-01～D-12 診斷與前後證據、
+  統一架構、L1–L15 矩陣、零回歸證明、殘留風險 R-01～R-07、維運手冊）。
+
+### Fixed
+- **P0 後端繞過（幽靈資料源）**：`coinfull_prime/service.py`、`rebalancer.py`、`routes/coinfull_prime.py` 原先各自
+  `SqliteLedgerStore()` 直接實例化 → `DATABASE_URL`（PostgreSQL）模式下 CFP 記帳寫入本地 SQLite，canonical ledger 完全沒有資料。
+  現全部改走 `StrategyLedger`（0.3.5 圖譜顯示 27 個節點直接依賴 `SqliteLedgerStore`，其中 6 個為 CFP 生產路徑）。
+- **P0 安全護欄靜默失效**：`get_external_bot_symbols()` 原先以 `sqlite3.connect()` + 硬編碼相對路徑
+  `../../../data/web_ui_runtime.sqlite3` 查詢外部機器人標的；PG 模式下該檔不存在 → **避碰保護名單靜默為空**
+  （無例外、無 log）→ 可能與 Grid/DCA 搶同一標的保證金、且平倉豁免保護失效（可能誤殺外部部位）。現改查 canonical ledger `bots`。
+- **P0 記帳孤島**：CFP 四份檔案型帳本原為真相源（0.3.5 還新增了兩份 JSONL）→ 現降為鏡像 + 冪等回填，重啟不再以舊檔覆寫新帳。
+- **P1 幽靈機器人**：`initialize()` 原無條件登記 `paper`/`binance_testnet`/`binance_live` 三個身分 →
+  現只登記實際使用的帳號環境（Live 驗證：`bots` 計數由 3 → 1）。
+- **P1 事件不一致**：`realized_pnl` 原恆為 `0.0`（硬編碼）；`daily_rebalance` 事件原**未帶 `dedupe_key`**（重啟/補跑會重複記帳）；
+  CFP 成交原**不 emit canonical `fill` 事件**（事件溯源回放退回 legacy 路徑）→ 三者皆已修正。
+- **P1 幽靈持倉（重構期間新發現）**：換倉後的籃子名單同步若把 `reduce_only`（平倉）單也算進去，會把**已平倉成分重新標記為 `active`**。
+  現規定結算權歸屬：`apply_basket_fill()` 獨佔 `status`/`quantity`/`realized_pnl`，名單同步只處理開倉/調倉成分。
+- **P1 操作稽核日誌（`grid_audit.db`）**：`AuditLogger.get_instance()` 原為單例、**第二次呼叫起忽略 `project_root`**，且無自我修復。
+  現改為 per-root 註冊表 + schema 自我修復 + 寫入失敗計數 + `health()`。
+- **門面健壯性（本次稽核發現的靜默失敗路徑）**：
+  ① `StrategyLedger.store` 原直接取 `repo.store`，注入 raw `LedgerStore`（稽核 CLI `--db`、`RuntimeSnapshotRepository` 自訂路徑）時
+  拋 `AttributeError` 並被寫入守門吞掉 → 記帳靜默失敗；現兩種形態皆可解析。
+  ② `save_basket()` 原只接受 `BasketEntry`，送入 dict（檔案型帳本常見，含 `avg_price`/`qty` 舊鍵）即靜默失敗；現於門面正規化。
+  ③ `fill` 事件原委派給 `bot_events.emit_fill_event()`（解析**全域單例**）→ 注入自訂 store 時事件落到另一個 DB，
+  形成「fills 有、events 無」的 L5 缺口；現改為寫入同一注入 store。
+- **稽核 L10 誤判**：全新安裝尚無 `grid_audit.db` 時原直接報 medium；現先觸發 `AuditLogger` 自我修復探測，
+  能建立即非缺陷（只在「建不起來」時回報，並附探測證據）。
+- **L9 幽靈機器人判定**：原把 `bot_created`/`bot_renamed` 等**純身分事件**也算記帳活動，使幽靈身分被自己的註冊事件掩蓋；現排除之。
+- **`ledger_store` 的 `:memory:` 缺陷**：記憶體引擎被 `dispose()` 後連線池重建 → schema 消失（拿到空庫）。現改 `StaticPool` 並跳過該路徑。
+- **`tools/ai_reflection_engine.py`**：原以 `SqliteLedgerStore(db_path)` 讀取「持倉與盈虧事實」→ PG 模式下 AI 覆盤基於**空資料**；
+  現改用 `create_ledger_store()` 工廠。
+- **API `content-type` 重複 charset**：`?markdown=true` 原回傳 `text/markdown; charset=utf-8; charset=utf-8`。
+- **版本漂移**：`VERSION` 原為 `0.3.4`，但 `CHANGELOG` 最新條目為 `0.3.5` → 現同步為 `0.3.6`。
+
+### Changed
+- `web_ui/backend/runtime_repository.py`：Grid/DCA 運行快照寫入改經 `StrategyLedger(repository=self._ledger)`（同一記帳埠）。
+- `core/services/grid/implementations/position_tracker_impl.py`：記帳埠收斂至 `StrategyLedger`（**網格交易/風控邏輯零變更**）。
+- 網格零變更守門（6 個 DCA 交付期測試）升級為 **allowlist 制**：新增 `tests/_grid_guard.py::GRID_DIFF_ALLOWLIST`
+  記載已授權的跨切面改動（檔案 + 交付期 + 理由）；**未授權的網格差異仍會使守門失敗**，保留原始保護意圖。
+- `tests/conftest.py`：新增 `LedgerRepository` / `StrategyLedger` / `AuditLogger` 單例重置，消除跨測試污染。
+- `tests/test_coinfull_prime_rebalance.py`：帳本斷言現代化（改走門面，並驗證 `batch_id`、`dedupe_key`、canonical `fill` 事件）。
+- **驗證**：完整 CI 由 486 → **545** 項測試（+59 新測試、+3 模組），失敗/錯誤/略過 = 22/3/2，
+  與 pristine HEAD 基準（同沙箱、同依賴）**失敗項目集合逐項相同 → 零回歸**；殘留失敗全為環境性
+  （沙箱無法連外至 Binance，HTTP 418 IP ban → `422 交易對 ... 在交易所 binance 中不存在或無法交易`）。
+- **Live 驗證**（AGENTS.md 標準）：啟動 `web_ui/backend/main.py`（`0.0.0.0:8001`）後實測
+  `/api/v1/system/ledger-audit`（200，`healthy=true`）、`?markdown=true`（200 `text/markdown; charset=utf-8`）、
+  未帶 token（401）、`/coinfull-prime/{basket,accounting,regime/history,fills/history,status}`（皆 200）；
+  重啟後排程狀態**由 canonical ledger 還原**（`🔄 從持久化紀錄恢復 CoinFull Prime 排程`），
+  且啟動時自動回填 legacy `coinfull_prime_scheduler.json`（`scheduler_states.imported=1`）。
+
+---
+
 ## [0.3.5] — 2026-09-16
 
 ### Added

@@ -21,7 +21,9 @@ from typing import Dict, Any, List, Optional
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
-from core.infrastructure.database.ledger_store import SqliteLedgerStore
+# P4-1 統一記帳：改走工廠（DATABASE_URL 設定時自動解析 PostgreSQL 真相源，
+# 避免直接 new SqliteLedgerStore() 在 PG 模式下讀到空的幽靈 SQLite 檔）。
+from core.infrastructure.database.ledger_store import create_ledger_store
 from web_ui.backend.grid_state_store import GridStateStore
 
 
@@ -67,8 +69,8 @@ class ReflectionEngine:
         hypothesis = decision.get("hypothesis", {})
         params = decision.get("parameters", {})
 
-        # 1. 從 SQLite 讀取持倉與盈虧事實
-        store = SqliteLedgerStore(self.db_path)
+        # 1. 從 canonical ledger 讀取持倉與盈虧事實（SQLite / PostgreSQL 由工廠解析）
+        store = create_ledger_store(database_path=self.db_path)
         pos = store.get_position(bot_id) if bot_id else None
         fills = store.get_fills(bot_id, limit=500, since=created_at) if bot_id else []
 

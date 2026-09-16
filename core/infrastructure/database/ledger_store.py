@@ -27,9 +27,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from core.infrastructure.database.guard import EnvironmentGuard
 from core.infrastructure.database.models import (
+    BasketEntry,
     BotIdentityEvent,
     BotPosition,
     BotRecord,
+    RegimeDecisionRecord,
+    RuntimeStateEntry,
     TradeFill,
 )
 from core.logging import get_logger
@@ -39,6 +42,7 @@ logger = get_logger(__name__)
 # ── SQLAlchemy (lazy import with a clear error / fallback) ──────────────────
 try:  # pragma: no cover - exercised when SQLAlchemy is installed
     from sqlalchemy import (
+        Boolean,
         Column,
         Float,
         Index,
@@ -105,6 +109,33 @@ class LedgerStore(typing.Protocol):
     def get_position(self, bot_id: str) -> Optional[BotPosition]: ...
     def update_position_occ(self, bot_id: str, position: BotPosition, expected_version: int) -> bool: ...
     def rehydrate_position_from_fills(self, bot_id: str) -> BotPosition: ...
+    # P4-1 統一記帳層：籃子 / 風險閘門決策 / 執行期狀態
+    def save_basket_entries(
+        self,
+        bot_id: str,
+        account_id: str,
+        entries: List[BasketEntry],
+        close_missing: bool = True,
+        now: Optional[float] = None,
+    ) -> int: ...
+    def get_basket(self, bot_id: str, account_id: Optional[str] = None, active_only: bool = True) -> List[BasketEntry]: ...
+    def apply_basket_fill(
+        self,
+        bot_id: str,
+        account_id: str,
+        symbol: str,
+        side: str,
+        price: float,
+        quantity: float,
+        reduce_only: bool = False,
+        now: Optional[float] = None,
+    ) -> float: ...
+    def record_regime_decision(self, record: RegimeDecisionRecord) -> Optional[int]: ...
+    def get_regime_decisions(self, bot_id: Optional[str] = None, limit: int = 200, since: float = 0.0) -> List[RegimeDecisionRecord]: ...
+    def set_runtime_state(self, bot_id: str, key: str, value: Any, now: Optional[float] = None) -> None: ...
+    def get_runtime_state(self, bot_id: str, key: str, default: Any = None) -> Any: ...
+    def get_runtime_states(self, bot_id: str) -> Dict[str, Any]: ...
+    def get_runtime_state_entries(self, bot_id: Optional[str] = None) -> List[RuntimeStateEntry]: ...
     def save_snapshot(
         self,
         bot_id: str,
@@ -216,6 +247,56 @@ bot_events = Table(
     Column("created_at", Float, nullable=False),
 )
 
+# Phase 4 (P4-1): 統一記帳層 — 多標的策略的受管持倉籃子（取代檔案型帳本）。
+# 單一標的策略（grid / dca）的部位仍由 bot_positions 承載；籃子型策略
+# （coinfull_prime）由本表承載每個成分，並由 apply_basket_fill() 以均價法
+# 結算 realized_pnl，使三者的損益都能由 DB 獨立重算。
+bot_baskets = Table(
+    "bot_baskets",
+    meta,
+    Column("bot_id", String(255), primary_key=True),
+    Column("account_id", String(64), primary_key=True),
+    Column("symbol", String(64), primary_key=True),
+    Column("side", String(16), nullable=False, server_default="long"),
+    Column("quantity", Numeric(38, 18), nullable=False, server_default="0"),
+    Column("entry_price", Numeric(38, 18), nullable=True),
+    Column("notional_usdt", Numeric(38, 18), nullable=False, server_default="0"),
+    Column("realized_pnl", Numeric(38, 18), nullable=False, server_default="0"),
+    Column("status", String(16), nullable=False, server_default="active"),
+    Column("opened_at", Float, nullable=True),
+    Column("updated_at", Float, nullable=False),
+)
+
+# Phase 4 (P4-1): 風險閘門決策之 canonical 記帳（取代 regime_history.jsonl）。
+bot_regime_decisions = Table(
+    "bot_regime_decisions",
+    meta,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("bot_id", String(255), nullable=False),
+    Column("account_id", String(64), nullable=True),
+    Column("decided_at", Float, nullable=False),
+    Column("pts", Integer, nullable=False, server_default="0"),
+    Column("scale", Numeric(12, 6), nullable=False, server_default="1"),
+    Column("allow_new_entries", Boolean, nullable=False, server_default="1"),
+    Column("force_flatten", Boolean, nullable=False, server_default="0"),
+    Column("crash_defer", Boolean, nullable=False, server_default="0"),
+    Column("degraded", Boolean, nullable=False, server_default="0"),
+    Column("mode", String(32), nullable=True),
+    Column("reason", Text, nullable=True),
+    Column("payload", Text, nullable=False),
+    Column("dedupe_key", String(512), nullable=True),
+)
+
+# Phase 4 (P4-1): per-bot 執行期狀態 KV（排程器 / 延後補跑 / 回填標記）。
+bot_runtime_state = Table(
+    "bot_runtime_state",
+    meta,
+    Column("bot_id", String(255), primary_key=True),
+    Column("key", String(128), primary_key=True),
+    Column("value", Text, nullable=False),
+    Column("updated_at", Float, nullable=False),
+)
+
 grid_runtime_snapshots = Table(
     "grid_runtime_snapshots",
     meta,
@@ -252,6 +333,19 @@ Index(
     sqlite_where=bot_events.c.dedupe_key.isnot(None),
     postgresql_where=bot_events.c.dedupe_key.isnot(None),
 )
+# Phase 4 (P4-1) 統一記帳層索引
+Index("idx_bot_baskets_account_status", bot_baskets.c.account_id, bot_baskets.c.status)
+Index("idx_bot_baskets_updated", bot_baskets.c.bot_id, bot_baskets.c.updated_at.desc())
+Index("idx_regime_decisions_bot_time", bot_regime_decisions.c.bot_id, bot_regime_decisions.c.decided_at.desc())
+Index(
+    "idx_regime_decisions_dedupe",
+    bot_regime_decisions.c.bot_id,
+    bot_regime_decisions.c.dedupe_key,
+    unique=True,
+    sqlite_where=bot_regime_decisions.c.dedupe_key.isnot(None),
+    postgresql_where=bot_regime_decisions.c.dedupe_key.isnot(None),
+)
+Index("idx_runtime_state_updated", bot_runtime_state.c.bot_id, bot_runtime_state.c.updated_at.desc())
 
 
 # ── Monotonic guard helpers (P1-4) ─────────────────────────────────────────────
@@ -426,7 +520,10 @@ class SQLAlchemyLedgerStore:
                 conn.execute(text("CREATE INDEX IF NOT EXISTS idx_legacy_runtime_history_recorded_at ON grid_runtime_history(recorded_at DESC)"))
             except Exception:
                 pass
-        self._engine.dispose(close=False)
+        # DEF-P4-01: in-memory SQLite 不可 dispose()——StaticPool 的唯一連線一旦
+        # 被釋放，下一次連線就是全新的空記憶體庫（schema 憑空消失，寫入靜默失敗）。
+        if ":memory:" not in str(self._engine.url):
+            self._engine.dispose(close=False)
         self._initialized = True
 
     def _ensure_ready(self) -> None:
@@ -883,6 +980,342 @@ class SQLAlchemyLedgerStore:
             total_fees=total_fees,
             updated_at=time.time(),
         )
+
+    # ── P4-1 統一記帳：受管持倉籃子（多標的策略） ────────────────────────────
+    def save_basket_entries(
+        self,
+        bot_id: str,
+        account_id: str,
+        entries: List[BasketEntry],
+        close_missing: bool = True,
+        now: Optional[float] = None,
+    ) -> int:
+        """冪等 upsert 一籃子成分；``close_missing=True`` 時把不在名單內的成分標記為 closed。
+
+        回傳本次「新增或更新」的成分數。既有成分的 entry_price / realized_pnl /
+        opened_at 一律保留（只有 quantity / notional / side / status 會被名單同步覆蓋），
+        避免「重新登記籃子」把已結算損益洗掉。
+        """
+        ts = now if now is not None else time.time()
+        wanted = {e.symbol: e for e in entries if e and e.symbol}
+        touched = 0
+        with self._lock, self._begin() as conn:
+            existing_rows = conn.execute(
+                select(bot_baskets).where(
+                    bot_baskets.c.bot_id == bot_id, bot_baskets.c.account_id == account_id
+                )
+            ).all()
+            existing = {r.symbol: r for r in existing_rows}
+            for symbol, entry in wanted.items():
+                old = existing.get(symbol)
+                quantity = float(entry.quantity or 0.0)
+                if old is not None and (quantity <= 0.0):
+                    # 名單同步不帶數量時，保留既有持倉數量（僅刷新狀態/方向）
+                    quantity = float(old.quantity or 0.0)
+                entry_price = entry.entry_price
+                if entry_price is None and old is not None:
+                    entry_price = float(old.entry_price) if old.entry_price is not None else None
+                notional = float(entry.notional_usdt or 0.0)
+                if notional <= 0.0 and entry_price:
+                    notional = round(quantity * float(entry_price), 8)
+                elif notional <= 0.0 and old is not None:
+                    notional = float(old.notional_usdt or 0.0)
+                values = {
+                    "bot_id": bot_id,
+                    "account_id": account_id,
+                    "symbol": symbol,
+                    "side": entry.side or (old.side if old is not None else "long"),
+                    "quantity": quantity,
+                    "entry_price": entry_price,
+                    "notional_usdt": notional,
+                    "realized_pnl": float(old.realized_pnl or 0.0) if old is not None else float(entry.realized_pnl or 0.0),
+                    "status": entry.status or "active",
+                    "opened_at": (old.opened_at if old is not None and old.opened_at else (entry.opened_at or ts)),
+                    "updated_at": ts,
+                }
+                update = {k: _literal(v) for k, v in values.items() if k not in ("bot_id", "account_id", "symbol")}
+                conn.execute(_upsert_insert(bot_baskets, self._dialect, values, ["bot_id", "account_id", "symbol"], update))
+                touched += 1
+            if close_missing:
+                for symbol, row in existing.items():
+                    if symbol in wanted or row.status == "closed":
+                        continue
+                    conn.execute(
+                        bot_baskets.update()
+                        .where(
+                            bot_baskets.c.bot_id == bot_id,
+                            bot_baskets.c.account_id == account_id,
+                            bot_baskets.c.symbol == symbol,
+                        )
+                        .values(status="closed", updated_at=ts)
+                    )
+                    touched += 1
+        return touched
+
+    def get_basket(
+        self,
+        bot_id: str,
+        account_id: Optional[str] = None,
+        active_only: bool = True,
+    ) -> List[BasketEntry]:
+        """讀取受管籃子成分（依 updated_at 由新到舊）。"""
+        stmt = select(bot_baskets).where(bot_baskets.c.bot_id == bot_id)
+        if account_id:
+            stmt = stmt.where(bot_baskets.c.account_id == account_id)
+        if active_only:
+            stmt = stmt.where(bot_baskets.c.status == "active")
+        with self._lock, self._ro() as conn:
+            rows = conn.execute(stmt.order_by(bot_baskets.c.updated_at.desc())).all()
+        return [
+            BasketEntry(
+                bot_id=r.bot_id,
+                account_id=r.account_id,
+                symbol=r.symbol,
+                side=r.side,
+                quantity=float(r.quantity or 0.0),
+                entry_price=(float(r.entry_price) if r.entry_price is not None else None),
+                notional_usdt=float(r.notional_usdt or 0.0),
+                realized_pnl=float(r.realized_pnl or 0.0),
+                status=r.status,
+                opened_at=(float(r.opened_at) if r.opened_at is not None else None),
+                updated_at=float(r.updated_at or 0.0),
+            )
+            for r in rows
+        ]
+
+    def apply_basket_fill(
+        self,
+        bot_id: str,
+        account_id: str,
+        symbol: str,
+        side: str,
+        price: float,
+        quantity: float,
+        reduce_only: bool = False,
+        now: Optional[float] = None,
+    ) -> float:
+        """以均價法把一筆成交套用到籃子成分，回傳本次「已實現損益」。
+
+        * 開倉（reduce_only=False）：同向加碼 → 重算均價；反向 → 先結算舊倉再開新倉。
+        * 平倉（reduce_only=True）：以成分均價結算 closed_qty，剩餘為 0 時標記 closed。
+        籃子型策略的損益因此可完全由 DB 重算，不需依賴交易所帳戶快照。
+        """
+        ts = now if now is not None else time.time()
+        price = float(price or 0.0)
+        quantity = abs(float(quantity or 0.0))
+        side = (side or "long").lower()
+        position_side = "short" if side in ("short", "sell") else "long"
+        if quantity <= 0.0:
+            return 0.0
+        realized_delta = 0.0
+        with self._lock, self._begin() as conn:
+            row = conn.execute(
+                select(bot_baskets).where(
+                    bot_baskets.c.bot_id == bot_id,
+                    bot_baskets.c.account_id == account_id,
+                    bot_baskets.c.symbol == symbol,
+                )
+            ).fetchone()
+            old_side = (row.side if row is not None else None) or position_side
+            old_qty = float(row.quantity or 0.0) if row is not None else 0.0
+            old_entry = (float(row.entry_price) if row is not None and row.entry_price is not None else None)
+            old_realized = float(row.realized_pnl or 0.0) if row is not None else 0.0
+            old_opened = (float(row.opened_at) if row is not None and row.opened_at is not None else ts)
+
+            if reduce_only or (row is not None and old_side != position_side and old_qty > 0.0):
+                closed_qty = min(quantity, old_qty) if old_qty > 0 else 0.0
+                if closed_qty > 0.0 and old_entry is not None:
+                    direction_sign = 1.0 if old_side == "long" else -1.0
+                    realized_delta = (price - old_entry) * closed_qty * direction_sign
+                remaining = max(0.0, old_qty - closed_qty)
+                if row is not None:
+                    new_entry = old_entry if remaining > 0.0 else None
+                    status = "active" if remaining > 1e-18 else "closed"
+                    conn.execute(
+                        bot_baskets.update()
+                        .where(
+                            bot_baskets.c.bot_id == bot_id,
+                            bot_baskets.c.account_id == account_id,
+                            bot_baskets.c.symbol == symbol,
+                        )
+                        .values(
+                            side=old_side,
+                            quantity=remaining,
+                            entry_price=new_entry,
+                            notional_usdt=(round(remaining * (new_entry or price), 8) if remaining > 0 else 0.0),
+                            realized_pnl=old_realized + realized_delta,
+                            status=status,
+                            updated_at=ts,
+                        )
+                    )
+                # 反向成交且量有剩餘 → 結算後另開新方向倉位
+                leftover = quantity - closed_qty
+                if leftover > 1e-18 and old_side != position_side:
+                    values = {
+                        "bot_id": bot_id,
+                        "account_id": account_id,
+                        "symbol": symbol,
+                        "side": position_side,
+                        "quantity": leftover,
+                        "entry_price": price,
+                        "notional_usdt": round(leftover * price, 8),
+                        "realized_pnl": old_realized + realized_delta,
+                        "status": "active",
+                        "opened_at": ts,
+                        "updated_at": ts,
+                    }
+                    update = {k: _literal(v) for k, v in values.items() if k not in ("bot_id", "account_id", "symbol")}
+                    conn.execute(_upsert_insert(bot_baskets, self._dialect, values, ["bot_id", "account_id", "symbol"], update))
+                return realized_delta
+
+            # 同向開倉 / 加碼：均價法
+            new_qty = old_qty + quantity
+            if old_entry is not None and old_qty > 0.0:
+                new_entry = ((old_entry * old_qty) + (price * quantity)) / new_qty
+            else:
+                new_entry = price
+            values = {
+                "bot_id": bot_id,
+                "account_id": account_id,
+                "symbol": symbol,
+                "side": position_side,
+                "quantity": new_qty,
+                "entry_price": new_entry,
+                "notional_usdt": round(new_qty * new_entry, 8),
+                "realized_pnl": old_realized,
+                "status": "active",
+                "opened_at": old_opened,
+                "updated_at": ts,
+            }
+            update = {k: _literal(v) for k, v in values.items() if k not in ("bot_id", "account_id", "symbol")}
+            conn.execute(_upsert_insert(bot_baskets, self._dialect, values, ["bot_id", "account_id", "symbol"], update))
+        return realized_delta
+
+    # ── P4-1 統一記帳：風險閘門決策 ─────────────────────────────────────────
+    def record_regime_decision(self, record: RegimeDecisionRecord) -> Optional[int]:
+        """寫入一筆風險閘門決策；提供 dedupe_key 時為冪等（重送 no-op）。"""
+        payload_str = json.dumps(record.payload or {}, ensure_ascii=False, separators=(",", ":"), default=str)
+        with self._lock, self._begin() as conn:
+            if record.dedupe_key:
+                existing = conn.execute(
+                    select(bot_regime_decisions.c.id).where(
+                        bot_regime_decisions.c.bot_id == record.bot_id,
+                        bot_regime_decisions.c.dedupe_key == record.dedupe_key,
+                    )
+                ).fetchone()
+                if existing:
+                    return int(existing.id)
+            result = conn.execute(
+                bot_regime_decisions.insert().values(
+                    bot_id=record.bot_id,
+                    account_id=record.account_id,
+                    decided_at=float(record.decided_at),
+                    pts=int(record.pts or 0),
+                    scale=float(record.scale if record.scale is not None else 1.0),
+                    allow_new_entries=bool(record.allow_new_entries),
+                    force_flatten=bool(record.force_flatten),
+                    crash_defer=bool(record.crash_defer),
+                    degraded=bool(record.degraded),
+                    mode=record.mode,
+                    reason=record.reason,
+                    payload=payload_str,
+                    dedupe_key=record.dedupe_key,
+                )
+            )
+            try:
+                return int(result.inserted_primary_key[0])
+            except Exception:  # pragma: no cover - 某些驅動不回傳 PK
+                return None
+
+    def get_regime_decisions(
+        self,
+        bot_id: Optional[str] = None,
+        limit: int = 200,
+        since: float = 0.0,
+    ) -> List[RegimeDecisionRecord]:
+        stmt = select(bot_regime_decisions).where(bot_regime_decisions.c.decided_at >= since)
+        if bot_id:
+            stmt = stmt.where(bot_regime_decisions.c.bot_id == bot_id)
+        with self._lock, self._ro() as conn:
+            rows = conn.execute(
+                stmt.order_by(bot_regime_decisions.c.decided_at.desc(), bot_regime_decisions.c.id.desc()).limit(limit)
+            ).all()
+        out: List[RegimeDecisionRecord] = []
+        for r in rows:
+            try:
+                payload = json.loads(r.payload) if r.payload else {}
+            except (TypeError, ValueError, json.JSONDecodeError):
+                payload = {}
+            out.append(
+                RegimeDecisionRecord(
+                    id=int(r.id),
+                    bot_id=r.bot_id,
+                    account_id=r.account_id,
+                    decided_at=float(r.decided_at),
+                    pts=int(r.pts or 0),
+                    scale=float(r.scale if r.scale is not None else 1.0),
+                    allow_new_entries=bool(r.allow_new_entries),
+                    force_flatten=bool(r.force_flatten),
+                    crash_defer=bool(r.crash_defer),
+                    degraded=bool(r.degraded),
+                    mode=r.mode,
+                    reason=r.reason,
+                    payload=payload if isinstance(payload, dict) else {},
+                    dedupe_key=r.dedupe_key,
+                )
+            )
+        return out
+
+    # ── P4-1 統一記帳：執行期狀態 KV ────────────────────────────────────────
+    def set_runtime_state(self, bot_id: str, key: str, value: Any, now: Optional[float] = None) -> None:
+        ts = now if now is not None else time.time()
+        payload_str = json.dumps(value, ensure_ascii=False, default=str)
+        values = {"bot_id": bot_id, "key": key, "value": payload_str, "updated_at": ts}
+        update = {"value": _literal(payload_str), "updated_at": _literal(ts)}
+        with self._lock, self._begin() as conn:
+            conn.execute(_upsert_insert(bot_runtime_state, self._dialect, values, ["bot_id", "key"], update))
+
+    def get_runtime_state(self, bot_id: str, key: str, default: Any = None) -> Any:
+        with self._lock, self._ro() as conn:
+            row = conn.execute(
+                select(bot_runtime_state.c.value).where(
+                    bot_runtime_state.c.bot_id == bot_id, bot_runtime_state.c.key == key
+                )
+            ).fetchone()
+        if not row:
+            return default
+        try:
+            return json.loads(row.value)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return default
+
+    def get_runtime_states(self, bot_id: str) -> Dict[str, Any]:
+        with self._lock, self._ro() as conn:
+            rows = conn.execute(
+                select(bot_runtime_state).where(bot_runtime_state.c.bot_id == bot_id)
+            ).all()
+        out: Dict[str, Any] = {}
+        for r in rows:
+            try:
+                out[r.key] = json.loads(r.value)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                out[r.key] = None
+        return out
+
+    def get_runtime_state_entries(self, bot_id: Optional[str] = None) -> List[RuntimeStateEntry]:
+        stmt = select(bot_runtime_state)
+        if bot_id:
+            stmt = stmt.where(bot_runtime_state.c.bot_id == bot_id)
+        with self._lock, self._ro() as conn:
+            rows = conn.execute(stmt).all()
+        entries: List[RuntimeStateEntry] = []
+        for r in rows:
+            try:
+                value = json.loads(r.value)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                value = None
+            entries.append(RuntimeStateEntry(bot_id=r.bot_id, key=r.key, value=value, updated_at=float(r.updated_at or 0.0)))
+        return entries
 
     # ── snapshots / monotonic / legacy dual-write ──────────────────────────
     def save_snapshot(

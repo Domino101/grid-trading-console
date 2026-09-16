@@ -233,17 +233,21 @@ class PositionTrackerImpl(IPositionTracker):
         fee: Decimal,
         realized_pnl: Decimal,
     ) -> None:
-        """P1-3: 將單筆 grid 成交寫入不可變成交流水 trade_fills（冪等 append-only）。"""
+        """P1-3: 將單筆 grid 成交寫入不可變成交流水 trade_fills（冪等 append-only）。
+
+        P4-1：改走 ``StrategyLedger``（三策略統一記帳門面），因此成交寫入、
+        canonical fill 事件與記帳健康度計數與 DCA / CoinFull Prime 完全同源。
+        """
         if not self.bot_id:
             return
         try:
-            from core.infrastructure.database.ledger_repository import LedgerRepository
-            from core.infrastructure.database.models import BotRecord, TradeFill
+            from core.infrastructure.database.models import TradeFill
+            from core.infrastructure.database.strategy_ledger import StrategyLedger
 
-            repo = LedgerRepository.instance()
+            ledger = StrategyLedger.instance()
             # P1-6: 先註冊 bot 再寫成交，避免帳本完整性錯誤（不再依賴 unknown placeholder）
             if not self._bot_registered:
-                repo.register_or_update_bot(BotRecord(
+                ledger.ensure_bot(
                     bot_id=self.bot_id,
                     strategy_type="grid",
                     symbol=self.config.symbol,
@@ -254,8 +258,7 @@ class PositionTrackerImpl(IPositionTracker):
                         else "live"
                     ),
                     status="running",
-                    created_at=time.time(),
-                ))
+                )
                 self._bot_registered = True
 
             executed_at = (
@@ -278,11 +281,9 @@ class PositionTrackerImpl(IPositionTracker):
                 realized_pnl=float(realized_pnl) if realized_pnl is not None else 0.0,
                 executed_at=executed_at,
             )
-            repo.record_fill(fill)
-            # P3-1: 同步寫入 canonical 事件流（fill，以 fill_id 冪等）
-            from core.infrastructure.database.bot_events import emit_fill_event
-            emit_fill_event(fill)
-        except Exception as exc:  # 帳本失敗絕不阻斷交易
+            # 統一門面：trade_fills + canonical fill 事件（以 fill_id 冪等）一次完成
+            ledger.record_fill(fill)
+        except Exception as exc:  # 帳本失敗絕不阻斷交易（但會計入記帳健康度）
             self.logger.warning(f"寫入不可變成交流水失敗 (略過，不影響交易): {exc}")
 
     def resolve_fee_rate(self) -> Decimal:

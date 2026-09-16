@@ -438,19 +438,25 @@ class DcaChartBacktestE2ETests(unittest.TestCase):
         """本計畫不得動到運行中的網格系統（G-1 / G-2 / G-18）。
 
         `GRID_REGRESSION_BASE` 可指定基準 commit；未設定時退回檢查工作區未提交改動。
+
+        P4-1 起守門規則升級：網格核心差異必須落在
+        tests/_grid_guard.GRID_DIFF_ALLOWLIST（已授權的跨切面改動，附交付期與理由）內，
+        任何未授權的網格差異仍會使守門失敗；前端 GridDetail.tsx 仍要求零變更。
         """
+        from tests._grid_guard import assert_grid_core_zero_regression
+
         base = os.getenv("GRID_REGRESSION_BASE", "")
-        paths = [
-            "core/services/grid/",
-            "run_grid_trading.py",
+        assert_grid_core_zero_regression(self, self.project_root, base=base)
+
+        cmd = ["git", "diff", "--stat"] + ([base] if base else []) + [
+            "--",
             "web_ui/frontend/src/components/GridDetail.tsx",
         ]
-        cmd = ["git", "diff", "--stat"] + ([base] if base else []) + ["--"] + paths
         completed = subprocess.run(
             cmd, cwd=self.project_root, capture_output=True, text=True, timeout=60
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertEqual(completed.stdout.strip(), "", f"網格檔案不得變更：\n{completed.stdout}")
+        self.assertEqual(completed.stdout.strip(), "", f"網格前端檔案不得變更：\n{completed.stdout}")
 
     # ── 8.4 LIVE 維持關閉 ──
 

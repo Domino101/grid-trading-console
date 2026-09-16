@@ -417,15 +417,17 @@ class TestDcaBacktestHttpContract(unittest.TestCase):
     # ── 5.13 網格零回歸 ──
 
     def test_5_13_grid_zero_regression(self):
-        """5.13 P0: 網格核心檔案零變更（工作區 + 已提交，皆對照基準分支）。"""
-        base = os.environ.get("GRID_REGRESSION_BASE", "").strip()
-        cmd = ["git", "diff", "--stat"]
-        if base:
-            cmd.append(base)
-        cmd += ["--", "core/services/grid/", "run_grid_trading.py"]
-        result = subprocess.run(cmd, cwd=self.project_root, capture_output=True, text=True)
-        self.assertEqual(result.stdout.strip(), "", "網格核心檔案應該零變更")
+        """5.13 P0: 網格核心零變更（工作區 + 已提交，皆對照基準分支）。
 
+        P4-1 起守門規則升級：差異必須落在 tests/_grid_guard.GRID_DIFF_ALLOWLIST
+        （已授權的跨切面改動）內，任何未授權的網格差異仍會失敗。
+        """
+        import os
+
+        from tests._grid_guard import assert_grid_core_zero_regression
+
+        base = os.environ.get("GRID_REGRESSION_BASE", "").strip()
+        assert_grid_core_zero_regression(self, self.project_root, base=base)
 
 class TestDcaBacktestStaticChecks(unittest.TestCase):
     """靜態檢查（檔案級 grep 契約）。"""

@@ -107,3 +107,52 @@ CREATE TABLE IF NOT EXISTS bot_events (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_bot_events_bot_seq ON bot_events(bot_id, seq);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_bot_events_dedupe ON bot_events(bot_id, dedupe_key) WHERE dedupe_key IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_bot_events_bot_time ON bot_events(bot_id, created_at DESC);
+
+-- Phase 4 (P4-1): 統一記帳層（grid / dca / coinfull_prime 三者共用）
+-- 多標的策略的受管持倉籃子（取代 data/coinfull_prime_active_basket.json）
+CREATE TABLE IF NOT EXISTS bot_baskets (
+    bot_id TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    side TEXT NOT NULL DEFAULT 'long',
+    quantity NUMERIC(38, 18) NOT NULL DEFAULT 0,
+    entry_price NUMERIC(38, 18),
+    notional_usdt NUMERIC(38, 18) NOT NULL DEFAULT 0,
+    realized_pnl NUMERIC(38, 18) NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'active',
+    opened_at REAL,
+    updated_at REAL NOT NULL,
+    PRIMARY KEY (bot_id, account_id, symbol)
+);
+CREATE INDEX IF NOT EXISTS idx_bot_baskets_account_status ON bot_baskets(account_id, status);
+CREATE INDEX IF NOT EXISTS idx_bot_baskets_updated ON bot_baskets(bot_id, updated_at DESC);
+
+-- 風險閘門決策 canonical 記帳（取代 data/coinfull_prime_regime_history.jsonl）
+CREATE TABLE IF NOT EXISTS bot_regime_decisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bot_id TEXT NOT NULL,
+    account_id TEXT,
+    decided_at REAL NOT NULL,
+    pts INTEGER NOT NULL DEFAULT 0,
+    scale NUMERIC(12, 6) NOT NULL DEFAULT 1,
+    allow_new_entries BOOLEAN NOT NULL DEFAULT 1,
+    force_flatten BOOLEAN NOT NULL DEFAULT 0,
+    crash_defer BOOLEAN NOT NULL DEFAULT 0,
+    degraded BOOLEAN NOT NULL DEFAULT 0,
+    mode TEXT,
+    reason TEXT,
+    payload TEXT NOT NULL,
+    dedupe_key TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_regime_decisions_dedupe ON bot_regime_decisions(bot_id, dedupe_key) WHERE dedupe_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_regime_decisions_bot_time ON bot_regime_decisions(bot_id, decided_at DESC);
+
+-- per-bot 執行期狀態 KV（取代 data/coinfull_prime_scheduler.json）
+CREATE TABLE IF NOT EXISTS bot_runtime_state (
+    bot_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    updated_at REAL NOT NULL,
+    PRIMARY KEY (bot_id, key)
+);
+CREATE INDEX IF NOT EXISTS idx_runtime_state_updated ON bot_runtime_state(bot_id, updated_at DESC);
