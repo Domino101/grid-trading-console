@@ -93,6 +93,7 @@ const str = (v: unknown): string | null =>
 const DcaDetail: React.FC<DcaDetailProps> = ({ bot: initialBot, onBack, onUnauthorized }) => {
     const [currentBot, setCurrentBot] = useState<DcaSnapshotItem>(initialBot);
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setCurrentBot(initialBot);
     }, [initialBot]);
     const bot = currentBot;

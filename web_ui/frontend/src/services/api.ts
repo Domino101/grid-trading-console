@@ -1511,6 +1511,30 @@ export const api = {
             signal,
         }, '無法更新排程器目標帳號');
     },
+
+    async getCoinFullPrimeFills(
+        accountId?: string,
+        limit = 200,
+        includeSimulated = true,
+        signal?: AbortSignal
+    ): Promise<CoinFullPrimeFillsResponse> {
+        const params = new URLSearchParams();
+        if (accountId) params.set('account_id', accountId);
+        params.set('limit', String(limit));
+        params.set('include_simulated', String(includeSimulated));
+        return requestJson(`/v1/coinfull-prime/fills?${params.toString()}`, { headers: authHeaders(), signal }, '無法獲取 CoinFull Prime 成交流水');
+    },
+
+    async getCoinFullPrimeHistory(
+        accountId?: string,
+        limit = 50,
+        signal?: AbortSignal
+    ): Promise<CoinFullPrimeHistoryResponse> {
+        const params = new URLSearchParams();
+        if (accountId) params.set('account_id', accountId);
+        params.set('limit', String(limit));
+        return requestJson(`/v1/coinfull-prime/history?${params.toString()}`, { headers: authHeaders(), signal }, '無法獲取 CoinFull Prime 換倉歷史');
+    },
 };
 
 export interface RawMetrics {
@@ -1618,6 +1642,62 @@ export interface CoinFullPrimePositionsResponse {
     account_id: string;
     positions: CoinFullPrimePosition[];
     total_count: number;
+}
+
+export interface CoinFullPrimeFill {
+    fill_id: string;
+    bot_id: string;
+    account_id: string;
+    symbol: string;
+    side: 'buy' | 'sell';
+    role: string;
+    price: number;
+    quantity: number;
+    notional_usdt: number;
+    fee: number;
+    fee_currency?: string;
+    time: string | null;
+    is_simulated: boolean;
+}
+
+export interface CoinFullPrimeFillsResponse {
+    account_id?: string;
+    total: number;
+    fills: CoinFullPrimeFill[];
+}
+
+export interface CoinFullPrimeRebalanceOrder {
+    symbol: string;
+    side: string;
+    amount: number;
+    price: number;
+    notional_usdt: number;
+    reduce_only: boolean;
+    reason: string;
+    status: string;
+    error?: string | null;
+}
+
+export interface CoinFullPrimeHistoryBatch {
+    id: number;
+    seq: number;
+    bot_id: string;
+    timestamp: string;
+    account_id: string;
+    dry_run: boolean;
+    capital: number;
+    leverage: number;
+    orders_count: number;
+    closed_symbols: string[];
+    opened_symbols: string[];
+    status: string;
+    orders: CoinFullPrimeRebalanceOrder[];
+}
+
+export interface CoinFullPrimeHistoryResponse {
+    account_id?: string;
+    total: number;
+    batches: CoinFullPrimeHistoryBatch[];
 }
 
 export const getWsBase = () => {

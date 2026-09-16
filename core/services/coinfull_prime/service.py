@@ -168,11 +168,37 @@ class CoinFullPrimeService(BaseService):
             self.config = {}
         return self.config
 
+    def register_bot_identity(self, account_id: str = "paper"):
+        """向 Canonical Ledger 登記 CoinFull Prime 機器人身分 (遵守 P1-6 帳本完整性規範)"""
+        try:
+            import time
+            from core.infrastructure.database.ledger_store import SqliteLedgerStore, BotRecord
+            store = SqliteLedgerStore()
+            store.initialize()
+            mode = "live" if "live" in account_id.lower() else "paper"
+            bot_record = BotRecord(
+                bot_id=f"coinfull_prime:{account_id}",
+                strategy_type="coinfull_prime",
+                symbol="BASKET_16",
+                exchange=account_id,
+                account_mode=mode,
+                config_path=self.config_path,
+                status="running" if self._is_running else "idle",
+                created_at=time.time()
+            )
+            store.register_or_update_bot(bot_record)
+        except Exception as ex:
+            logger.warning(f"登記 CoinFull Prime 機器人身分異常 ({account_id}): {ex}")
+
     async def initialize(self) -> bool:
         """初始化量化引擎與預設適配器"""
         self.load_config()
         self.quant_engine = CoinFullPrimeQuant(self.config)
         self.rebalancer = PortfolioRebalancer(self.config)
+
+        # 登記所有環境身分至 Canonical Ledger
+        for acc in ["paper", "binance_testnet", "binance_live"]:
+            self.register_bot_identity(acc)
 
         # 預設初始化 paper 適配器
         try:
@@ -535,7 +561,8 @@ class CoinFullPrimeService(BaseService):
             capital_override=effective_capital,
             leverage_override=leverage,
             managed_symbols=managed_symbols,
-            protected_symbols=protected_symbols
+            protected_symbols=protected_symbols,
+            account_id=target_acc
         )
         rebalance_report.exchange = target_acc
         self.last_rebalance_report = rebalance_report

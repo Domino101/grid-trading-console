@@ -220,6 +220,40 @@ class TestCoinFullPrimeRebalancer(unittest.TestCase):
         # 斷言：入榜新標的正常開倉
         self.assertIn("BTCUSDT", opened_syms)
 
+    def test_execute_rebalance_records_ledger_fills_and_events(self):
+        """驗證 execute_rebalance 自動登記 bot 身分並將 fills 與 events 寫入 Canonical Ledger"""
+        async def run_test():
+            from core.infrastructure.database.ledger_store import SqliteLedgerStore
+            report = await self.rebalancer.execute_rebalance(
+                rank_result=self.rank_result,
+                exchange_adapter=None,
+                dry_run=True,
+                prices_override=self.prices,
+                account_id="paper"
+            )
+            self.assertEqual(report.status, "completed_dry_run")
+            self.assertEqual(len(report.orders), 4)
+
+            store = SqliteLedgerStore()
+            store.initialize()
+
+            # 驗證 bots 表有登記身分
+            bot = store.get_bot("coinfull_prime:paper")
+            self.assertIsNotNone(bot)
+            self.assertEqual(bot.strategy_type, "coinfull_prime")
+
+            # 驗證 trade_fills 表有寫入成交流水
+            fills = store.get_fills("coinfull_prime:paper", limit=100)
+            self.assertGreaterEqual(len(fills), 4)
+
+            # 驗證 bot_events 表有寫入換倉事件
+            events = store.get_events("coinfull_prime:paper", limit=10)
+            rebalance_events = [e for e in events if e.event_type == "daily_rebalance"]
+            self.assertGreaterEqual(len(rebalance_events), 1)
+            self.assertIn("orders", rebalance_events[-1].payload)
+
+        asyncio.run(run_test())
+
 
 if __name__ == "__main__":
     unittest.main()

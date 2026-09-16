@@ -3,6 +3,22 @@
 本專案的重要變更記錄於此檔案，遵循 [Semantic Versioning](https://semver.org/lang/zh-TW/) 與 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/) 規範。
 詳細歷史工程記錄請參閱 [CHANGELOG_LEGACY.md](file:///root/grid-trading-console/CHANGELOG_LEGACY.md)。
 
+## [0.3.4] — 2026-09-16
+
+### Added
+- **CoinFull Prime 統一記帳層整合 (Canonical Ledger Integration)**：
+  - 將 CoinFull Prime 自動調倉策略全面收斂至專案標準記帳層（`data/web_ui_runtime.sqlite3` 之 `bots`、`trade_fills`、`bot_events`），消除與網格及 DCA 之間的記帳孤島。
+  - `service.py` 於啟動初始化時向 `bots` 表登記 `coinfull_prime:paper`、`coinfull_prime:binance_testnet`、`coinfull_prime:binance_live` 身分，嚴格符合 P1-6 帳本外鍵約束。
+  - `rebalancer.py` 在實盤下單與 Dry-Run 模擬換倉時，逐筆寫入標準 `trade_fills` 成交流水（保留幣種、方向、價格、數量、名義價值與角色標記）；調倉完成後將包含完整 16 幣詳細訂單陣列持久化至 `bot_events`（`daily_rebalance`），防範伺服器重啟丟失。
+- **後端成交流水與調倉歷史查詢端點 (CoinFull Prime History & Fills API)**：
+  - 新增 `GET /api/v1/coinfull-prime/fills`：支援依帳號環境篩選（paper / testnet / live）、時間倒序分頁、以及 Dry-Run 模擬成交流水切換。
+  - 新增 `GET /api/v1/coinfull-prime/history`：回傳歷次調倉批次歷史與詳細訂單執行明細（包含幣種、方向、成交量、成交價、名義金額與狀態）。
+- **前端調倉歷史與成交紀錄雙分頁控制台 (Frontend History & Fills UI)**：
+  - `CoinFullPrimePage.tsx` 新增「調倉歷史與成交紀錄」控制台面板，提供「調倉批次歷史（可展開 16 幣訂單）」與「逐筆成交流水」雙分頁檢視。
+  - 支援帳號環境過濾、含 Dry-Run 模擬開關、即時手動刷新與換倉完成後自動刷新機制。
+
+---
+
 ## [0.3.3] — 2026-09-16
 
 ### Added
