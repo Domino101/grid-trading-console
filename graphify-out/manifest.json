@@ -1065,8 +1065,8 @@
     "semantic_hash": ""
   },
   "web_ui/backend/main.py": {
-    "mtime": 1789546203.767143,
-    "ast_hash": "a5265a3c0060561ae8486511116a1d24",
+    "mtime": 1789559644.1414504,
+    "ast_hash": "dfe30382726867159ec24b82ee3bfff3",
     "semantic_hash": ""
   },
   "web_ui/backend/models.py": {
@@ -1575,8 +1575,8 @@
     "semantic_hash": "631efa5210174161affce00e8a9f3835"
   },
   "README.md": {
-    "mtime": 1789546466.9211438,
-    "ast_hash": "834bdf6b149a6bb9983f528cc0cffc69",
+    "mtime": 1789559644.138198,
+    "ast_hash": "e52450c285d0d211d2cd3e04c379770d",
     "semantic_hash": ""
   },
   "config/arbitrage/monitor.yaml": {
@@ -2070,9 +2070,9 @@
     "semantic_hash": ""
   },
   "scripts/ci.sh": {
-    "mtime": 1788255868.59212,
-    "ast_hash": "2aa31e86a486a5522c568791bd035217",
-    "semantic_hash": "2aa31e86a486a5522c568791bd035217"
+    "mtime": 1789560890.6302018,
+    "ast_hash": "2697ca7842731e3d61d11467faffccce",
+    "semantic_hash": ""
   },
   "scripts/publish_private_repo.sh": {
     "mtime": 1786618842.6423209,
@@ -2200,8 +2200,8 @@
     "semantic_hash": "f740091170aea6b356ed96fe7e6ab3f2"
   },
   "CHANGELOG.md": {
-    "mtime": 1789551532.3076663,
-    "ast_hash": "87c6788bbc40fcd39cb947d23ecf4b36",
+    "mtime": 1789559644.138198,
+    "ast_hash": "f2aa52c90407f275b132e29b3bf26158",
     "semantic_hash": ""
   },
   "docs/archive/README_fake_download_page.md": {
@@ -3590,28 +3590,28 @@
     "semantic_hash": ""
   },
   "core/services/coinfull_prime/models.py": {
-    "mtime": 1788850357.9182634,
-    "ast_hash": "0d78ba6829eace4d07385b8b8e2aa29c",
+    "mtime": 1789559644.1391978,
+    "ast_hash": "bbaad69a86c8106ce93abb51ac130705",
     "semantic_hash": ""
   },
   "core/services/coinfull_prime/quant_engine.py": {
-    "mtime": 1788850343.6182632,
-    "ast_hash": "f07c5e7bf060002a8b18f3c275ed75d9",
+    "mtime": 1789559644.1391978,
+    "ast_hash": "ac8db023f1a2fabb271f132ec17057ec",
     "semantic_hash": ""
   },
   "core/services/coinfull_prime/rebalancer.py": {
-    "mtime": 1789547644.9671679,
-    "ast_hash": "f351ac8d124d04b29201f60240f90056",
+    "mtime": 1789559644.1391978,
+    "ast_hash": "24aa7a7d9ee5ab8ffc8984f3928a5378",
     "semantic_hash": ""
   },
   "core/services/coinfull_prime/service.py": {
-    "mtime": 1789547576.8601677,
-    "ast_hash": "96fd6de4618ef58675f1ac6de08490e9",
+    "mtime": 1789559644.140198,
+    "ast_hash": "c925e163f577ea9dea6026e7981b49ba",
     "semantic_hash": ""
   },
   "run_coinfull_prime.py": {
-    "mtime": 1788772237.581167,
-    "ast_hash": "87615201eda1ff22e01a87a4154fa603",
+    "mtime": 1789559644.1414504,
+    "ast_hash": "3626518605304caee8bc70d7202f7ce1",
     "semantic_hash": ""
   },
   "tests/test_coinfull_prime_quant.py": {
@@ -3625,8 +3625,8 @@
     "semantic_hash": ""
   },
   "web_ui/backend/routes/coinfull_prime.py": {
-    "mtime": 1789547733.8571682,
-    "ast_hash": "794344655c1d960de788520307f86375",
+    "mtime": 1789559644.1421978,
+    "ast_hash": "58c32d9dbdd905a2a5f115f6cd37b017",
     "semantic_hash": ""
   },
   "web_ui/frontend/src/components/CoinFullPrimePage.tsx": {
@@ -3635,8 +3635,8 @@
     "semantic_hash": ""
   },
   "config/coinfull_prime/strategy_config.yaml": {
-    "mtime": 1788772142.4711666,
-    "ast_hash": "b40a3119d715531ff823a703dc090dd6",
+    "mtime": 1789560883.0552018,
+    "ast_hash": "0caa6f998183436be909fec6fc6899f3",
     "semantic_hash": ""
   },
   "config/dca/dca-binance-short-inj-usdt-usdt-20260907141150.yaml": {
@@ -3882,6 +3882,76 @@
   "research/coinfull_prime_audit/live_okx_out.txt": {
     "mtime": 1789552375.761669,
     "ast_hash": "abd80645faf8da6eecaf8f21f034fa68",
+    "semantic_hash": ""
+  },
+  "core/services/coinfull_prime/regime_filter.py": {
+    "mtime": 1789559644.1391978,
+    "ast_hash": "94ecd75d18402adc7e1c38a0b55bef51",
+    "semantic_hash": ""
+  },
+  "research/coinfull_universe79/build_panel79.py": {
+    "mtime": 1789564585.178369,
+    "ast_hash": "4d2c61d738060b8489f8667c41328955",
+    "semantic_hash": ""
+  },
+  "research/coinfull_universe79/exp15_universe79.py": {
+    "mtime": 1789561590.5103598,
+    "ast_hash": "0a10bc6a9358a19ca05b746969af05f4",
+    "semantic_hash": ""
+  },
+  "research/coinfull_universe79/fetch_universe79.py": {
+    "mtime": 1789561564.0573597,
+    "ast_hash": "18117f2b9086f0c43796352f7525b925",
+    "semantic_hash": ""
+  },
+  "research/coinfull_universe79/universe79_lib.py": {
+    "mtime": 1789561136.9593585,
+    "ast_hash": "68d2a86b2717bae700c63811b486cccf",
+    "semantic_hash": ""
+  },
+  "tests/test_coinfull_prime_regime.py": {
+    "mtime": 1789559644.1414504,
+    "ast_hash": "539a515e15e7a659a6969287bf230d60",
+    "semantic_hash": ""
+  },
+  "tests/test_universe79_lib.py": {
+    "mtime": 1789561149.2583585,
+    "ast_hash": "5bdae388a5ff6e5a0c260e7eea0c653c",
+    "semantic_hash": ""
+  },
+  "docs/CoinFull_Universe79_Backtest_Plan.md": {
+    "mtime": 1789559644.140198,
+    "ast_hash": "c1d0b2e27157922062b0bf8ee960379d",
+    "semantic_hash": ""
+  },
+  "research/coinfull_universe79/run_oos_pipeline.sh": {
+    "mtime": 1789561605.30436,
+    "ast_hash": "dc81c47090341a4f3b9ac6b357018dfb",
+    "semantic_hash": ""
+  },
+  "research/coinfull_universe79/all_vision_usdt_symbols.txt": {
+    "mtime": 1789561392.2773168,
+    "ast_hash": "fee22110dc151c9812cc321598f9a6e4",
+    "semantic_hash": ""
+  },
+  "research/coinfull_universe79/exp15_oos_out.txt": {
+    "mtime": 1789564656.6817017,
+    "ast_hash": "ade69c03581c35cf013fcd870bf60a77",
+    "semantic_hash": ""
+  },
+  "research/coinfull_universe79/symbols_binance150.txt": {
+    "mtime": 1789561296.337844,
+    "ast_hash": "2a5b8ac84e36ba3689a070041bc4e43d",
+    "semantic_hash": ""
+  },
+  "research/coinfull_universe79/symbols_clean150.txt": {
+    "mtime": 1789561413.228418,
+    "ast_hash": "2f9c02067232904e2b767fb93c540c39",
+    "semantic_hash": ""
+  },
+  "research/coinfull_universe79/symbols_oos150.txt": {
+    "mtime": 1789561118.4013584,
+    "ast_hash": "3dadba7f80c43fbdace9116af4c975df",
     "semantic_hash": ""
   }
 }

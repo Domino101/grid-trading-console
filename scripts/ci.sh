@@ -61,11 +61,18 @@ TEST_MODULES=(
   tests.services.grid.backtest.test_simulator
   tests.services.grid.backtest.test_stress
   tests.services.dca.test_dca_snapshot_recovery
+  tests.test_coinfull_prime_quant
+  tests.test_coinfull_prime_rebalance
+  tests.test_coinfull_prime_regime
 )
 
 PYTHON="${PYTHON_BIN:-$(command -v python3 || command -v python)}"
 
 "$PYTHON" -m unittest "${TEST_MODULES[@]}"
+
+if command -v pytest >/dev/null 2>&1; then
+  pytest tests/test_universe79_lib.py -q
+fi
 
 # ── Optional PostgreSQL leg (Phase 2 Gate: rerun the suite against PG). ────
 # Enable with e.g. PG_TEST_URL=postgresql://grid:grid@localhost:5432/grid_test

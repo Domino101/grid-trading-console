@@ -1,12 +1,14 @@
 # =====================================================================
 # CoinFull Prime (市場中性截面多空 Alpha 策略) 設定檔
+# v2 + 風險閘門（依 docs/CoinFull_Prime_Audit_Report_2026-09-16.md
+# §5 建議新配置 與 docs/CoinFull_Prime_01_Profit_Optimization_Plan.md 階段 A/B）
 # =====================================================================
 
 strategy:
   id: "coinfull_prime"
   name: "CoinFull Prime Market Neutral"
-  description: "Cross-Sectional Market Neutral Multi-Factor Alpha Strategy (Top 8 Long + Bottom 8 Short)"
-  version: "1.0.0"
+  description: "Cross-Sectional Market Neutral Multi-Factor Alpha Strategy (Top 5 Long + Bottom 5 Short, v2 + regime gate)"
+  version: "2.0.0"
 
 # 標的池（Universe 79）過濾設定
 universe:
@@ -23,26 +25,75 @@ universe:
     - "USDEUSDT"
     - "BFDUSDUSDT"
 
-# 四大客觀信號加權設定 (加總必須為 1.0)
+# 因子加權設定 (加總必須為 1.0)
+# v2 優化：移除 taker 買賣壓力（1–7 日 IC 為負/近零，無可用 alpha）
+# 與大戶多空比（無顯著貢獻），改以多時距動能 + 平滑資金費率為主
 weights:
-  momentum: 0.35     # 短期與中期動能複合評分
-  flow: 0.35         # Taker 買賣流比例 (Taker Buy / Taker Sell)
-  funding: 0.20      # 資金費率反向 (反向因子: 多頭擁擠度反轉)
-  liquidation: 0.10   # 大戶帳戶多空比 (Top Trader Long/Short Ratio)
+  momentum: 0.60     # 多時距混合動能（順勢成分）
+  flow: 0.0          # 已移除（保留欄位以相容舊版；0 權重時不再呼叫對應 API）
+  funding: 0.40      # 資金費率反向（carry：收費方為正）
+  liquidation: 0.0   # 已移除（保留欄位以相容舊版）
+
+# 動能因子形式
+momentum:
+  mode: "blend"            # "day" = 24h 漲跌幅（舊版）; "blend" = 多時距混合（建議）
+  blend:                   # blend 權重（0.5*R1d + 0.3*R7d + 0.2*R30d）
+    r1d: 0.5
+    r7d: 0.3
+    r30d: 0.2
+
+# 資金費率因子形式
+funding:
+  mode: "smooth"           # "spot" = 單點快照（舊版）; "smooth" = 最近 N 次 8 小時結算平均
+  settlements: 3
 
 # 投資組合與換倉設定
 portfolio:
-  long_count: 8                # 做多標的數量
-  short_count: 8               # 做空標的數量
+  long_count: 5                # 做多標的數量（v2 建議 5；K≥8 樣本外明顯變差）
+  short_count: 5               # 做空標的數量
   total_capital_usdt: 1000.0   # 總投入名義本金 (USDT)
-  leverage: 1.0                # 槓桿倍數 (建議 1.0x ~ 1.5x)
+  leverage: 1.0                # 槓桿倍數（只在符合加碼條件時由閘門提高至 1.15x）
   exchange: "paper"            # 目標交易所: paper (模擬撮合), binance (幣安實盤), okx, hyperliquid
   dry_run: true                # true: 僅計算日誌，不發真實訂單; false: 實際發單
   max_slippage_pct: 0.005      # 最大允許市價滑點 (0.5%)
   execution_style: "batch"     # batch: 批次限速發單; twap: 時間加權分批
 
 # 排程與運行設定
+# v2 優化：每日 UTC 00:00 → 每週四 UTC 00:05（成本 ~40%/年 → ~2.9%/年）
 schedule:
-  cron: "0 0 * * *"            # 每日 UTC 00:00 執行
+  rebalance_days: 7            # 換倉週期（日）；7 = 固定在 execution_weekday 每週一次
+                               # 其他值 = 自 schedule_anchor_date 起每 N 日（週內漂移）
+  execution_weekday: 3         # Python weekday 慣例：週一=0 ... 週四=3 ... 週日=6
+                               # （週六/週日換倉實測明顯較差，務必避開）
+  execution_minute_utc: 5      # UTC 00:05（避開 00:00 整點的資金費率結算與日線收盤瞬間）
   timezone: "UTC"
   timeout_seconds: 60          # 整個計算與換倉流程逾時時間 (秒)
+
+# 風險閘門 (Regime Gate)
+# 規格：docs/CoinFull_Prime_03_NoTrade_Trigger_Spec.md
+#   T1 風險關閉停單（pts=0 → 平倉並停止下單）— 最大單一改善項
+#   T2 崩跌日延後換倉（BTC 收盤日 ≤ -5% → 延後 24 小時，最多 2 次）
+#   T5 極端擁擠保護（資金費率百分位 >90 禁止加碼；>95 且 pts≤1 減半）
+# 實作：core/services/coinfull_prime/regime_filter.py
+regime_gate:
+  enabled: true
+  log_only: true          # true = 僅計算與記錄、不改變下單行為（上線初期建議先開 2 週）
+  mode: "flatten"          # flatten(保守版) pts=0→0x 停單 | soft(積極版) pts=0→0.35x
+  trend_ma_days: 50        # 元件1 趨勢：BTC 收盤 > N 日 SMA
+  breadth_threshold_pct: 30.0   # 元件2 廣度：宇宙站上 50 日 SMA 比例 > 30%
+  funding_percentile_days: 252  # 元件3 情緒：全市場資金費率的 N 日百分位
+  funding_threshold_pct: 45.0   # 資金費率百分位 > 45 才算「市場願意付費」
+  risk_off_scale: 0.35     # soft 模式下 pts=0 的部分倉位倍數
+  scale_up:                # 加碼條件：pts==2 且資金費率百分位在區間內
+    enabled: true
+    min_pctile: 45.0
+    max_pctile: 80.0       # > 80 視為擁擠，不加碼
+    multiplier: 1.15
+    max_multiplier: 1.2    # 硬上限
+  crash_defer:             # T2 崩跌日延後換倉
+    enabled: true
+    btc_ret_1d_pct: -5.0   # BTC 最近收盤日報酬 ≤ -5% → 延後
+    max_defers: 2          # 最多連續延後 2 次
+  extreme_crowding:        # T5 極端擁擠保護
+    no_scale_up_above_pctile: 90.0
+    halve_above_pctile: 95.0   # 且 pts ≤ 1 時降至 0.5x

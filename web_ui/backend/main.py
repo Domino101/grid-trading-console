@@ -111,7 +111,7 @@ async def lifespan(app: FastAPI):
     monitor_task = asyncio.create_task(monitor_processes())
     _start_redis_subscriber()
 
-    # Startup CoinFull Prime 每日定時換倉排程器 (零輪詢休眠，每日 UTC 00:00 自動喚醒)
+    # Startup CoinFull Prime 定時換倉排程器 (零輪詢休眠，每週四 UTC 00:05 自動喚醒，含風險閘門判定)
     try:
         from core.services.coinfull_prime.service import CoinFullPrimeService
         prime_service = CoinFullPrimeService.instance()
