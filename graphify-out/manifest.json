@@ -1120,8 +1120,8 @@
     "semantic_hash": "aad27ae666a14635e4faf66246deb4dd"
   },
   "web_ui/frontend/package.json": {
-    "mtime": 1789546195.114143,
-    "ast_hash": "30e820279225dd383006273cfa4f4c23",
+    "mtime": 1789551523.5616663,
+    "ast_hash": "5d4fbc1fb0c2d6010b0a5061f07c3c81",
     "semantic_hash": ""
   },
   "web_ui/frontend/src/App.tsx": {
@@ -2200,8 +2200,8 @@
     "semantic_hash": "f740091170aea6b356ed96fe7e6ab3f2"
   },
   "CHANGELOG.md": {
-    "mtime": 1789546212.8559139,
-    "ast_hash": "f7382724a5f127bfcfe593436c3ae22d",
+    "mtime": 1789551532.3076663,
+    "ast_hash": "87c6788bbc40fcd39cb947d23ecf4b36",
     "semantic_hash": ""
   },
   "docs/archive/README_fake_download_page.md": {
@@ -2675,8 +2675,8 @@
     "semantic_hash": "db6ad0a33bbde4158cb33393c3d9a3ec"
   },
   "web_ui/frontend/src/components/DcaDetail.tsx": {
-    "mtime": 1789486513.924697,
-    "ast_hash": "d635b73f6b82050b1e07c97f626202d0",
+    "mtime": 1789551640.2046666,
+    "ast_hash": "26be7315524ac9eb5f1d596aaa53242d",
     "semantic_hash": ""
   },
   "web_ui/frontend/src/components/DcaForm.tsx": {
@@ -3630,8 +3630,8 @@
     "semantic_hash": ""
   },
   "web_ui/frontend/src/components/CoinFullPrimePage.tsx": {
-    "mtime": 1789547860.0531685,
-    "ast_hash": "7466914a04e5b069397220bc4841ee16",
+    "mtime": 1789551671.6406667,
+    "ast_hash": "df230a1f3a1c1978f73caf77e4528399",
     "semantic_hash": ""
   },
   "config/coinfull_prime/strategy_config.yaml": {
@@ -3672,6 +3672,216 @@
   "graphify-out/memory/query_20260916_082528_\u76ee\u524d\u7684coinfullprime\u6a5f\u5668\u4eba\u4e26\u6c92\u6709\u5b8c\u5584\u7684\u4ea4\u6613\u8a18\u9304\u5728\u524d\u7aef\u5448\u73fe__\u76ee\u524d\u662f\u4f7f\u7528\u4ec0\u9ebc\u65b9\u5f0f\u505a\u7d00\u9304\u7684.md": {
     "mtime": 1789547128.494651,
     "ast_hash": "ac1c5044fae07f98fbcc95443fe25c85",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/engine.py": {
+    "mtime": 1789552375.7590902,
+    "ast_hash": "0c55dcc1656eeb4a3eb0b6ed73643731",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/engine2.py": {
+    "mtime": 1789552375.7590902,
+    "ast_hash": "1a2b731e1892d2665c692dc0fbed2f81",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp1.py": {
+    "mtime": 1789552375.7590902,
+    "ast_hash": "0961663a0136269b6bc105da9651e1a2",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp10.py": {
+    "mtime": 1789552375.7590902,
+    "ast_hash": "3eda7fa8e9d6e1dfbb420eec6c5d092a",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp11.py": {
+    "mtime": 1789552375.7590902,
+    "ast_hash": "e9fa32fd3b9ad6517cc79772c10d2fd6",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp12.py": {
+    "mtime": 1789552375.7590902,
+    "ast_hash": "48b07ab265980815679b5d42a782d853",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp13.py": {
+    "mtime": 1789552375.7590902,
+    "ast_hash": "f1b42a5f30fca91b51954b8d22d05f2c",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp14.py": {
+    "mtime": 1789552375.7590902,
+    "ast_hash": "32f3d9436ca867bdff244107ee57b359",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp2.py": {
+    "mtime": 1789552375.7596688,
+    "ast_hash": "6a57be5f4ad7e37aaf911dd5f8d26ae5",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp3.py": {
+    "mtime": 1789552375.7596688,
+    "ast_hash": "1b9d8c828d61f3d7e46b52036aae4ace",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp4.py": {
+    "mtime": 1789552375.7596688,
+    "ast_hash": "6bbcd0529dab35f865ff8f67567c8a5f",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp5.py": {
+    "mtime": 1789552375.7596688,
+    "ast_hash": "2aa44b257f9774583d49b0e228febdb3",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp6.py": {
+    "mtime": 1789552375.760669,
+    "ast_hash": "4e5a522fbe66afcfbef65f251b7045a0",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp7.py": {
+    "mtime": 1789552375.760669,
+    "ast_hash": "798021038229782c59392942cc3030c5",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp8.py": {
+    "mtime": 1789552375.760669,
+    "ast_hash": "c3c55e206c2c0e76d32f5882f3075cd6",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp8b.py": {
+    "mtime": 1789552375.760669,
+    "ast_hash": "5273543109f451ce585a2a78a2f1642d",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp9.py": {
+    "mtime": 1789552375.761669,
+    "ast_hash": "93d2a99ce9d1db9d9640075f3b5ff75e",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/live_okx.py": {
+    "mtime": 1789552375.761669,
+    "ast_hash": "d1e63e248ff1da0e7b33b2e256c94259",
+    "semantic_hash": ""
+  },
+  "docs/CoinFull_Prime_00_README.md": {
+    "mtime": 1789552375.7556689,
+    "ast_hash": "d74f1c7ce7d6ce5e9c659f4b49d8fa9d",
+    "semantic_hash": ""
+  },
+  "docs/CoinFull_Prime_01_Profit_Optimization_Plan.md": {
+    "mtime": 1789552375.7566688,
+    "ast_hash": "e4eb260e377567167c2ed38ef146dd96",
+    "semantic_hash": ""
+  },
+  "docs/CoinFull_Prime_02_Regime_Playbook.md": {
+    "mtime": 1789552375.7566688,
+    "ast_hash": "c760e0267214c9c9d2c3bddec1b4c3bb",
+    "semantic_hash": ""
+  },
+  "docs/CoinFull_Prime_03_NoTrade_Trigger_Spec.md": {
+    "mtime": 1789552375.7566688,
+    "ast_hash": "610d80a694c8c81e0096df54e255eb76",
+    "semantic_hash": ""
+  },
+  "docs/CoinFull_Prime_04_Position_Sizing_Timing.md": {
+    "mtime": 1789552375.7566688,
+    "ast_hash": "64ddedc7c933467278f87314e38b8a13",
+    "semantic_hash": ""
+  },
+  "docs/CoinFull_Prime_Audit_Report_2026-09-16.md": {
+    "mtime": 1789552375.757669,
+    "ast_hash": "becfb4652413e08c38be119aea8a3628",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/README.md": {
+    "mtime": 1789552375.7588081,
+    "ast_hash": "eddf8da75f694595ba9bc01167dcc229",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp10_out.txt": {
+    "mtime": 1789552375.7590902,
+    "ast_hash": "84a38755c601ba9c4d93984291c6ac9b",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp11_out.txt": {
+    "mtime": 1789552375.7590902,
+    "ast_hash": "3b193991eb51c12d4c8f8bae67eecd0a",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp12_out.txt": {
+    "mtime": 1789552375.7590902,
+    "ast_hash": "77746d9fb8c969fa8f63e39830c47cd4",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp13_out.txt": {
+    "mtime": 1789552375.7590902,
+    "ast_hash": "cb549e7091cfdf192b6240b378020caf",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp14_out.txt": {
+    "mtime": 1789552375.7590902,
+    "ast_hash": "c6f7a957c2fdfc1b435d3b5c131f8ba4",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp1_out.txt": {
+    "mtime": 1789552375.7596688,
+    "ast_hash": "fcea6679285cabb2c0d6ea7c564c2cb4",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp2_out.txt": {
+    "mtime": 1789552375.7596688,
+    "ast_hash": "3fb47ab10fb8698eee388186d974e733",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp3_out.txt": {
+    "mtime": 1789552375.7596688,
+    "ast_hash": "6425dc04fb9157716d144370919274f1",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp4_out.txt": {
+    "mtime": 1789552375.7596688,
+    "ast_hash": "fb304859ee715495916455e40b98c930",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp5_out.txt": {
+    "mtime": 1789552375.7596688,
+    "ast_hash": "8eb4975b0bc4f89f7f5db9f62ec9ec1e",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp6_full.txt": {
+    "mtime": 1789552375.760669,
+    "ast_hash": "6a96432e7ad7628302bac358b56f7120",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp6_out.txt": {
+    "mtime": 1789552375.760669,
+    "ast_hash": "6a96432e7ad7628302bac358b56f7120",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp7_out.txt": {
+    "mtime": 1789552375.760669,
+    "ast_hash": "e21330a2f6daa58d8f292a54adc6018d",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp8_out.txt": {
+    "mtime": 1789552375.760669,
+    "ast_hash": "e0ea4fc4ebad646e4a694aee5656183f",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp8b_out.txt": {
+    "mtime": 1789552375.760669,
+    "ast_hash": "607214f0c8f59804b2cc6a7475c536aa",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/exp9_out.txt": {
+    "mtime": 1789552375.761669,
+    "ast_hash": "6de5a4c4b1f7a3283f3080fd36976dee",
+    "semantic_hash": ""
+  },
+  "research/coinfull_prime_audit/live_okx_out.txt": {
+    "mtime": 1789552375.761669,
+    "ast_hash": "abd80645faf8da6eecaf8f21f034fa68",
     "semantic_hash": ""
   }
 }

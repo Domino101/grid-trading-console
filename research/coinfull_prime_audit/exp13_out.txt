@@ -1,0 +1,29 @@
+############ A. 現行因子、每日換倉（cron 每天 00:00）############
+as-coded K=2 1d                    FULL tot=  -117.4% cagr= -100.0% sh=-0.50 turn=1.67 fee=$  2307 gross=$   1047 | IS tot=  -44.4% | OOS tot=  -77.2% cagr= -43.6% sh=-0.84
+as-coded K=3 1d                    FULL tot=  -151.5% cagr= -100.0% sh=-0.84 turn=1.57 fee=$  2172 gross=$    573 | IS tot=  -87.6% | OOS tot=  -66.6% cagr= -34.7% sh=-0.90
+as-coded K=4 1d                    FULL tot=  -137.0% cagr= -100.0% sh=-0.92 turn=1.49 fee=$  2054 gross=$    604 | IS tot=  -93.6% | OOS tot=  -44.6% cagr= -20.5% sh=-0.71
+as-coded K=5 1d                    FULL tot=  -138.9% cagr= -100.0% sh=-1.07 turn=1.38 fee=$  1908 gross=$    435 | IS tot=  -92.1% | OOS tot=  -47.4% cagr= -22.1% sh=-0.85
+as-coded K=6 1d                    FULL tot=  -135.7% cagr= -100.0% sh=-1.18 turn=1.26 fee=$  1746 gross=$    302 | IS tot=  -93.8% | OOS tot=  -42.3% cagr= -19.2% sh=-0.86
+as-coded K=8 1d                    FULL tot=  -118.8% cagr= -100.0% sh=-1.21 turn=1.04 fee=$  1435 gross=$    153 | IS tot=  -75.8% | OOS tot=  -42.0% cagr= -19.1% sh=-1.05
+
+############ B. 只把換倉改成 7 日（不動因子）############
+as-coded K=2 7d                    FULL tot=   101.7% cagr=   13.8% sh= 0.48 turn=0.25 fee=$   342 gross=$   1223 | IS tot=   40.6% | OOS tot=   10.9% cagr=   4.1% sh= 0.14
+as-coded K=3 7d                    FULL tot=    47.5% cagr=    7.5% sh= 0.28 turn=0.23 fee=$   317 gross=$    677 | IS tot=    4.2% | OOS tot=   15.2% cagr=   5.7% sh= 0.25
+as-coded K=4 7d                    FULL tot=    60.6% cagr=    9.2% sh= 0.41 turn=0.22 fee=$   298 gross=$    800 | IS tot=   38.8% | OOS tot=    8.5% cagr=   3.2% sh= 0.15
+as-coded K=5 7d                    FULL tot=    56.0% cagr=    8.6% sh= 0.43 turn=0.20 fee=$   273 gross=$    702 | IS tot=   47.1% | OOS tot=    4.7% cagr=   1.8% sh= 0.09
+as-coded K=6 7d                    FULL tot=    75.9% cagr=   11.0% sh= 0.67 turn=0.18 fee=$   250 gross=$    893 | IS tot=   64.4% | OOS tot=   -2.2% cagr=  -0.9% sh=-0.05
+as-coded K=8 7d                    FULL tot=    50.3% cagr=    7.8% sh= 0.51 turn=0.15 fee=$   204 gross=$    596 | IS tot=   36.0% | OOS tot=    7.3% cagr=   2.8% sh= 0.18
+
+############ C. 現行因子、每日、但成本=0（檢驗毛 alpha）############
+as-coded K=3 1d 0bp                FULL tot=    65.7% cagr=    9.8% sh= 0.36 turn=1.57 fee=$     0 gross=$    573 | IS tot=   24.0% | OOS tot=   38.8% cagr=  13.6% sh= 0.52
+as-coded K=5 1d 0bp                FULL tot=    51.9% cagr=    8.0% sh= 0.40 turn=1.38 fee=$     0 gross=$    435 | IS tot=    3.6% | OOS tot=   47.5% cagr=  16.3% sh= 0.85
+as-coded K=8 1d 0bp                FULL tot=    24.7% cagr=    4.2% sh= 0.25 turn=1.04 fee=$     0 gross=$    153 | IS tot=   -7.5% | OOS tot=   33.0% cagr=  11.7% sh= 0.83
+
+############ D. 對照：v2 因子、7 日 ############
+v2 K=3 7d                          FULL tot=   190.0% cagr=   21.7% sh= 1.10 turn=0.17 fee=$   238 gross=$   1932 | IS tot=  104.2% | OOS tot=   71.2% cagr=  23.2% sh= 1.08
+v2 K=4 7d                          FULL tot=   153.6% cagr=   18.8% sh= 1.03 turn=0.16 fee=$   216 gross=$   1565 | IS tot=   98.8% | OOS tot=   56.0% cagr=  18.9% sh= 0.96
+v2 K=5 7d                          FULL tot=   133.2% cagr=   16.9% sh= 1.02 turn=0.14 fee=$   194 gross=$   1353 | IS tot=   73.8% | OOS tot=   43.0% cagr=  14.9% sh= 0.84
+v2 K=6 7d                          FULL tot=    84.2% cagr=   12.0% sh= 0.72 turn=0.13 fee=$   175 gross=$    862 | IS tot=   48.6% | OOS tot=   28.0% cagr=  10.1% sh= 0.61
+v2 K=8 7d                          FULL tot=    54.4% cagr=    8.4% sh= 0.53 turn=0.10 fee=$   138 gross=$    555 | IS tot=   32.7% | OOS tot=    8.8% cagr=   3.3% sh= 0.23
+
+(完成)

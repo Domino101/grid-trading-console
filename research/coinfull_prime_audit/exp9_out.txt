@@ -1,0 +1,24 @@
+=== 動能因子形式 (搭 0.4 資金費率) ===
+mom1(1d)                           FULL cagr=   6.7% sh= 0.39 dd= -33.9% | OOS cagr=  20.8% sh= 1.54 dd= -11.1%
+mom3(3d)                           FULL cagr=   2.4% sh= 0.13 dd= -55.8% | OOS cagr=  15.6% sh= 1.07 dd= -17.6%
+mom7(7d)                           FULL cagr=  12.4% sh= 0.82 dd= -26.8% | OOS cagr=  23.3% sh= 1.72 dd= -14.1%
+mom30(30d)                         FULL cagr=  13.6% sh= 0.98 dd= -21.4% | OOS cagr=  11.3% sh= 0.82 dd= -27.1%
+composite .6/.4 (7/30)             FULL cagr=  14.7% sh= 1.07 dd= -23.9% | OOS cagr=  20.6% sh= 1.53 dd= -11.1%
+blend .5/.3/.2 (1/7/30)            FULL cagr=  18.8% sh= 1.41 dd= -15.3% | OOS cagr=  25.1% sh= 1.94 dd=  -9.8%
+0.3/0.7 (7/30)                     FULL cagr=  14.5% sh= 1.06 dd= -21.1% | OOS cagr=  14.4% sh= 1.03 dd= -20.9%
+0.4/0.6 (7/30)                     FULL cagr=  14.7% sh= 1.08 dd= -23.4% | OOS cagr=  17.3% sh= 1.27 dd= -18.2%
+
+=== 資金費率形式 (搭 blend) ===
+fund_smooth (-3d avg) 建議           FULL cagr=  18.8% sh= 1.41 dd= -15.3% | OOS cagr=  25.1% sh= 1.94 dd=  -9.8%
+fund raw (-1 snapshot)             FULL cagr=  14.6% sh= 0.98 dd= -19.8% | OOS cagr=  25.1% sh= 1.92 dd= -11.1%
+fund 7d avg                        FULL cagr=  16.6% sh= 1.16 dd= -18.3% | OOS cagr=  24.8% sh= 1.84 dd=  -9.9%
+fund 14d avg                       FULL cagr=  16.6% sh= 1.17 dd= -18.0% | OOS cagr=  23.4% sh= 1.70 dd=  -9.1%
+
+=== 動能/資金權重 ===
+w_mom=0.4                          FULL cagr=  11.0% sh= 0.80 dd= -29.1% | OOS cagr=  24.3% sh= 1.94 dd=  -8.7%
+w_mom=0.5                          FULL cagr=  15.1% sh= 1.12 dd= -21.7% | OOS cagr=  25.6% sh= 2.00 dd=  -9.8%
+w_mom=0.6                          FULL cagr=  18.8% sh= 1.41 dd= -15.3% | OOS cagr=  25.1% sh= 1.94 dd=  -9.8%
+w_mom=0.7                          FULL cagr=  16.7% sh= 1.18 dd= -17.0% | OOS cagr=  23.9% sh= 1.83 dd=  -8.8%
+w_mom=0.8                          FULL cagr=  17.4% sh= 1.22 dd= -16.2% | OOS cagr=  21.0% sh= 1.57 dd= -11.5%
+
+(完成)

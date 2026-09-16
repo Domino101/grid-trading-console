@@ -1,0 +1,88 @@
+panel: (2038, 19) 2021-01-01 2026-07-31
+
+=== A. AS-CODED (1d momentum + bar pressure flow + 1d funding), K=3 ===
+as-coded K3                                    tot=  -65.9%  cagr= -17.8%  vol=  34.6%  sharpe=-0.35  maxdd= -95.0%  hit=  46%  gross=$    1456 fee=$   2218 fund=$    104 net=$    -659 turn=1.58
+      days  net_pct  gross_pct  fees_pct  funding_pct  vol_pct  sharpe  hit_pct  maxdd_pct
+year                                                                                      
+2021   330     45.3       75.3      34.5          4.5     55.6     0.9     51.8      -37.8
+2022   365      1.4       38.8      38.9          1.5     29.6     0.0     47.1      -24.0
+2023   365    -62.2      -22.7      41.9          2.4     29.6    -2.1     41.9      -70.1
+2024   366    -30.9        8.2      40.7          1.6     28.1    -1.1     48.9      -34.8
+2025   365    -30.1       10.6      41.9          1.2     31.0    -1.0     41.4      -51.9
+2026   210     10.6       35.2      23.9         -0.8     21.7     0.8     48.1      -20.1
+
+=== B. factor ablations (K=3) ===
+score: mom=mom1 + flow + fund                  tot=  -65.9%  cagr= -17.8%  vol=  34.6%  sharpe=-0.35  maxdd= -95.0%  hit=  46%  gross=$    1456 fee=$   2218 fund=$    104 net=$    -659 turn=1.58
+score: mom=mom3 + flow + fund                  tot=    2.7%  cagr=   0.5%  vol=  35.7%  sharpe= 0.01  maxdd= -68.7%  hit=  49%  gross=$    1800 fee=$   1873 fund=$    100 net=$      27 turn=1.34
+score: mom=mom7 + flow + fund                  tot=  122.4%  cagr=  15.7%  vol=  33.7%  sharpe= 0.66  maxdd= -28.6%  hit=  49%  gross=$    2874 fee=$   1791 fund=$    141 net=$    1224 turn=1.28
+score: mom=mom30 + flow + fund                 tot=  107.5%  cagr=  14.2%  vol=  33.7%  sharpe= 0.58  maxdd= -27.4%  hit=  49%  gross=$    2637 fee=$   1731 fund=$    169 net=$    1075 turn=1.24
+score: mom=composite + flow + fund             tot=   70.7%  cagr=  10.2%  vol=  34.7%  sharpe= 0.37  maxdd= -36.6%  hit=  48%  gross=$    2375 fee=$   1780 fund=$    112 net=$     707 turn=1.27
+score: mom=blend + flow + fund                 tot=   36.6%  cagr=   5.9%  vol=  34.1%  sharpe= 0.20  maxdd= -46.9%  hit=  48%  gross=$    2160 fee=$   1899 fund=$    106 net=$     366 turn=1.36
+score: mom=rev3 + flow + fund                  tot= -122.5%  cagr=-100.0%  vol=  31.6%  sharpe=-0.71  maxdd=-128.8%  hit=  48%  gross=$     390 fee=$   1940 fund=$    325 net=$   -1225 turn=1.38
+score: mom1 + flow=none + fund                 tot=  -96.1%  cagr= -44.6%  vol=  34.5%  sharpe=-0.51  maxdd=-114.9%  hit=  47%  gross=$     951 fee=$   2123 fund=$    211 net=$    -961 turn=1.52
+score: mom1 + flow=pressure + fund             tot=  -65.9%  cagr= -17.8%  vol=  34.6%  sharpe=-0.35  maxdd= -95.0%  hit=  46%  gross=$    1456 fee=$   2218 fund=$    104 net=$    -659 turn=1.58
+score: mom1 + flow=takerproxy + fund           tot= -122.1%  cagr=-100.0%  vol=  35.4%  sharpe=-0.63  maxdd=-129.6%  hit=  45%  gross=$     880 fee=$   2198 fund=$     96 net=$   -1221 turn=1.57
+score: mom1 + pressure + funding=fund          tot=  -65.9%  cagr= -17.8%  vol=  34.6%  sharpe=-0.35  maxdd= -95.0%  hit=  46%  gross=$    1456 fee=$   2218 fund=$    104 net=$    -659 turn=1.58
+score: mom1 + pressure + funding=fund_smooth   tot=   15.7%  cagr=   2.7%  vol=  34.4%  sharpe= 0.08  maxdd= -60.6%  hit=  47%  gross=$    2238 fee=$   2187 fund=$    106 net=$     157 turn=1.56
+score: mom1 + pressure + funding=off           tot=  -32.4%  cagr=  -6.9%  vol=  34.8%  sharpe=-0.17  maxdd= -77.8%  hit=  46%  gross=$    1971 fee=$   2241 fund=$    -54 net=$    -324 turn=1.60
+
+=== C. single-factor portfolio (K=3) ===
+pure momentum=mom1                             tot= -149.7%  cagr=-100.0%  vol=  34.6%  sharpe=-0.79  maxdd=-173.2%  hit=  45%  gross=$     811 fee=$   2244 fund=$    -64 net=$   -1497 turn=1.60
+pure momentum=mom7                             tot=   62.1%  cagr=   9.2%  vol=  35.5%  sharpe= 0.32  maxdd= -39.8%  hit=  50%  gross=$    1631 fee=$    934 fund=$    -77 net=$     621 turn=0.67
+pure momentum=mom30                            tot=  128.4%  cagr=  16.3%  vol=  35.6%  sharpe= 0.66  maxdd= -20.9%  hit=  49%  gross=$    1831 fee=$    481 fund=$    -66 net=$    1284 turn=0.34
+pure momentum=composite                        tot=  102.9%  cagr=  13.8%  vol=  36.7%  sharpe= 0.51  maxdd= -26.2%  hit=  49%  gross=$    1777 fee=$    669 fund=$    -80 net=$    1029 turn=0.48
+pure momentum=blend                            tot=  170.1%  cagr=  19.9%  vol=  36.8%  sharpe= 0.84  maxdd= -23.2%  hit=  49%  gross=$    2789 fee=$   1012 fund=$    -76 net=$    1701 turn=0.72
+pure momentum=rev3                             tot= -186.8%  cagr=-100.0%  vol=  36.3%  sharpe=-0.94  maxdd=-191.2%  hit=  49%  gross=$    -572 fee=$   1382 fund=$     86 net=$   -1868 turn=0.99
+pure funding (3d mean, reverse)                tot=   55.5%  cagr=   8.4%  vol=  31.3%  sharpe= 0.32  maxdd= -37.3%  hit=  51%  gross=$     769 fee=$    766 fund=$    552 net=$     555 turn=0.55
+pure flow (bar pressure)                       tot=    0.1%  cagr=   0.0%  vol=  33.1%  sharpe= 0.00  maxdd= -74.8%  hit=  48%  gross=$    2287 fee=$   2265 fund=$    -20 net=$       1 turn=1.62
+
+=== D. basket width K (as-coded score) ===
+K=1 each side (of 19)                          tot=   10.4%  cagr=   1.8%  vol=  67.2%  sharpe= 0.03  maxdd= -88.6%  hit=  45%  gross=$    2526 fee=$   2542 fund=$    121 net=$     104 turn=1.82
+K=2 each side (of 19)                          tot=   24.0%  cagr=   4.0%  vol=  44.5%  sharpe= 0.10  maxdd= -65.8%  hit=  47%  gross=$    2505 fee=$   2366 fund=$    101 net=$     240 turn=1.69
+K=3 each side (of 19)                          tot=  -65.9%  cagr= -17.8%  vol=  34.6%  sharpe=-0.35  maxdd= -95.0%  hit=  46%  gross=$    1456 fee=$   2218 fund=$    104 net=$    -659 turn=1.58
+K=4 each side (of 19)                          tot=  -56.7%  cagr= -14.2%  vol=  28.7%  sharpe=-0.36  maxdd= -84.5%  hit=  47%  gross=$    1429 fee=$   2089 fund=$     93 net=$    -567 turn=1.49
+K=5 each side (of 19)                          tot=  -81.6%  cagr= -26.5%  vol=  24.9%  sharpe=-0.60  maxdd=-103.8%  hit=  47%  gross=$    1043 fee=$   1945 fund=$     86 net=$    -816 turn=1.39
+K=6 each side (of 19)                          tot=  -84.3%  cagr= -28.7%  vol=  22.6%  sharpe=-0.68  maxdd=-104.0%  hit=  46%  gross=$     883 fee=$   1802 fund=$     77 net=$    -843 turn=1.29
+K=7 each side (of 19)                          tot=  -87.3%  cagr= -31.4%  vol=  20.7%  sharpe=-0.77  maxdd=-104.6%  hit=  46%  gross=$     708 fee=$   1650 fund=$     69 net=$    -873 turn=1.18
+K=8 each side (of 19)                          tot=  -63.4%  cagr= -16.8%  vol=  19.9%  sharpe=-0.58  maxdd= -84.9%  hit=  46%  gross=$     838 fee=$   1539 fund=$     66 net=$    -634 turn=1.10
+K=9 each side (of 19)                          tot=  -54.0%  cagr= -13.2%  vol=  19.3%  sharpe=-0.51  maxdd= -76.0%  hit=  46%  gross=$     849 fee=$   1452 fund=$     64 net=$    -540 turn=1.04
+
+=== E. cost sensitivity (as-coded, K=3) ===
+fee=0bp slip=0bp                               tot=  155.9%  cagr=  18.7%  vol=  34.6%  sharpe= 0.82  maxdd= -19.8%  hit=  50%  gross=$    1456 fee=$      0 fund=$    104 net=$    1559 turn=1.58
+fee=2bp slip=1bp                               tot=   60.8%  cagr=   9.1%  vol=  34.6%  sharpe= 0.32  maxdd= -42.8%  hit=  48%  gross=$    1456 fee=$    951 fund=$    104 net=$     608 turn=1.58
+fee=5bp slip=2bp                               tot=  -65.9%  cagr= -17.8%  vol=  34.6%  sharpe=-0.35  maxdd= -95.0%  hit=  46%  gross=$    1456 fee=$   2218 fund=$    104 net=$    -659 turn=1.58
+fee=5bp slip=5bp                               tot= -161.0%  cagr=-100.0%  vol=  34.6%  sharpe=-0.85  maxdd=-155.1%  hit=  45%  gross=$    1456 fee=$   3169 fund=$    104 net=$   -1610 turn=1.58
+fee=10bp slip=5bp                              tot= -319.4%  cagr=-100.0%  vol=  34.6%  sharpe=-1.68  maxdd=-265.3%  hit=  43%  gross=$    1456 fee=$   4754 fund=$    104 net=$   -3194 turn=1.58
+
+=== F. rebalance frequency (as-coded, K=3) ===
+rebalance every 1d                             tot=  -65.9%  cagr= -17.8%  vol=  34.6%  sharpe=-0.35  maxdd= -95.0%  hit=  46%  gross=$    1456 fee=$   2218 fund=$    104 net=$    -659 turn=1.58
+rebalance every 2d                             tot=  -44.2%  cagr= -10.1%  vol=  33.8%  sharpe=-0.24  maxdd= -69.8%  hit=  48%  gross=$     582 fee=$   1098 fund=$     75 net=$    -442 turn=0.78
+rebalance every 3d                             tot=  -10.9%  cagr=  -2.1%  vol=  34.1%  sharpe=-0.06  maxdd= -59.9%  hit=  49%  gross=$     564 fee=$    752 fund=$     79 net=$    -109 turn=0.54
+rebalance every 5d                             tot=   74.4%  cagr=  10.7%  vol=  33.8%  sharpe= 0.40  maxdd= -29.9%  hit=  49%  gross=$    1110 fee=$    446 fund=$     80 net=$     744 turn=0.32
+rebalance every 7d                             tot=  107.4%  cagr=  14.2%  vol=  32.3%  sharpe= 0.61  maxdd= -51.2%  hit=  51%  gross=$    1277 fee=$    311 fund=$    109 net=$    1074 turn=0.22
+rebalance every 14d                            tot=   13.9%  cagr=   2.4%  vol=  33.0%  sharpe= 0.08  maxdd= -75.8%  hit=  49%  gross=$     192 fee=$    154 fund=$    101 net=$     139 turn=0.11
+
+=== G. information coefficient (whole sample, 1d horizon) ===
+             mean_ic  ic_std   ic_ir  t_stat  pos_rate     n
+factor                                                      
+fund_smooth   0.0384  0.2677  0.1435  6.4732    0.5523  2035
+rev3          0.0332  0.3182  0.1045  4.7109    0.5354  2034
+fund          0.0325  0.2648  0.1229  5.5447    0.5474  2037
+pressure     -0.0097  0.2914 -0.0333 -1.5015    0.5032  2037
+mom30        -0.0136  0.3181 -0.0427 -1.9134    0.4743  2007
+takerproxy   -0.0229  0.2972 -0.0769 -3.4555    0.4762  2018
+composite    -0.0258  0.3179 -0.0810 -3.6304    0.4614  2007
+mom1         -0.0260  0.3170 -0.0819 -3.6975    0.4622  2036
+mom7         -0.0275  0.3170 -0.0869 -3.9133    0.4581  2030
+blend        -0.0305  0.3141 -0.0971 -4.3500    0.4534  2007
+mom3         -0.0332  0.3182 -0.1045 -4.7109    0.4636  2034
+
+=== H. annual breakdown of as-coded ===
+      days  net_pct  gross_pct  fees_pct  funding_pct  vol_pct  sharpe  hit_pct  maxdd_pct
+year                                                                                      
+2021   330     45.3       75.3      34.5          4.5     55.6     0.9     51.8      -37.8
+2022   365      1.4       38.8      38.9          1.5     29.6     0.0     47.1      -24.0
+2023   365    -62.2      -22.7      41.9          2.4     29.6    -2.1     41.9      -70.1
+2024   366    -30.9        8.2      40.7          1.6     28.1    -1.1     48.9      -34.8
+2025   365    -30.1       10.6      41.9          1.2     31.0    -1.0     41.4      -51.9
+2026   210     10.6       35.2      23.9         -0.8     21.7     0.8     48.1      -20.1

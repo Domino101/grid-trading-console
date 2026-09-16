@@ -16,6 +16,10 @@
 - **前端調倉歷史與成交紀錄雙分頁控制台 (Frontend History & Fills UI)**：
   - `CoinFullPrimePage.tsx` 新增「調倉歷史與成交紀錄」控制台面板，提供「調倉批次歷史（可展開 16 幣訂單）」與「逐筆成交流水」雙分頁檢視。
   - 支援帳號環境過濾、含 Dry-Run 模擬開關、即時手動刷新與換倉完成後自動刷新機制。
+- **CoinFull Prime 策略實證稽核與優化研究文件包 (Empirical Audit & Optimization Package)**：
+  - 整合 19 檔主流永續合約 2021～2026 年完整日線實證回測研究與稽核主報告（`docs/CoinFull_Prime_Audit_Report_2026-09-16.md`）。
+  - 納入獲利優化計畫、風險情境手冊、規避下單觸發規格與倉位增減時機等 5 份全套指引文件（`docs/CoinFull_Prime_00～04`）。
+  - 匯入 `research/coinfull_prime_audit/` 完整可重現回測引擎與 exp1～exp14 統計檢定實驗輸出。
 
 ---
 

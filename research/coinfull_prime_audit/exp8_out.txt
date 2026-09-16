@@ -1,0 +1,54 @@
+risk-off episodes: 96  (17.2/yr); risk-off share=37.2%
+state share: pts0=37.2% pts1=15.6% pts2=18.3% pts3=28.9%
+
+############ 1a. 啟動日 / 換倉相位（v2+gate, 每 7 日換倉）############
+  相位 0: 首次換倉 2021-04-01 (Thu)  cagr=  19.0% sh= 1.47 dd=  -9.6% tot=  152.7%
+  相位 1: 首次換倉 2021-04-02 (Fri)  cagr=  17.2% sh= 1.31 dd= -16.3% tot=  132.5%
+  相位 2: 首次換倉 2021-04-03 (Sat)  cagr=   9.6% sh= 0.60 dd= -26.3% tot=   63.3%
+  相位 3: 首次換倉 2021-04-04 (Sun)  cagr=   3.4% sh= 0.20 dd= -21.5% tot=   19.7%
+  相位 4: 首次換倉 2021-04-05 (Mon)  cagr=   9.6% sh= 0.63 dd= -31.2% tot=   62.7%
+  相位 5: 首次換倉 2021-04-06 (Tue)  cagr=  17.5% sh= 1.30 dd= -16.9% tot=  135.8%
+  相位 6: 首次換倉 2021-04-07 (Wed)  cagr=  16.6% sh= 1.17 dd= -15.5% tot=  125.8%
+  → 最佳相位 0 (Thu) sh=1.47；最差相位 3 (Sun) sh=0.20
+  OOS 檢驗：
+    OOS 相位 0 (Thu) cagr=  19.0% sh= 1.47 dd=  -9.6%
+    OOS 相位 1 (Fri) cagr=  17.2% sh= 1.31 dd= -16.3%
+    OOS 相位 2 (Sat) cagr=   9.6% sh= 0.60 dd= -26.3%
+    OOS 相位 3 (Sun) cagr=   3.4% sh= 0.20 dd= -21.5%
+    OOS 相位 4 (Mon) cagr=   9.6% sh= 0.63 dd= -31.2%
+    OOS 相位 5 (Tue) cagr=  17.5% sh= 1.30 dd= -16.9%
+    OOS 相位 6 (Wed) cagr=  16.6% sh= 1.17 dd= -15.5%
+
+############ 1b. 換倉週期（v2+gate）############
+  rebalance= 1日  FULL cagr=  15.3% sh= 1.02 dd= -15.9% turn=0.432 fee=$  597 | OOS cagr=  17.3% sh= 1.15
+  rebalance= 3日  FULL cagr=  17.9% sh= 1.27 dd= -12.7% turn=0.205 fee=$  283 | OOS cagr=  21.5% sh= 1.52
+  rebalance= 5日  FULL cagr=  13.0% sh= 0.87 dd= -20.9% turn=0.144 fee=$  199 | OOS cagr=  20.5% sh= 1.45
+  rebalance= 7日  FULL cagr=  18.8% sh= 1.41 dd= -15.3% turn=0.113 fee=$  156 | OOS cagr=  25.1% sh= 1.94
+  rebalance=10日  FULL cagr=   8.8% sh= 0.57 dd= -24.6% turn=0.084 fee=$  116 | OOS cagr=  24.5% sh= 1.88
+  rebalance=14日  FULL cagr=  20.9% sh= 1.69 dd= -13.0% turn=0.062 fee=$   86 | OOS cagr=  29.1% sh= 2.23
+
+############ 1c. 啟動後等待條件才進場 ############
+  等到 pts>=1 才啟動 (first=2021-04-01)  gate版: cagr=  19.0% sh= 1.47 | 無gate版: cagr=  18.4% sh= 1.14
+  等到 pts>=2 才啟動 (first=2021-04-01)  gate版: cagr=  19.0% sh= 1.47 | 無gate版: cagr=  18.4% sh= 1.14
+  等到 pts=3 才啟動 (first=2021-10-05)  gate版: cagr=  13.8% sh= 1.02 | 無gate版: cagr=  12.9% sh= 0.76
+
+############ 1d. 換倉條件過濾（只在籃子真的變了才下單）############
+  turnover門檻=None  FULL cagr=  18.8% sh= 1.41 turn=0.113 | OOS cagr=  25.1% sh= 1.94
+  turnover門檻=0.15  FULL cagr=  18.8% sh= 1.41 turn=0.113 | OOS cagr=  25.1% sh= 1.94
+  turnover門檻=0.25  FULL cagr=  18.0% sh= 1.33 turn=0.112 | OOS cagr=  25.0% sh= 1.92
+  turnover門檻=0.35  FULL cagr=  17.2% sh= 1.27 turn=0.107 | OOS cagr=  20.5% sh= 1.51
+
+############ 2. 變盤因應：平倉 vs 持有 vs 反向 ############
+A. 風險期立即平倉（v2+gate，基準）                   FULL cagr=  18.8% sh= 1.41 dd= -15.3% | OOS cagr=  25.1% sh= 1.94 dd=  -9.8%
+B. 風險期持有不動（不交易）                          FULL cagr=  15.9% sh= 0.95 dd= -21.2% | OOS cagr=  18.8% sh= 1.06 dd= -14.7%
+C. 風險期反向下單（換倉日翻轉）                        FULL cagr=  16.9% sh= 1.02 dd= -18.3% | OOS cagr=  14.9% sh= 0.84 dd= -20.6%
+D. 延遲1日才平倉（等確認）                          FULL cagr=  18.6% sh= 1.37 dd= -11.7% | OOS cagr=  23.2% sh= 1.71 dd=  -9.8%
+E. 延遲2日才平倉（等確認）                          FULL cagr=  19.0% sh= 1.38 dd= -12.8% | OOS cagr=  22.7% sh= 1.64 dd=  -9.8%
+F. 延遲1日才重新進場                             FULL cagr=  19.0% sh= 1.43 dd= -15.5% | OOS cagr=  23.8% sh= 1.84 dd=  -9.8%
+G. 順勢一致性過濾（7d/30d 同向）                    FULL cagr=  15.1% sh= 1.08 dd= -18.5% | OOS cagr=  10.9% sh= 0.70 dd= -13.7%
+G2. 順勢一致性過濾（無gate）                       FULL cagr=  16.4% sh= 0.99 dd= -15.7% | OOS cagr=   4.0% sh= 0.20 dd= -22.9%
+H. BTC崩跌日(<=-5%)延後換倉                     FULL cagr=  19.2% sh= 1.45 dd= -15.3% | OOS cagr=  25.1% sh= 1.94 dd=  -9.8%
+I. BTC大波動日(|move|>=5%)延後換倉               FULL cagr=  18.5% sh= 1.37 dd= -14.1% | OOS cagr=  25.3% sh= 1.90 dd= -16.8%
+J. 延遲平倉+崩跌延後（合併）                         FULL cagr=  18.1% sh= 1.30 dd= -13.0% | OOS cagr=  23.4% sh= 1.68 dd= -16.8%
+
+(完成)

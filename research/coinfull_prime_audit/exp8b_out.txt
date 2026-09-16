@@ -1,0 +1,36 @@
+############ 相位檢驗：IS (2021-04 起) ############
+IS  phase0 (Thu)                         cagr=  22.1% sh= 1.19 dd=  -9.6% tot=   73.1% turn=0.107
+IS  phase1 (Fri)                         cagr=  18.0% sh= 0.98 dd= -16.3% tot=   57.6% turn=0.104
+IS  phase2 (Sat)                         cagr=   8.0% sh= 0.39 dd= -26.3% tot=   23.4% turn=0.101
+IS  phase3 (Sun)                         cagr=  -1.4% sh=-0.07 dd= -20.5% tot=   -3.7% turn=0.101
+IS  phase4 (Mon)                         cagr=  -5.5% sh=-0.25 dd= -31.2% tot=  -14.2% turn=0.106
+IS  phase5 (Tue)                         cagr=  18.1% sh= 0.96 dd= -16.9% tot=   57.4% turn=0.114
+IS  phase6 (Wed)                         cagr=  15.8% sh= 0.78 dd= -14.5% tot=   49.4% turn=0.110
+
+############ 相位檢驗：OOS (2024-01 起) ############
+OOS phase0 (Mon)                         cagr=  25.1% sh= 1.94 dd=  -9.8% tot=   78.2% turn=0.124
+OOS phase1 (Tue)                         cagr=  25.9% sh= 1.86 dd= -11.2% tot=   80.9% turn=0.112
+OOS phase2 (Wed)                         cagr=  24.4% sh= 1.75 dd=  -8.4% tot=   75.3% turn=0.120
+OOS phase3 (Thu)                         cagr=  25.5% sh= 1.95 dd=  -7.9% tot=   79.1% turn=0.116
+OOS phase4 (Fri)                         cagr=  24.2% sh= 1.82 dd= -10.0% tot=   74.3% turn=0.118
+OOS phase5 (Sat)                         cagr=  13.8% sh= 0.92 dd= -14.0% tot=   39.4% turn=0.118
+OOS phase6 (Sun)                         cagr=   8.8% sh= 0.60 dd= -14.4% tot=   24.1% turn=0.114
+
+############ 週期 7 vs 14 日（IS / OOS）############
+reb= 7 FULL                              cagr=  19.0% sh= 1.47 dd=  -9.6% tot=  152.7% turn=0.111
+reb= 7 IS                                cagr=  22.1% sh= 1.17 dd= -15.3% tot=   75.7% turn=0.114
+reb= 7 OOS                               cagr=  25.1% sh= 1.94 dd=  -9.8% tot=   78.2% turn=0.124
+reb=14 FULL                              cagr=  16.9% sh= 1.25 dd= -15.2% tot=  129.9% turn=0.065
+reb=14 IS                                cagr=  23.8% sh= 1.34 dd= -13.0% tot=   82.7% turn=0.060
+reb=14 OOS                               cagr=  29.1% sh= 2.23 dd=  -6.5% tot=   93.0% turn=0.071
+
+############ 建議組合（相位=週四, 7日, gate, 崩跌延後）############
+combo FULL                               cagr=  18.9% sh= 1.47 dd=  -9.7% tot=  151.6% turn=0.108
+combo IS                                 cagr=  21.3% sh= 1.15 dd=  -9.7% tot=   70.1% turn=0.103
+combo OOS                                cagr=  25.1% sh= 1.94 dd=  -9.8% tot=   78.2% turn=0.124
+
+-- 加上「延遲一日再進場」--
+combo+delay-entry FULL                   cagr=  19.5% sh= 1.54 dd=  -9.5% tot=  158.2% turn=0.099
+combo+delay-entry OOS                    cagr=  23.8% sh= 1.84 dd=  -9.8% tot=   73.4% turn=0.111
+
+(完成)

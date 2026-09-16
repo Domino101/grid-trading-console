@@ -1,0 +1,24 @@
+live panel rows: 60 symbols: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT', 'DOGEUSDT', 'ADAUSDT', 'LINKUSDT']
+
+=== CURRENT STATE (2026-09-16, OKX) ===
+last (09-16, in-progress): {'BTCUSDT': 75417.7, 'ETHUSDT': 2388.54, 'SOLUSDT': 96.57, 'BNBUSDT': 704.4, 'XRPUSDT': 1.2775, 'DOGEUSDT': 0.0792, 'ADAUSDT': 0.1927, 'LINKUSDT': 10.683}
+prev close           : {'BTCUSDT': 76474.0, 'ETHUSDT': 2423.26, 'SOLUSDT': 99.32, 'BNBUSDT': 718.3, 'XRPUSDT': 1.389, 'DOGEUSDT': 0.0816, 'ADAUSDT': 0.2018, 'LINKUSDT': 11.269}
+
+BTC 50d MA deviation : +4.87%   (gate wants > 0)
+per-symbol MA50 dev  : {'BTCUSDT': 4.87, 'ETHUSDT': 7.93, 'SOLUSDT': 8.16, 'BNBUSDT': 6.52, 'XRPUSDT': 3.03, 'DOGEUSDT': 0.31, 'ADAUSDT': -3.09, 'LINKUSDT': 3.79}
+breadth (%>50d MA)   : 88%   (gate wants > 30%)
+BTC 7d / 30d return  : -4.0% / +17.5%
+BTC 14d realised vol : 38% (annualised)
+alt 30d returns      : {'ETHUSDT': 24.9, 'SOLUSDT': 27.0, 'BNBUSDT': 16.1, 'XRPUSDT': 27.0, 'DOGEUSDT': 12.4, 'ADAUSDT': 10.1, 'LINKUSDT': 12.3}
+x-sec dispersion(7d) : 3.2%
+max drawdown from 60d high: -16.9%
+
+current market funding: +0.0007%/8h -> +0.0022%/day
+  historical percentile of a +0.0022%/day market funding (2021-2026): 29%  (gate wants > 45%)
+  historical daily market-funding distribution: p10=-0.0145% p50=0.0130% p90=0.0695% (per day)
+
+=== LIVE GATE ===
+trend=1 breadth=1 funding=0  -> pts=2/3
+  保守版（建議）      : 1.00x
+  積極版（軟閘門）    : 1.00x   [未達加碼條件：需 pts=2 且資金費率百分位 45–80]
+decision: 最佳情境（保守版 1.0x；積極版 1.15x）

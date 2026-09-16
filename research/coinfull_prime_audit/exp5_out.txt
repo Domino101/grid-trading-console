@@ -1,0 +1,98 @@
+state share: pts0=37.2% pts1=15.6% pts2=18.3% pts3=28.9%
+
+############ 1. immediate fixes to the CURRENT daily implementation ############
+FULL  as-coded daily (baseline)                          tot=   -76.4% cagr= -23.4% vol= 33.4% sharpe=-0.42 dd=-101.8% hit=  46% turn=1.59 fee=$  2192 net=$   -764
+  IS  as-coded daily (baseline)                          tot=   -28.3% cagr= -11.1% vol= 37.7% sharpe=-0.27 dd= -51.2% hit=  46% turn=1.56 fee=$  1125 net=$   -283
+  OOS as-coded daily (baseline)                          tot=   -50.4% cagr= -23.8% vol= 28.0% sharpe=-0.70 dd= -76.7% hit=  46% turn=1.62 fee=$  1065 net=$   -504
+FULL  as-coded daily + hysteresis2                       tot=   -91.2% cagr= -36.2% vol= 36.4% sharpe=-0.46 dd=-115.8% hit=  47% turn=1.54 fee=$  2125 net=$   -912
+  IS  as-coded daily + hysteresis2                       tot=   -19.5% cagr=  -7.4% vol= 40.3% sharpe=-0.17 dd= -50.1% hit=  48% turn=1.50 fee=$  1085 net=$   -195
+  OOS as-coded daily + hysteresis2                       tot=   -73.5% cagr= -40.3% vol= 31.5% sharpe=-0.90 dd=-107.1% hit=  47% turn=1.57 fee=$  1037 net=$   -735
+FULL  as-coded daily + band 1.5%                         tot=   -76.4% cagr= -23.4% vol= 33.4% sharpe=-0.42 dd=-101.8% hit=  46% turn=1.59 fee=$  2192 net=$   -764
+  IS  as-coded daily + band 1.5%                         tot=   -28.3% cagr= -11.1% vol= 37.7% sharpe=-0.27 dd= -51.2% hit=  46% turn=1.56 fee=$  1125 net=$   -283
+  OOS as-coded daily + band 1.5%                         tot=   -50.4% cagr= -23.8% vol= 28.0% sharpe=-0.70 dd= -76.7% hit=  46% turn=1.62 fee=$  1065 net=$   -504
+FULL  as-coded daily + hyst2 + band1.5%                  tot=   -91.2% cagr= -36.2% vol= 36.4% sharpe=-0.46 dd=-115.8% hit=  47% turn=1.54 fee=$  2125 net=$   -912
+  IS  as-coded daily + hyst2 + band1.5%                  tot=   -19.5% cagr=  -7.4% vol= 40.3% sharpe=-0.17 dd= -50.1% hit=  48% turn=1.50 fee=$  1085 net=$   -195
+  OOS as-coded daily + hyst2 + band1.5%                  tot=   -73.5% cagr= -40.3% vol= 31.5% sharpe=-0.90 dd=-107.1% hit=  47% turn=1.57 fee=$  1037 net=$   -735
+FULL  as-coded daily + hyst2 + band1.5% + gate(off only) tot=   -40.0% cagr=  -9.0% vol= 29.4% sharpe=-0.25 dd= -83.9% hit=  31% turn=1.01 fee=$  1397 net=$   -400
+  IS  as-coded daily + hyst2 + band1.5% + gate(off only) tot=    -2.9% cagr=  -1.0% vol= 34.8% sharpe=-0.03 dd= -40.0% hit=  30% turn=0.96 fee=$   695 net=$    -29
+  OOS as-coded daily + hyst2 + band1.5% + gate(off only) tot=   -38.8% cagr= -17.4% vol= 22.0% sharpe=-0.68 dd= -73.4% hit=  32% turn=1.06 fee=$   700 net=$   -388
+
+FULL  as-coded 7d (freq fix only)                        tot=    19.3% cagr=   3.3% vol= 32.0% sharpe= 0.11 dd= -41.5% hit=  51% turn=0.23 fee=$   320 net=$    193
+  IS  as-coded 7d (freq fix only)                        tot=    10.1% cagr=   3.5% vol= 37.4% sharpe= 0.10 dd= -40.3% hit=  50% turn=0.23 fee=$   166 net=$    101
+  OOS as-coded 7d (freq fix only)                        tot=    11.2% cagr=   4.2% vol= 24.5% sharpe= 0.18 dd= -27.1% hit=  50% turn=0.23 fee=$   153 net=$    112
+FULL  as-coded 7d + gate(off only)                       tot=    24.0% cagr=   4.1% vol= 27.5% sharpe= 0.16 dd= -44.2% hit=  29% turn=0.16 fee=$   220 net=$    240
+  IS  as-coded 7d + gate(off only)                       tot=     7.6% cagr=   2.6% vol= 32.8% sharpe= 0.08 dd= -44.2% hit=  27% turn=0.16 fee=$   118 net=$     76
+  OOS as-coded 7d + gate(off only)                       tot=    53.3% cagr=  18.0% vol= 19.5% sharpe= 1.06 dd= -18.4% hit=  30% turn=0.17 fee=$   114 net=$    533
+
+############ 1b. gate actions on the current daily implementation ############
+FULL  as-coded daily +hyst+band + gateFREEZE             tot=   -40.0% cagr=  -9.0% vol= 29.4% sharpe=-0.25 dd= -83.9% hit=  31% turn=1.01 fee=$  1397 net=$   -400
+  IS  as-coded daily +hyst+band + gateFREEZE             tot=    -2.9% cagr=  -1.0% vol= 34.8% sharpe=-0.03 dd= -40.0% hit=  30% turn=0.96 fee=$   695 net=$    -29
+  OOS as-coded daily +hyst+band + gateFREEZE             tot=   -38.8% cagr= -17.4% vol= 22.0% sharpe=-0.68 dd= -73.4% hit=  32% turn=1.06 fee=$   700 net=$   -388
+FULL  as-coded daily +hyst+band + gateSCALE              tot=   -40.0% cagr=  -9.0% vol= 29.4% sharpe=-0.25 dd= -83.9% hit=  31% turn=1.01 fee=$  1397 net=$   -400
+  IS  as-coded daily +hyst+band + gateSCALE              tot=    -2.9% cagr=  -1.0% vol= 34.8% sharpe=-0.03 dd= -40.0% hit=  30% turn=0.96 fee=$   695 net=$    -29
+  OOS as-coded daily +hyst+band + gateSCALE              tot=   -38.8% cagr= -17.4% vol= 22.0% sharpe=-0.68 dd= -73.4% hit=  32% turn=1.06 fee=$   700 net=$   -388
+
+############ 1c. gate actions on v2 ############
+FULL  v2+gateFREEZE                                      tot=   154.1% cagr=  18.8% vol= 20.2% sharpe= 1.41 dd= -15.3% hit=  29% turn=0.11 fee=$   156 net=$   1541
+  IS  v2+gateFREEZE                                      tot=    75.7% cagr=  22.1% vol= 22.8% sharpe= 1.17 dd= -15.3% hit=  28% turn=0.11 fee=$    82 net=$    757
+  OOS v2+gateFREEZE                                      tot=    78.2% cagr=  25.1% vol= 15.7% sharpe= 1.94 dd=  -9.8% hit=  32% turn=0.12 fee=$    82 net=$    782
+FULL  v2+gateSCALE                                       tot=   154.1% cagr=  18.8% vol= 20.2% sharpe= 1.41 dd= -15.3% hit=  29% turn=0.11 fee=$   156 net=$   1541
+  IS  v2+gateSCALE                                       tot=    75.7% cagr=  22.1% vol= 22.8% sharpe= 1.17 dd= -15.3% hit=  28% turn=0.11 fee=$    82 net=$    757
+  OOS v2+gateSCALE                                       tot=    78.2% cagr=  25.1% vol= 15.7% sharpe= 1.94 dd=  -9.8% hit=  32% turn=0.12 fee=$    82 net=$    782
+
+############ 2. recommended v2 family ############
+FULL  v2 K5 7d (baseline v2)                             tot=   133.2% cagr=  16.9% vol= 24.1% sharpe= 1.02 dd= -18.3% hit=  52% turn=0.14 fee=$   194 net=$   1332
+  IS  v2 K5 7d (baseline v2)                             tot=    73.8% cagr=  21.6% vol= 26.7% sharpe= 0.97 dd= -18.2% hit=  51% turn=0.14 fee=$    98 net=$    738
+  OOS v2 K5 7d (baseline v2)                             tot=    43.0% cagr=  14.9% vol= 19.9% sharpe= 0.84 dd= -20.6% hit=  52% turn=0.15 fee=$    96 net=$    430
+FULL  v2 + gate(off only)                                tot=   154.1% cagr=  18.8% vol= 20.2% sharpe= 1.41 dd= -15.3% hit=  29% turn=0.11 fee=$   156 net=$   1541
+  IS  v2 + gate(off only)                                tot=    75.7% cagr=  22.1% vol= 22.8% sharpe= 1.17 dd= -15.3% hit=  28% turn=0.11 fee=$    82 net=$    757
+  OOS v2 + gate(off only)                                tot=    78.2% cagr=  25.1% vol= 15.7% sharpe= 1.94 dd=  -9.8% hit=  32% turn=0.12 fee=$    82 net=$    782
+FULL  v2 + gate(soft: .35/1/1.15)                        tot=   202.4% cagr=  22.7% vol= 27.7% sharpe= 1.35 dd= -13.9% hit=  48% turn=0.19 fee=$   267 net=$   2024
+  IS  v2 + gate(soft: .35/1/1.15)                        tot=   112.7% cagr=  30.6% vol= 33.7% sharpe= 1.18 dd= -13.9% hit=  49% turn=0.20 fee=$   148 net=$   1127
+  OOS v2 + gate(soft: .35/1/1.15)                        tot=    85.8% cagr=  27.2% vol= 18.0% sharpe= 1.85 dd= -10.6% hit=  50% turn=0.19 fee=$   125 net=$    858
+FULL  v2 + gate(off) + hyst1                             tot=   156.3% cagr=  19.0% vol= 20.4% sharpe= 1.41 dd= -15.6% hit=  29% turn=0.11 fee=$   151 net=$   1563
+  IS  v2 + gate(off) + hyst1                             tot=    78.8% cagr=  22.8% vol= 22.7% sharpe= 1.23 dd= -15.6% hit=  28% turn=0.11 fee=$    80 net=$    788
+  OOS v2 + gate(off) + hyst1                             tot=    69.9% cagr=  22.9% vol= 16.0% sharpe= 1.70 dd= -10.4% hit=  32% turn=0.12 fee=$    80 net=$    699
+FULL  v2 + gate(off) + band1%                            tot=   154.1% cagr=  18.8% vol= 20.2% sharpe= 1.41 dd= -15.3% hit=  29% turn=0.11 fee=$   156 net=$   1541
+  IS  v2 + gate(off) + band1%                            tot=    75.7% cagr=  22.1% vol= 22.8% sharpe= 1.17 dd= -15.3% hit=  28% turn=0.11 fee=$    82 net=$    757
+  OOS v2 + gate(off) + band1%                            tot=    78.2% cagr=  25.1% vol= 15.7% sharpe= 1.94 dd=  -9.8% hit=  32% turn=0.12 fee=$    82 net=$    782
+FULL  v2 K8 7d + gate(off)                               tot=    56.2% cagr=   8.6% vol= 15.1% sharpe= 0.69 dd= -22.6% hit=  28% turn=0.09 fee=$   129 net=$    562
+  IS  v2 K8 7d + gate(off)                               tot=    25.4% cagr=   8.3% vol= 17.2% sharpe= 0.52 dd= -20.6% hit=  27% turn=0.09 fee=$    67 net=$    254
+  OOS v2 K8 7d + gate(off)                               tot=    32.4% cagr=  11.5% vol= 11.7% sharpe= 1.07 dd= -15.2% hit=  31% turn=0.11 fee=$    69 net=$    324
+
+############ 3. per-name stop-loss / take-profit (v2 + gate) ############
+FULL  v2+gate sl=None tp=None                            tot=   154.1% cagr=  18.8% vol= 20.2% sharpe= 1.41 dd= -15.3% hit=  29% turn=0.11 fee=$   156 net=$   1541
+  IS  v2+gate sl=None tp=None                            tot=    75.7% cagr=  22.1% vol= 22.8% sharpe= 1.17 dd= -15.3% hit=  28% turn=0.11 fee=$    82 net=$    757
+  OOS v2+gate sl=None tp=None                            tot=    78.2% cagr=  25.1% vol= 15.7% sharpe= 1.94 dd=  -9.8% hit=  32% turn=0.12 fee=$    82 net=$    782
+FULL  v2+gate sl=0.12 tp=None                            tot=   145.0% cagr=  18.0% vol= 20.2% sharpe= 1.33 dd= -17.4% hit=  29% turn=0.12 fee=$   166 net=$   1450
+  IS  v2+gate sl=0.12 tp=None                            tot=    55.9% cagr=  17.0% vol= 22.2% sharpe= 0.89 dd= -17.4% hit=  28% turn=0.12 fee=$    88 net=$    559
+  OOS v2+gate sl=0.12 tp=None                            tot=    81.2% cagr=  26.0% vol= 16.6% sharpe= 1.90 dd=  -9.1% hit=  33% turn=0.13 fee=$    86 net=$    812
+FULL  v2+gate sl=0.2 tp=None                             tot=   141.4% cagr=  17.7% vol= 20.1% sharpe= 1.30 dd= -17.2% hit=  29% turn=0.11 fee=$   159 net=$   1414
+  IS  v2+gate sl=0.2 tp=None                             tot=    68.9% cagr=  20.4% vol= 22.3% sharpe= 1.09 dd= -17.2% hit=  27% turn=0.12 fee=$    84 net=$    689
+  OOS v2+gate sl=0.2 tp=None                             tot=    85.6% cagr=  27.1% vol= 16.1% sharpe= 2.06 dd=  -9.7% hit=  32% turn=0.13 fee=$    83 net=$    856
+FULL  v2+gate sl=None tp=0.25                            tot=   123.3% cagr=  16.0% vol= 18.6% sharpe= 1.23 dd= -18.4% hit=  29% turn=0.12 fee=$   167 net=$   1233
+  IS  v2+gate sl=None tp=0.25                            tot=    45.2% cagr=  14.1% vol= 20.4% sharpe= 0.78 dd= -18.1% hit=  28% turn=0.12 fee=$    89 net=$    452
+  OOS v2+gate sl=None tp=0.25                            tot=    62.2% cagr=  20.7% vol= 14.7% sharpe= 1.64 dd= -10.1% hit=  32% turn=0.13 fee=$    86 net=$    622
+FULL  v2+gate sl=0.12 tp=0.25                            tot=   110.8% cagr=  14.8% vol= 17.7% sharpe= 1.16 dd= -22.7% hit=  29% turn=0.13 fee=$   179 net=$   1108
+  IS  v2+gate sl=0.12 tp=0.25                            tot=    21.1% cagr=   7.0% vol= 19.1% sharpe= 0.39 dd= -22.7% hit=  27% turn=0.13 fee=$    96 net=$    211
+  OOS v2+gate sl=0.12 tp=0.25                            tot=    69.0% cagr=  22.6% vol= 14.1% sharpe= 1.90 dd=  -7.8% hit=  32% turn=0.14 fee=$    90 net=$    690
+
+############ 4. funding-cost entry filter (skip crowded legs) ############
+FULL  v2+gate maxfund=None%/day                          tot=   154.1% cagr=  18.8% vol= 20.2% sharpe= 1.41 dd= -15.3% hit=  29% turn=0.11 fee=$   156 net=$   1541
+  IS  v2+gate maxfund=None%/day                          tot=    75.7% cagr=  22.1% vol= 22.8% sharpe= 1.17 dd= -15.3% hit=  28% turn=0.11 fee=$    82 net=$    757
+  OOS v2+gate maxfund=None%/day                          tot=    78.2% cagr=  25.1% vol= 15.7% sharpe= 1.94 dd=  -9.8% hit=  32% turn=0.12 fee=$    82 net=$    782
+FULL  v2+gate maxfund=0.06%/day                          tot=    79.5% cagr=  11.4% vol= 19.1% sharpe= 0.77 dd= -28.1% hit=  28% turn=0.11 fee=$   151 net=$    795
+  IS  v2+gate maxfund=0.06%/day                          tot=    15.5% cagr=   5.2% vol= 21.4% sharpe= 0.26 dd= -22.5% hit=  26% turn=0.11 fee=$    79 net=$    155
+  OOS v2+gate maxfund=0.06%/day                          tot=    80.3% cagr=  25.7% vol= 15.0% sharpe= 2.08 dd=  -9.5% hit=  33% turn=0.12 fee=$    80 net=$    803
+FULL  v2+gate maxfund=0.1%/day                           tot=   100.4% cagr=  13.7% vol= 19.0% sharpe= 0.97 dd= -20.7% hit=  28% turn=0.11 fee=$   154 net=$   1004
+  IS  v2+gate maxfund=0.1%/day                           tot=    25.5% cagr=   8.4% vol= 21.3% sharpe= 0.42 dd= -20.7% hit=  27% turn=0.11 fee=$    81 net=$    255
+  OOS v2+gate maxfund=0.1%/day                           tot=    83.3% cagr=  26.5% vol= 15.4% sharpe= 2.09 dd=  -9.5% hit=  33% turn=0.12 fee=$    81 net=$    833
+FULL  v2+gate maxfund=0.15%/day                          tot=   119.5% cagr=  15.6% vol= 19.2% sharpe= 1.15 dd= -19.3% hit=  29% turn=0.11 fee=$   155 net=$   1195
+  IS  v2+gate maxfund=0.15%/day                          tot=    44.2% cagr=  13.8% vol= 21.6% sharpe= 0.73 dd= -18.2% hit=  27% turn=0.11 fee=$    81 net=$    442
+  OOS v2+gate maxfund=0.15%/day                          tot=    83.1% cagr=  26.5% vol= 15.5% sharpe= 2.08 dd=  -9.4% hit=  33% turn=0.12 fee=$    81 net=$    831
+
+############ 5. cost tiers for the recommended config ############
+v2+gate fee=5bp slip=2bp                                 tot=   154.1% cagr=  18.8% vol= 20.2% sharpe= 1.41 dd= -15.3% hit=  29% turn=0.11 fee=$   156 net=$   1541
+v2+gate fee=4bp slip=1.5bp                               tot=   157.4% cagr=  19.1% vol= 20.2% sharpe= 1.44 dd= -15.0% hit=  29% turn=0.11 fee=$   123 net=$   1574
+v2+gate fee=2bp slip=1bp                                 tot=   163.0% cagr=  19.6% vol= 20.2% sharpe= 1.49 dd= -14.5% hit=  29% turn=0.11 fee=$    67 net=$   1630
+v2+gate fee=1bp slip=0.5bp                               tot=   166.4% cagr=  19.8% vol= 20.2% sharpe= 1.52 dd= -14.2% hit=  29% turn=0.11 fee=$    34 net=$   1664
