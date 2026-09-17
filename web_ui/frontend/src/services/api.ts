@@ -1449,14 +1449,18 @@ export const api = {
         return requestJson(`/v1/coinfull-prime/positions?account_id=${encodeURIComponent(accountId)}`, { headers: authHeaders(), signal }, '無法獲取合約持倉列表');
     },
 
-    async getCoinFullPrimeRankings(refresh = false, signal?: AbortSignal): Promise<UniverseRankResult> {
-        return requestJson(`/v1/coinfull-prime/rankings?refresh=${refresh}`, { headers: authHeaders(), signal }, '無法獲取 CoinFull Prime 排名');
+    async getCoinFullPrimeRankings(refresh = false, excludeTradfi?: boolean, signal?: AbortSignal): Promise<UniverseRankResult> {
+        const params = new URLSearchParams();
+        if (refresh) params.set('refresh', 'true');
+        if (excludeTradfi !== undefined) params.set('exclude_tradfi', String(excludeTradfi));
+        const qs = params.toString() ? `?${params.toString()}` : '';
+        return requestJson(`/v1/coinfull-prime/rankings${qs}`, { headers: authHeaders(), signal }, '無法獲取 CoinFull Prime 排名');
     },
 
     async triggerCoinFullPrimeRebalance(
         dryRun = true,
         accountId = 'paper',
-        options?: { capital?: number; leverage?: number; balancePct?: number },
+        options?: { capital?: number; leverage?: number; balancePct?: number; excludeTradfi?: boolean },
         signal?: AbortSignal
     ): Promise<Record<string, unknown>> {
         const params = new URLSearchParams();
@@ -1471,6 +1475,9 @@ export const api = {
         if (options?.balancePct !== undefined && options.balancePct > 0) {
             params.set('balance_pct', String(options.balancePct));
         }
+        if (options?.excludeTradfi !== undefined) {
+            params.set('exclude_tradfi', String(options.excludeTradfi));
+        }
         return requestJson(`/v1/coinfull-prime/rebalance?${params.toString()}`, {
             method: 'POST',
             headers: authHeaders(),
@@ -1480,7 +1487,7 @@ export const api = {
 
     async controlCoinFullPrimeScheduler(
         action: 'start' | 'stop',
-        options?: { accountId?: string; dryRun?: boolean; capital?: number; leverage?: number; balancePct?: number },
+        options?: { accountId?: string; dryRun?: boolean; capital?: number; leverage?: number; balancePct?: number; excludeTradfi?: boolean },
         signal?: AbortSignal
     ): Promise<Record<string, unknown>> {
         const params = new URLSearchParams();
@@ -1489,6 +1496,7 @@ export const api = {
         if (options?.capital !== undefined && options.capital > 0) params.set('capital', String(options.capital));
         if (options?.leverage !== undefined && options.leverage > 0) params.set('leverage', String(options.leverage));
         if (options?.balancePct !== undefined && options.balancePct > 0) params.set('balance_pct', String(options.balancePct));
+        if (options?.excludeTradfi !== undefined) params.set('exclude_tradfi', String(options.excludeTradfi));
         return requestJson(`/v1/coinfull-prime/scheduler/${action}?${params.toString()}`, {
             method: 'POST',
             headers: authHeaders(),
@@ -1497,7 +1505,7 @@ export const api = {
     },
 
     async updateCoinFullPrimeSchedulerTarget(
-        options: { accountId: string; dryRun?: boolean; capital?: number; leverage?: number; balancePct?: number },
+        options: { accountId: string; dryRun?: boolean; capital?: number; leverage?: number; balancePct?: number; excludeTradfi?: boolean },
         signal?: AbortSignal
     ): Promise<Record<string, unknown>> {
         const params = new URLSearchParams({ account_id: options.accountId });
@@ -1505,6 +1513,7 @@ export const api = {
         if (options.capital !== undefined && options.capital > 0) params.set('capital', String(options.capital));
         if (options.leverage !== undefined && options.leverage > 0) params.set('leverage', String(options.leverage));
         if (options.balancePct !== undefined && options.balancePct > 0) params.set('balance_pct', String(options.balancePct));
+        if (options.excludeTradfi !== undefined) params.set('exclude_tradfi', String(options.excludeTradfi));
         return requestJson(`/v1/coinfull-prime/scheduler/target?${params.toString()}`, {
             method: 'POST',
             headers: authHeaders(),
@@ -1602,6 +1611,7 @@ export interface CoinFullPrimeStatus {
     dry_run: boolean;
     exchange: string;
     selected_account?: string;
+    exclude_tradfi?: boolean;
     managed_symbols?: string[];
     protected_bot_symbols?: string[];
 }

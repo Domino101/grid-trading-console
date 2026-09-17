@@ -52,14 +52,29 @@ async def get_coinfull_prime_regime(
 
 
 @router.get("/rankings")
-async def get_latest_rankings(refresh: bool = False, _token: str = Depends(verify_token)):
+async def get_latest_rankings(
+    refresh: bool = False,
+    exclude_tradfi: Optional[bool] = Query(None, description="是否排除美股/ETF/大宗商品等 TradFi 合約"),
+    _token: str = Depends(verify_token)
+):
     """取得最新的 79 幣截面打分排名與 Z-score 詳細資料"""
     service = CoinFullPrimeService.instance()
-    if refresh or not service.last_rank_result:
-        if not service.quant_engine:
-            await service.initialize()
-        rank_result = await service.quant_engine.run_daily_pipeline()
+    if not service.quant_engine:
+        await service.initialize()
+
+    ex_tradfi = service.exclude_tradfi if exclude_tradfi is None else bool(exclude_tradfi)
+    need_refresh = (
+        refresh
+        or not service.last_rank_result
+        or (getattr(service, "_last_rank_result_exclude_tradfi", None) != ex_tradfi)
+    )
+
+    if need_refresh:
+        rank_result = await service.quant_engine.run_daily_pipeline(exclude_tradfi=ex_tradfi)
         service.last_rank_result = rank_result
+        service._last_rank_result_exclude_tradfi = ex_tradfi
+        if hasattr(service.quant_engine, "exclude_tradfi"):
+            service.quant_engine.exclude_tradfi = ex_tradfi
     return service.last_rank_result
 
 
@@ -96,6 +111,7 @@ async def trigger_manual_rebalance(
     capital: Optional[float] = Query(None, description="自訂總名義本金 (USDT)"),
     leverage: Optional[float] = Query(None, description="自訂槓桿倍數 (例如 1.0, 1.5, 2.0)"),
     balance_pct: Optional[float] = Query(None, description="依帳戶可用餘額百分比計算 (0~100)"),
+    exclude_tradfi: Optional[bool] = Query(None, description="是否排除 TradFi (美股/ETF/大宗商品)"),
     _token: str = Depends(verify_token)
 ):
     """手動觸發一次 CoinFull Prime 截面打分與一籃子換倉（支援動態本金與槓桿覆蓋）"""
@@ -106,7 +122,8 @@ async def trigger_manual_rebalance(
             account_id=account_id,
             capital=capital,
             leverage=leverage,
-            balance_pct=balance_pct
+            balance_pct=balance_pct,
+            exclude_tradfi=exclude_tradfi
         )
         return {
             "status": "success",
@@ -132,16 +149,18 @@ async def update_scheduler_target(
     capital: Optional[float] = Query(None, description="自訂本金"),
     leverage: Optional[float] = Query(None, description="槓桿倍數"),
     balance_pct: Optional[float] = Query(None, description="餘額百分比"),
+    exclude_tradfi: Optional[bool] = Query(None, description="是否排除 TradFi 合約"),
     _token: str = Depends(verify_token)
 ):
-    """即時更新並同步定時排程器的目標帳號與資金設定"""
+    """即時更新並同步定時排程器的目標帳號、資金與 TradFi 設定"""
     service = CoinFullPrimeService.instance()
     status = service.set_scheduler_target(
         account_id=account_id,
         dry_run=dry_run,
         capital=capital,
         leverage=leverage,
-        balance_pct=balance_pct
+        balance_pct=balance_pct,
+        exclude_tradfi=exclude_tradfi
     )
     return {
         "status": "updated",
@@ -158,6 +177,7 @@ async def control_scheduler(
     capital: Optional[float] = Query(None, description="自訂本金"),
     leverage: Optional[float] = Query(None, description="槓桿倍數"),
     balance_pct: Optional[float] = Query(None, description="餘額百分比"),
+    exclude_tradfi: Optional[bool] = Query(None, description="是否排除 TradFi 合約"),
     _token: str = Depends(verify_token)
 ):
     """控制排程器啟動 (start) 或停止 (stop)"""
@@ -168,7 +188,8 @@ async def control_scheduler(
             dry_run=dry_run,
             capital=capital,
             leverage=leverage,
-            balance_pct=balance_pct
+            balance_pct=balance_pct,
+            exclude_tradfi=exclude_tradfi
         )
         return {
             "status": "started",

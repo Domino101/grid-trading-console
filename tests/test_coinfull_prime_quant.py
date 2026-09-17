@@ -102,6 +102,88 @@ class TestCoinFullPrimeQuant(unittest.TestCase):
         self.assertAlmostEqual(result.long_list[0].target_notional, 750.0, places=1)
         self.assertAlmostEqual(result.short_list[0].target_notional, 750.0, places=1)
 
+    def test_tradfi_fallback_symbols_present(self):
+        from core.services.coinfull_prime.quant_engine import DEFAULT_FALLBACK_TRADFI_SYMBOLS
+        # 檢驗已知主要美股與大宗商品在兜底名單中
+        for sym in ["NVDAUSDT", "TSLAUSDT", "SPYUSDT", "QQQUSDT", "AAPLUSDT", "XAUUSDT", "CLUSDT"]:
+            self.assertIn(sym, DEFAULT_FALLBACK_TRADFI_SYMBOLS)
+
+    def test_fetch_universe_tradfi_filtering(self):
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock
+
+        quant = CoinFullPrimeQuant({
+            "universe": {"top_n": 10, "exclude_tradfi": True}
+        })
+        self.assertTrue(quant.exclude_tradfi)
+
+        # 模擬 ticker 數據包含加密貨幣與美股/商品
+        mock_tickers = [
+            {"symbol": "BTCUSDT", "quoteVolume": "1000000000"},
+            {"symbol": "NVDAUSDT", "quoteVolume": "900000000"},  # 美股 TradFi
+            {"symbol": "ETHUSDT", "quoteVolume": "800000000"},
+            {"symbol": "TSLAUSDT", "quoteVolume": "700000000"},  # 美股 TradFi
+            {"symbol": "SOLUSDT", "quoteVolume": "600000000"},
+            {"symbol": "XAUUSDT", "quoteVolume": "500000000"},   # 黃金 TradFi
+            {"symbol": "DOGEUSDT", "quoteVolume": "400000000"},
+            {"symbol": "USDCUSDT", "quoteVolume": "300000000"},  # 穩定幣
+        ]
+
+        # 模擬 session 與 response
+        mock_resp = AsyncMock()
+        mock_resp.status = 200
+        mock_resp.json = AsyncMock(return_value=mock_tickers)
+
+        mock_session = MagicMock()
+        mock_session.get.return_value.__aenter__.return_value = mock_resp
+
+        # 1. 啟用 exclude_tradfi (預設)
+        universe_pure = asyncio.run(quant.fetch_universe(mock_session, exclude_tradfi=True))
+        self.assertIn("BTCUSDT", universe_pure)
+        self.assertIn("ETHUSDT", universe_pure)
+        self.assertIn("SOLUSDT", universe_pure)
+        self.assertIn("DOGEUSDT", universe_pure)
+        self.assertNotIn("NVDAUSDT", universe_pure)
+        self.assertNotIn("TSLAUSDT", universe_pure)
+        self.assertNotIn("XAUUSDT", universe_pure)
+        self.assertNotIn("USDCUSDT", universe_pure)
+
+        # 2. 停用 exclude_tradfi (包含美股與商品)
+        universe_all = asyncio.run(quant.fetch_universe(mock_session, exclude_tradfi=False))
+        self.assertIn("BTCUSDT", universe_all)
+        self.assertIn("NVDAUSDT", universe_all)
+        self.assertIn("TSLAUSDT", universe_all)
+        self.assertIn("XAUUSDT", universe_all)
+        self.assertNotIn("USDCUSDT", universe_all)  # 穩定幣仍應被排除
+
+    def test_fetch_tradfi_symbols_from_exchange_info(self):
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock
+
+        quant = CoinFullPrimeQuant()
+
+        mock_exchange_info = {
+            "symbols": [
+                {"symbol": "BTCUSDT", "contractType": "PERPETUAL", "underlyingType": "COIN"},
+                {"symbol": "CUSTOM_STOCK_USDT", "contractType": "TRADIFI_PERPETUAL", "underlyingType": "EQUITY"},
+                {"symbol": "CUSTOM_COMMODITY_USDT", "contractType": "PERPETUAL", "underlyingType": "COMMODITY"},
+                {"symbol": "CUSTOM_INDEX_USDT", "contractType": "PERPETUAL", "underlyingType": "INDEX"},
+            ]
+        }
+
+        mock_resp = AsyncMock()
+        mock_resp.status = 200
+        mock_resp.json = AsyncMock(return_value=mock_exchange_info)
+
+        mock_session = MagicMock()
+        mock_session.get.return_value.__aenter__.return_value = mock_resp
+
+        tradfi_set = asyncio.run(quant.fetch_tradfi_symbols(mock_session))
+        self.assertIn("CUSTOM_STOCK_USDT", tradfi_set)
+        self.assertIn("CUSTOM_COMMODITY_USDT", tradfi_set)
+        self.assertIn("CUSTOM_INDEX_USDT", tradfi_set)
+        self.assertNotIn("BTCUSDT", tradfi_set)
+
 
 if __name__ == "__main__":
     unittest.main()

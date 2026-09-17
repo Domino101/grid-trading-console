@@ -3,6 +3,19 @@
 本專案的重要變更記錄於此檔案，遵循 [Semantic Versioning](https://semver.org/lang/zh-TW/) 與 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/) 規範。
 詳細歷史工程記錄請參閱 [CHANGELOG_LEGACY.md](file:///root/grid-trading-console/CHANGELOG_LEGACY.md)。
 
+## [0.3.8] — 2026-09-18
+
+### Added
+- **CoinFull Prime TradFi (美股/韓股/指數 ETF/大宗商品) 排除開關與雙軌過濾機制 (TradFi Elimination & Cross-Section Neutrality Guard)**：
+  - **量化引擎動態分類與雙重兜底**：`quant_engine.py` 實現 `fetch_tradfi_symbols()`，每小時自 Binance `/fapi/v1/exchangeInfo` 解析官方元資料（`contractType == "TRADIFI_PERPETUAL"` 或 `underlyingType != "COIN"` 或 `underlyingSubType` 包含 `"TRADFI"`），並結合 `DEFAULT_FALLBACK_TRADFI_SYMBOLS` 本地 49+ 標的清單兜底，防止單一黑名單過期或連線異常漏濾。
+  - **解決跨市場 Beta 錯配與週末休市斷流**：徹底解決未排除前空頭籃子常態被南韓 ETF (`KORUUSDT`, `EWYUSDT`)、美股公司債/科技股 (`SNDKUSDT`, `CRCLUSDT`, `SNXXUSDT`) 佔據導致的偽 Alpha 問題，消除週末休市流動性斷流與週一跳空風險，維持純加密貨幣 79 幣宇宙之市場中性對沖。
+  - **服務層排程與快取動態感知**：`service.py` 納入 `exclude_tradfi`（預設 `true`）至排程器配置與狀態檔；新增 `_last_rank_result_exclude_tradfi` 快取比對機制，切換過濾設定時自動重新拉取 Universe 並重新算分，避免舊快取殘留。
+  - **後端 API 擴充**：`/api/v1/coinfull-prime/rankings`、`/rebalance`、`/scheduler/target`、`/scheduler/{action}` 全面支援 `exclude_tradfi` 查詢與排程參數更新。
+  - **前端雙頁面連動與即時切換開關**：
+    - 在「CoinFull Prime 策略機器人」(`CoinFullPrimePage.tsx`) 與「多空截面排行」(`CrossSectionRankings.tsx`) 的頂部操作列與表格工具列新增 `🛡️ 排除美股/ETF/商品 (純加密)` / `⚠️ 包含 TradFi 美股/ETF` 切換開關。
+    - 狀態透過 `localStorage` 跨分頁即時同步，並在切換時自動更新後端定時排程目標，確保手動換倉、即時排行與自動排程行為完全一致。
+  - **單元測試與覆蓋率守門**：`tests/test_coinfull_prime_quant.py` 增加 7 項量化測試，驗證雙側去極值、Z-score、TradFi 動態過濾與空頭籃子純度。
+
 ## [0.3.7] — 2026-09-17
 
 ### Fixed

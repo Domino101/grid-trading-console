@@ -83,6 +83,13 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
   const hasInitializedModeRef = useRef<boolean>(false);
   const [lastActionMsg, setLastActionMsg] = useState<string | null>(null);
 
+  // TradFi (美股/ETF/大宗商品) 排除開關狀態 (持久化至 localStorage，預設 true)
+  const [excludeTradfi, setExcludeTradfi] = useState<boolean>(() => {
+    const saved = localStorage.getItem('coinfull_exclude_tradfi');
+    if (saved !== null) return saved === 'true';
+    return true;
+  });
+
   // 換倉歷史與成交流水狀態
   const [historyBatches, setHistoryBatches] = useState<CoinFullPrimeHistoryBatch[]>([]);
   const [tradeFills, setTradeFills] = useState<CoinFullPrimeFill[]>([]);
@@ -158,7 +165,8 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
       dryRun: val,
       capital: sizingMode === 'fixed' ? effectiveCapital : undefined,
       leverage: leverageInput,
-      balancePct: sizingMode === 'percent' ? balancePctInput : undefined
+      balancePct: sizingMode === 'percent' ? balancePctInput : undefined,
+      excludeTradfi
     }).then(() => {
       // 局部刷新排程狀態卡片
       void api.getCoinFullPrimeStatus().then(st => {
@@ -166,6 +174,37 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
       });
     }).catch(e => {
       console.warn('同步後端排程下單模式異常:', e);
+    });
+  };
+
+  const handleToggleExcludeTradfi = async (val: boolean) => {
+    setExcludeTradfi(val);
+    try { localStorage.setItem('coinfull_exclude_tradfi', String(val)); } catch { /* ignore */ }
+
+    try {
+      setRefreshing(true);
+      const rankings = await api.getCoinFullPrimeRankings(true, val);
+      setRankResult(rankings);
+      setLastActionMsg(
+        val
+          ? '🛡️ 已切換為【純加密貨幣宇宙】(已排除 194 隻美股、ETF、大宗商品等 TradFi 合約)'
+          : '⚠️ 已納入 TradFi (美股/ETF/大宗商品) 合約'
+      );
+    } catch (e) {
+      console.warn('刷新排行異常:', e);
+    } finally {
+      setRefreshing(false);
+    }
+
+    void api.updateCoinFullPrimeSchedulerTarget({
+      accountId: selectedAccount,
+      dryRun: dryRunMode,
+      capital: sizingMode === 'fixed' ? effectiveCapital : undefined,
+      leverage: leverageInput,
+      balancePct: sizingMode === 'percent' ? balancePctInput : undefined,
+      excludeTradfi: val
+    }).catch(e => {
+      console.warn('同步排程 TradFi 設定異常:', e);
     });
   };
 
@@ -259,7 +298,7 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
       const targetAcc = localStorage.getItem('coinfull_selected_account') || selectedAccount;
 
       const [rankings, status, accountsData, posData] = await Promise.all([
-        api.getCoinFullPrimeRankings(refresh),
+        api.getCoinFullPrimeRankings(refresh, excludeTradfi),
         api.getCoinFullPrimeStatus(),
         api.getCoinFullPrimeAccounts(),
         targetAcc !== 'paper' ? api.getCoinFullPrimePositions(targetAcc) : Promise.resolve({ positions: [] })
@@ -309,7 +348,7 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
       setLoading(false);
       setRefreshing(false);
     }
-  }, [onUnauthorized, selectedAccount]);
+  }, [onUnauthorized, selectedAccount, excludeTradfi]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -366,9 +405,10 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
         dryRun: dryRunMode,
         capital: sizingMode === 'fixed' ? effectiveCapital : undefined,
         leverage: leverageInput,
-        balancePct: sizingMode === 'percent' ? balancePctInput : undefined
+        balancePct: sizingMode === 'percent' ? balancePctInput : undefined,
+        excludeTradfi
       });
-      setLastActionMsg(`✅ 已成功將背景定時換倉排程同步至【${currentAccount.name}】(${dryRunMode ? '🛡️ 安全試算保護' : '🚀 實盤真實發單'})`);
+      setLastActionMsg(`✅ 已成功將背景定時換倉排程同步至【${currentAccount.name}】(${dryRunMode ? '🛡️ 安全試算保護' : '🚀 實盤真實發單'}) · 排除TradFi: ${excludeTradfi ? '是' : '否'}`);
       void loadData(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : '同步排程失敗');
@@ -387,7 +427,7 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
       : `固定本金 $${effectiveCapital.toLocaleString()} USDT`;
 
     let confirmMsg: string;
-    const rebalanceRuleNotice = `\n\n💡 換倉執行邏輯：\n1. 查詢交易所當前持倉。\n2. 掉出今日 Top ${targetCount} / Bottom ${targetCount} 的標的將自動全數平倉 (釋放保證金)。\n3. 留榜標的僅微調數量差額 (不重複平開，節省摩擦手續費)。\n4. 新進榜標的建立全新多/空部位。`;
+    const rebalanceRuleNotice = `\n\n💡 換倉執行邏輯：\n1. 查詢交易所當前持倉。\n2. 掉出今日 Top ${targetCount} / Bottom ${targetCount} 的標的將自動全數平倉 (釋放保證金)。\n3. 留榜標的僅微調數量差額 (不重複平開，節省摩擦手續費)。\n4. 新進榜標的建立全新多/空部位。\n• 標的宇宙過濾: ${excludeTradfi ? '🛡️ 已排除美股/ETF/大宗商品 (純加密)' : '⚠️ 包含 TradFi 美股/ETF'}`;
 
     if (dryRunMode) {
       confirmMsg = `即將執行 [DRY-RUN 模擬換倉]\n• 目標環境: ${currentAccount.name}\n• 總名義本金: ${sizingSummary}\n• 槓桿倍數: ${leverageInput}x (總名義曝險: $${grossExposure.toLocaleString()} USDT)\n• 預估單幣分配 (${targetCount}多${targetCount}空): $${perSymbolNotional.toFixed(2)} USDT${rebalanceRuleNotice}\n\n僅計算並在日誌記錄訂單，不會發送真實交易。確定執行嗎？`;
@@ -405,8 +445,8 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
       setRebalancing(true);
       setLastActionMsg(null);
       const options = sizingMode === 'percent'
-        ? { balancePct: balancePctInput, leverage: leverageInput }
-        : { capital: effectiveCapital, leverage: leverageInput };
+        ? { balancePct: balancePctInput, leverage: leverageInput, excludeTradfi }
+        : { capital: effectiveCapital, leverage: leverageInput, excludeTradfi };
 
       const res = await api.triggerCoinFullPrimeRebalance(dryRunMode, selectedAccount, options);
       const ordersCount = typeof res.orders_count === 'number' ? res.orders_count : 0;
@@ -414,7 +454,7 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
       const closed = Array.isArray(res.closed_symbols) ? res.closed_symbols.length : 0;
       const opened = Array.isArray(res.opened_symbols) ? res.opened_symbols.length : 0;
       setLastActionMsg(
-        `✅ 換倉完成！共生成 ${ordersCount} 筆訂單 (平掉舊倉: ${closed} 隻, 開立新倉: ${opened} 隻) | 環境: ${currentAccount.name}, 本金: $${effectiveCapital.toLocaleString()} USDT, 槓桿: ${leverageInput}x, 模式: ${isDry ? 'Dry-Run 模擬' : '已實際下單'}`
+        `✅ 換倉完成！共生成 ${ordersCount} 筆訂單 (平掉舊倉: ${closed} 隻, 開立新倉: ${opened} 隻) | 環境: ${currentAccount.name}, 本金: $${effectiveCapital.toLocaleString()} USDT, 槓桿: ${leverageInput}x, 模式: ${isDry ? 'Dry-Run 模擬' : '已實際下單'}, 排除TradFi: ${excludeTradfi ? '是' : '否'}`
       );
       void loadData(false);
       void loadPositions(selectedAccount);
@@ -443,7 +483,8 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
         dryRun: dryRunMode,
         capital: sizingMode === 'fixed' ? effectiveCapital : undefined,
         leverage: leverageInput,
-        balancePct: sizingMode === 'percent' ? balancePctInput : undefined
+        balancePct: sizingMode === 'percent' ? balancePctInput : undefined,
+        excludeTradfi
       } : undefined;
 
       await api.controlCoinFullPrimeScheduler(action, options);
@@ -681,6 +722,28 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
         </div>
 
         <div className="account-env-right">
+          {/* TradFi (美股/ETF/大宗商品) 排除開關 */}
+          <div className="tradfi-toggle-wrap" style={{ display: 'flex', alignItems: 'center' }}>
+            <button
+              type="button"
+              className={`pill-btn ${excludeTradfi ? 'active' : 'warning'}`}
+              onClick={() => handleToggleExcludeTradfi(!excludeTradfi)}
+              style={{
+                fontSize: '0.78rem',
+                padding: '0.25rem 0.65rem',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                borderColor: excludeTradfi ? 'rgba(34, 197, 94, 0.4)' : 'rgba(234, 179, 8, 0.5)',
+                background: excludeTradfi ? 'rgba(34, 197, 94, 0.15)' : 'rgba(234, 179, 8, 0.15)'
+              }}
+              title="AI 顧問建議：排除美股、韓股、指數 ETF 與大宗商品等 TradFi 合約，防止跨資產 Beta 錯配與週末休市斷流影響橫截面動能評分"
+            >
+              <ShieldCheck size={13} className={excludeTradfi ? 'text-success' : 'text-warning'} />
+              <span>{excludeTradfi ? '🛡️ 排除美股/ETF/商品 (純加密)' : '⚠️ 包含 TradFi 美股/ETF'}</span>
+            </button>
+          </div>
+
           <div className="dry-run-control">
             <span className="control-label">下單模式:</span>
             {currentAccount.environment === 'testnet' && (
@@ -1525,14 +1588,25 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
           </button>
         </div>
 
-        <div className="search-box">
-          <Search size={16} className="search-icon" />
-          <input
-            type="text"
-            placeholder="搜尋幣種代號 (例: BTC, SOL, DOGE)..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+          <span
+            className={`badge ${excludeTradfi ? 'badge-success' : 'badge-warning'}`}
+            style={{ fontSize: '0.74rem', padding: '0.3rem 0.6rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+            onClick={() => handleToggleExcludeTradfi(!excludeTradfi)}
+            title="點擊切換 TradFi 合約過濾狀態（AI 顧問建議維持純加密以保持市場中性）"
+          >
+            {excludeTradfi ? '🛡️ 純加密 79 幣宇宙' : '⚠️ 含 TradFi (美股/ETF/商品)'}
+          </span>
+
+          <div className="search-box">
+            <Search size={16} className="search-icon" />
+            <input
+              type="text"
+              placeholder="搜尋幣種代號 (例: BTC, SOL, DOGE)..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
         </div>
       </section>
 
