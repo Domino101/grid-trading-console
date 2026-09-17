@@ -274,7 +274,7 @@ const App: React.FC = () => {
             className={`btn ${activeTab === 'coinfull-prime' ? 'active' : ''}`}
             type="button"
             onClick={() => go('coinfull-prime')}
-            title="CoinFull Prime 8多8空對沖策略機器人運行與調倉控制台"
+            title="CoinFull Prime 市場中性對沖策略機器人運行與換倉控制台"
           >
             <Layers size={17} />
             <span>CoinFull 策略機器人</span>

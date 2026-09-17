@@ -95,7 +95,7 @@ class CoinFullPrimeService(BaseService):
 
         self.last_rank_result: Optional[UniverseRankResult] = None
         self.last_rebalance_report: Optional[RebalanceReport] = None
-        self.last_run_timestamp: Optional[str] = None
+        self.last_run_timestamp: Optional[str] = saved_state.get("last_run_timestamp")
         self.last_regime_decision: Optional[RegimeDecision] = None
 
         # T2 崩跌日延後換倉狀態（持久化於排程狀態檔，跨重啟保留）
@@ -1175,10 +1175,77 @@ class CoinFullPrimeService(BaseService):
             return f"每週{weekday_names[p['execution_weekday'] % 7]} UTC 00:{p['execution_minute_utc']:02d} 換倉"
         return f"每 {p['rebalance_days']} 日 UTC 00:{p['execution_minute_utc']:02d} 換倉（相位錨點 {self._schedule_anchor_date or '未設定'}）"
 
+    async def _execute_rebalance_with_retry(self, max_retries: int = 3) -> bool:
+        """執行定時換倉，遭遇瞬時故障時進行退避重試 (5m / 15m / 30m)，避免錯過當週換倉"""
+        retry_delays = [300, 900, 1800]
+        retry_count = 0
+
+        while retry_count <= max_retries and self._is_running:
+            try:
+                rank_res, report = await self.trigger_once(
+                    dry_run=self.scheduler_dry_run,
+                    account_id=self.selected_account or "paper",
+                    capital=self.scheduler_capital,
+                    leverage=self.scheduler_leverage,
+                    balance_pct=self.scheduler_balance_pct
+                )
+                is_success = report and getattr(report, "status", "") in ("completed", "completed_dry_run")
+                # 預防性檢查：若訂單清單非空，但所有訂單全數 skipped 或 failed，視為需重試之異常
+                if is_success and getattr(report, "orders", None):
+                    has_filled = any(getattr(o, "status", "") in ("filled", "simulated") for o in report.orders)
+                    if not has_filled and len(report.orders) > 0:
+                        is_success = False
+                        logger.warning("⚠️ [排程重試守護] 本次換倉無任何訂單成交 (全數被跳過或異常)，觸發自動重試")
+
+                if is_success:
+                    logger.info(f"✅ 定時換倉執行成功 (狀態={getattr(report, 'status', 'ok')})")
+                    self.save_scheduler_state()
+                    return True
+                else:
+                    err_msg = getattr(report, "error", "未完全撮合") if report else "無回報"
+                    logger.error(f"❌ 定時換倉執行未成功 (原因={err_msg})")
+            except Exception as ex:
+                logger.error(f"❌ 定時換倉執行拋出未捕獲異常: {ex}", exc_info=True)
+
+            retry_count += 1
+            if retry_count <= max_retries and self._is_running:
+                delay = retry_delays[retry_count - 1]
+                logger.warning(f"🔄 [排程重試守護] 啟動第 {retry_count}/{max_retries} 次自動重試，將於 {delay // 60} 分鐘後重新執行...")
+                await asyncio.sleep(delay)
+            else:
+                logger.critical(f"⛔ [排程重試守護] 定時換倉已達最大重試次數 ({max_retries} 次) 仍未成功，終止重試")
+                return False
+        return False
+
     async def _scheduler_loop(self):
-        """排程背景協程 (常態 0.0% CPU 休眠)"""
+        """排程背景協程 (常態 0.0% CPU 休眠，具備失敗自動退避重試與服務重啟補跑機制)"""
         logger.info(f"CoinFull Prime 排程監聽器啟動，{self._schedule_description()} 自動喚醒 (帳號={self.selected_account}, DryRun={self.scheduler_dry_run})")
         self._is_running = True
+
+        # 1. 服務重啟錯過補跑檢測 (Missed-Run Catch-Up)
+        try:
+            now = datetime.now(timezone.utc)
+            p = self._schedule_params()
+            is_rebalance_day = (p["rebalance_days"] == 7 and now.weekday() == p["execution_weekday"] % 7)
+            window_passed = (now.hour > 0 or (now.hour == 0 and now.minute >= p["execution_minute_utc"]))
+            already_ran_today = False
+            if self.last_run_timestamp:
+                try:
+                    last_dt = datetime.fromisoformat(self.last_run_timestamp)
+                    if last_dt.date() == now.date() and (now - last_dt).total_seconds() < 86400:
+                        already_ran_today = True
+                except Exception:
+                    pass
+
+            if is_rebalance_day and window_passed and not already_ran_today:
+                logger.warning("⚠️ [排程補跑守護] 檢測到今日為排程換倉日且已過時間窗口，但尚未有今日換倉紀錄，將於 15 秒後自動補跑換倉！")
+                await asyncio.sleep(15)
+                if self._is_running:
+                    await self._execute_rebalance_with_retry()
+        except Exception as ex:
+            logger.warning(f"排程啟動補跑檢測異常: {ex}")
+
+        # 2. 正常週期休眠迴圈
         try:
             while self._is_running:
                 next_run = self._next_rebalance_run()
@@ -1193,18 +1260,9 @@ class CoinFullPrimeService(BaseService):
 
                 # 喚醒執行
                 logger.info(f"⏰ 排程定時器喚醒，開始執行 CoinFull Prime (目標帳號={self.selected_account}, DryRun={self.scheduler_dry_run})...")
-                try:
-                    await self.trigger_once(
-                        dry_run=self.scheduler_dry_run,
-                        account_id=self.selected_account or "paper",
-                        capital=self.scheduler_capital,
-                        leverage=self.scheduler_leverage,
-                        balance_pct=self.scheduler_balance_pct
-                    )
-                except Exception as ex:
-                    logger.error(f"定時換倉執行時發生未捕獲異常: {ex}", exc_info=True)
-                # 避免同一秒內重複觸發
-                await asyncio.sleep(5)
+                await self._execute_rebalance_with_retry()
+                # 避免同一分鐘內重複觸發
+                await asyncio.sleep(65)
         except asyncio.CancelledError:
             logger.info("CoinFull Prime 排程已取消")
         finally:
@@ -1253,6 +1311,7 @@ class CoinFullPrimeService(BaseService):
             "defer_count": self._defer_count,
             "pending_defer_until": self._pending_defer_until,
             "schedule_anchor_date": self._schedule_anchor_date.isoformat() if self._schedule_anchor_date else None,
+            "last_run_timestamp": self.last_run_timestamp,
             "updated_at": datetime.now(timezone.utc).isoformat()
         }
         # 1) canonical ledger（真相源）

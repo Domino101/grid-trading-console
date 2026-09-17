@@ -261,6 +261,38 @@ class TestCoinFullPrimeRebalancer(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_paper_adapter_rebalance_execution_not_skipped(self):
+        """驗證使用 PaperExchangeAdapter (dry_run=False) 時不會被誤判跳過"""
+        from core.adapters.exchanges.adapters.paper import create_paper_adapter
+
+        paper_config = {
+            "grid_system": {
+                "symbol": "BTC/USDT",
+                "exchange": "paper",
+                "account_mode": "paper"
+            }
+        }
+        adapter = create_paper_adapter(paper_config)
+        self.assertTrue(PortfolioRebalancer._is_paper_adapter(adapter))
+        market = PortfolioRebalancer._find_exchange_market(adapter, "龙虾USDT")
+        self.assertIsNotNone(market)
+        self.assertTrue(market.get("linear"))
+
+        async def run_exec():
+            report = await self.rebalancer.execute_rebalance(
+                rank_result=self.rank_result,
+                exchange_adapter=adapter,
+                dry_run=False,
+                prices_override=self.prices,
+                account_id="paper"
+            )
+            self.assertEqual(report.status, "completed")
+            # 確保 4 筆訂單皆被正常成交，無任何訂單被 skipped
+            for ord_spec in report.orders:
+                self.assertEqual(ord_spec.status, "filled", f"Order {ord_spec.symbol} was {ord_spec.status}: {ord_spec.error}")
+
+        asyncio.run(run_exec())
+
 
 if __name__ == "__main__":
     unittest.main()

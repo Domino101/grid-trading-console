@@ -108,12 +108,13 @@ export const CrossSectionRankings: React.FC<CrossSectionRankingsProps> = ({
         <div className="glass-panel" style={{ padding: '3.5rem 1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
           <Activity size={32} className="spin text-accent" style={{ margin: '0 auto 1rem' }} />
           <h3 style={{ color: 'var(--text-primary)', marginBottom: '0.5rem' }}>正在計算全市場多空截面量化矩陣…</h3>
-          <p style={{ fontSize: '0.88rem' }}>透過非同步並行管線聚合 79 幣動能、主動買賣流、資金費率與大戶多空比</p>
+          <p style={{ fontSize: '0.88rem' }}>透過非同步並行管線聚合 79 幣多時距混合動能 (60%) 與平滑資金費率 (40%)，結合 Regime Gate 風險閘門</p>
         </div>
       </div>
     );
   }
 
+  const targetCount = rankResult?.long_list?.length || 5;
   const top1Long = rankResult?.long_list?.[0];
   const top1Short = rankResult?.short_list?.[rankResult.short_list.length - 1];
 
@@ -130,7 +131,7 @@ export const CrossSectionRankings: React.FC<CrossSectionRankingsProps> = ({
             </span>
           </div>
           <p className="text-muted">
-            每日對 Top 79 主流幣合約進行「動能 (35%) + Taker 買賣流 (35%) + 資金費率反向 (20%) + 大戶博弈 (10%)」橫截面量化打分
+            對 Top 79 主流幣合約進行「多時距混合動能 (60%) + 平滑資金費率反向 (40%) + Regime Gate 風險閘門」橫截面量化打分
           </p>
         </div>
 
@@ -208,13 +209,13 @@ export const CrossSectionRankings: React.FC<CrossSectionRankingsProps> = ({
           </div>
           <div className="card-stats-grid">
             <div className="stat-box">
-              <span className="stat-num text-positive">8 隻</span>
-              <span className="stat-desc">做多標的 (各 12.5%)</span>
+              <span className="stat-num text-positive">{targetCount} 隻</span>
+              <span className="stat-desc">做多標的 (各 {(100 / targetCount).toFixed(1)}%)</span>
             </div>
             <div className="stat-divider">VS</div>
             <div className="stat-box">
-              <span className="stat-num text-negative">8 隻</span>
-              <span className="stat-desc">做空標的 (各 12.5%)</span>
+              <span className="stat-num text-negative">{targetCount} 隻</span>
+              <span className="stat-desc">做空標的 (各 {(100 / targetCount).toFixed(1)}%)</span>
             </div>
           </div>
           <div className="card-detail-sub text-center">
@@ -267,14 +268,14 @@ export const CrossSectionRankings: React.FC<CrossSectionRankingsProps> = ({
             className={`pill-btn ${filterTab === 'long' ? 'active' : ''}`}
             onClick={() => handleFilterTabChange('long')}
           >
-            🟢 Top 8 做多籃子 ({rankResult?.long_list?.length || 0})
+            🟢 Top {targetCount} 做多籃子 ({rankResult?.long_list?.length || 0})
           </button>
           <button
             type="button"
             className={`pill-btn ${filterTab === 'short' ? 'active' : ''}`}
             onClick={() => handleFilterTabChange('short')}
           >
-            🔴 Bottom 8 做空籃子 ({rankResult?.short_list?.length || 0})
+            🔴 Bottom {targetCount} 做空籃子 ({rankResult?.short_list?.length || 0})
           </button>
           <button
             type="button"
@@ -305,10 +306,10 @@ export const CrossSectionRankings: React.FC<CrossSectionRankingsProps> = ({
                 <th style={{ width: '80px' }}>排名</th>
                 <th style={{ width: '130px' }}>幣種 / 市價</th>
                 <th style={{ width: '180px' }}>綜合評分 & 策略結論</th>
-                <th>24h 動能 (35%)</th>
-                <th>Taker 主動買賣流 (35%)</th>
-                <th>資金費率反向 (20%)</th>
-                <th>大戶多空比 (10%)</th>
+                <th>多時距動能 (60%)</th>
+                <th>買賣流 (0% 停用)</th>
+                <th>資金費率反向 (40%)</th>
+                <th>大戶多空比 (0% 停用)</th>
                 <th style={{ width: '130px' }}>目標配置權重</th>
               </tr>
             </thead>
@@ -429,16 +430,16 @@ export const CrossSectionRankings: React.FC<CrossSectionRankingsProps> = ({
         </div>
         <div className="note-grid">
           <div className="note-item">
-            <strong>🔥 動能 (35%)</strong>：結合 24h 與多週期漲跌幅。Z &gt; 1.5 判定為「動能極強」，Z &lt; -1.5 判定為「動能極弱」。
+            <strong>🔥 多時距混合動能 (60%)</strong>：結合 1d (50%)、7d (30%) 與 30d (20%) 多週期日線漲跌幅。Z &gt; 1.5 判定為「動能極強」，Z &lt; -1.5 判定為「動能極弱」。
           </div>
           <div className="note-item">
-            <strong>🟢 主動買賣流 (35%)</strong>：合約主動市價吃單比 (Taker Buy / Taker Sell)。數值 &gt; 1.3 代表大戶主動搶購多單。
+            <strong>⚠️ 平滑資金費率反向 (40%)</strong>：取最近 3 次 8 小時結算費率之平滑平均反向取值。深度負費率代表貼水超賣，反向加分。
           </div>
           <div className="note-item">
-            <strong>⚠️ 資金費率反向 (20%)</strong>：多頭擁擠度反轉因子。費率過高代表多頭過熱，反向下修得分；深度負費率代表貼水超賣，反向加分。
+            <strong>🛡️ Regime Gate 風險閘門</strong>：即時監測 BTC 50 日均線、宇宙 50 日廣度 (&gt;30%) 與全市場費率百分位 (&gt;45%)。具備 T1 停單清倉與 T2 崩跌延後防護。
           </div>
           <div className="note-item">
-            <strong>🐂 大戶博弈 (10%)</strong>：頂級交易員帳戶多空比。反映聰明錢（Smart Money）即時持倉偏好與博弈力量。
+            <strong>⚪ 主動買賣流與大戶博弈 (0%)</strong>：v2 優化已依五年實證統計剃除無 Alpha 貢獻因子，保留欄位以相容介面。
           </div>
         </div>
       </footer>

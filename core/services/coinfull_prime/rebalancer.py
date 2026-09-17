@@ -223,12 +223,27 @@ class PortfolioRebalancer:
         return orders, closed_symbols, opened_symbols
 
     @staticmethod
-    def _find_exchange_market(exchange_adapter: Optional[ExchangeInterface], symbol: str) -> Optional[dict]:
+    def _is_paper_adapter(exchange_adapter: Optional[ExchangeInterface]) -> bool:
+        """判定適配器是否為模擬帳戶 (Paper)"""
+        if not exchange_adapter:
+            return False
+        cfg = getattr(exchange_adapter, "config", None)
+        ex_id = getattr(cfg, "exchange_id", "") if cfg else ""
+        cfg_name = getattr(cfg, "name", "") if cfg else ""
+        adapter_name = getattr(exchange_adapter, "name", "") or getattr(exchange_adapter, "exchange_name", "") or cfg_name
+        cls_name = type(exchange_adapter).__name__
+        return (
+            "paper" in str(ex_id).lower()
+            or "paper" in str(adapter_name).lower()
+            or cls_name.lower().startswith("paper")
+        )
+
+    @classmethod
+    def _find_exchange_market(cls, exchange_adapter: Optional[ExchangeInterface], symbol: str) -> Optional[dict]:
         """從交易所適配器查找標的之合約市場資訊"""
         if not exchange_adapter:
             return None
-        adapter_name = getattr(exchange_adapter, "name", "") or getattr(exchange_adapter, "exchange_name", "")
-        if "paper" in str(adapter_name).lower():
+        if cls._is_paper_adapter(exchange_adapter):
             return {"symbol": symbol, "active": True, "linear": True}
 
         markets = getattr(exchange_adapter, "_market_info", {})
@@ -255,7 +270,8 @@ class PortfolioRebalancer:
         依交易所合約之精度（precision.amount / stepSize）與最小下單量動態裁切。
         """
         if not market:
-            clean_amt = float(quantize_quantity(Decimal(str(amount)), 2))
+            precision_dec = 6 if amount < 1.0 else 4
+            clean_amt = float(quantize_quantity(Decimal(str(amount)), precision_dec))
             return (clean_amt, None if clean_amt > 0 else "數量經精度裁切後為 0")
 
         step = market.get("precision", {}).get("amount")
@@ -268,7 +284,8 @@ class PortfolioRebalancer:
             clean_dec = (amt_dec // step_dec) * step_dec
             clean_amt = float(clean_dec)
         else:
-            clean_amt = float(quantize_quantity(Decimal(str(amount)), 2))
+            precision_dec = 6 if amount < 1.0 else 4
+            clean_amt = float(quantize_quantity(Decimal(str(amount)), precision_dec))
 
         if clean_amt <= 0:
             if min_amt and amount < float(min_amt):
@@ -514,8 +531,7 @@ class PortfolioRebalancer:
                         return
 
                     # 0. 交易所合約市場支援度預檢
-                    adapter_name = getattr(exchange_adapter, "name", "") or getattr(exchange_adapter, "exchange_name", "")
-                    is_paper = "paper" in str(adapter_name).lower()
+                    is_paper = self._is_paper_adapter(exchange_adapter)
                     market = self._find_exchange_market(exchange_adapter, ord_spec.symbol)
                     if not is_paper and not market:
                         ord_spec.status = "skipped"
