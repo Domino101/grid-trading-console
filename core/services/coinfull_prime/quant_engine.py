@@ -25,6 +25,24 @@ DEFAULT_STABLES: Set[str] = {
     "EURUSDT", "BUSDUSDT", "AEURUSDT", "USDEUSDT", "BFDUSDUSDT"
 }
 
+# 內建常見 TradFi（美股/韓股/指數 ETF/大宗商品）標的集合，作為網路異常或離線回測的兜底名單
+DEFAULT_FALLBACK_TRADFI_SYMBOLS: Set[str] = {
+    # 美股與全球個股
+    "NVDAUSDT", "TSLAUSDT", "AAPLUSDT", "AMZNUSDT", "GOOGLUSDT", "METAUSDT",
+    "MSFTUSDT", "PLTRUSDT", "AMDUSDT", "INTCUSDT", "COINUSDT", "HOODUSDT",
+    "MSTRUSDT", "MRVLUSDT", "DELLUSDT", "ORCLUSDT", "AVGOUSDT", "QCOMUSDT",
+    "ARMUSDT", "MUUSDT", "RKLBUSDT", "AAOIUSDT", "SNDKUSDT", "SKHYNIXUSDT",
+    "SKHYUSDT", "SAMSUNGUSDT", "BULLAUSDT", "CRCLUSDT", "SNXXUSDT",
+    # 槓桿與指數 ETF
+    "SPYUSDT", "QQQUSDT", "TQQQUSDT", "SQQQUSDT", "SOXLUSDT", "SOXSUSDT",
+    "SPCXUSDT", "EWYUSDT", "EWJUSDT", "KORUUSDT",
+    # 貴金屬與大宗商品
+    "XAUUSDT", "XAGUSDT", "CLUSDT", "BZUSDT", "NATGASUSDT", "COPPERUSDT",
+    "XPTUSDT", "XPDUSDT",
+    # 傳統金融與指數代號
+    "BTCDOMUSDT", "DEFIUSDT"
+}
+
 DEFAULT_WEIGHTS = {
     "momentum": 0.35,
     "flow": 0.35,
@@ -41,6 +59,9 @@ class CoinFullPrimeQuant:
         self.weights = self.config.get("weights", DEFAULT_WEIGHTS)
         self.base_url = "https://fapi.binance.com"
         self.stables = set(self.config.get("universe", {}).get("exclude_stables", DEFAULT_STABLES))
+        self.exclude_tradfi = bool(self.config.get("universe", {}).get("exclude_tradfi", True))
+        self._tradfi_cache: Optional[Set[str]] = None
+        self._tradfi_cache_time: float = 0.0
         self.top_n = self.config.get("universe", {}).get("top_n", 79)
         self.long_count = self.config.get("portfolio", {}).get("long_count", 8)
         self.short_count = self.config.get("portfolio", {}).get("short_count", 8)
@@ -67,16 +88,65 @@ class CoinFullPrimeQuant:
             logger.warning(f"funding.mode 未支援: {self.funding_mode}，退回 spot")
             self.funding_mode = "spot"
 
+    async def fetch_tradfi_symbols(self, session: aiohttp.ClientSession) -> Set[str]:
+        """
+        獲取交易所非加密 (TradFi) 合約清單（快取 1 小時）。
+        包含：美股、韓股、指數 ETF、大宗商品、外匯等。
+        """
+        now = time.time()
+        if self._tradfi_cache is not None and (now - self._tradfi_cache_time) < 3600:
+            return self._tradfi_cache
+
+        tradfi_symbols = set(DEFAULT_FALLBACK_TRADFI_SYMBOLS)
+        try:
+            url = f"{self.base_url}/fapi/v1/exchangeInfo"
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    symbols = data.get("symbols", []) if isinstance(data, dict) else []
+                    for s in symbols:
+                        sym = s.get("symbol", "")
+                        contract_type = str(s.get("contractType", "")).upper()
+                        underlying_type = str(s.get("underlyingType", "")).upper()
+                        subtypes = [str(x).upper() for x in s.get("underlyingSubType", [])]
+
+                        # 官方判定標準：
+                        # 1. contractType 為 TRADIFI_PERPETUAL
+                        # 2. underlyingType 不為 COIN (如 EQUITY, KR_EQUITY, INDEX, COMMODITY, PREMARKET 等)
+                        # 3. underlyingSubType 含 TRADFI
+                        if (
+                            contract_type == "TRADIFI_PERPETUAL"
+                            or (underlying_type and underlying_type != "COIN")
+                            or "TRADFI" in subtypes
+                        ):
+                            tradfi_symbols.add(sym)
+                    self._tradfi_cache = tradfi_symbols
+                    self._tradfi_cache_time = now
+                    logger.info(f"成功更新 TradFi 非加密合約清單: 共 {len(tradfi_symbols)} 隻")
+                    return self._tradfi_cache
+        except Exception as ex:
+            logger.warning(f"獲取 exchangeInfo TradFi 清單失敗，退回使用內建兜底名單 ({len(tradfi_symbols)} 隻): {ex}")
+
+        self._tradfi_cache = tradfi_symbols
+        self._tradfi_cache_time = now
+        return self._tradfi_cache
+
     async def fetch_universe(
         self,
         session: aiohttp.ClientSession,
         allowed_symbols: Optional[Set[str]] = None,
-        excluded_symbols: Optional[Set[str]] = None
+        excluded_symbols: Optional[Set[str]] = None,
+        exclude_tradfi: Optional[bool] = None
     ) -> List[str]:
-        """非同步獲取 24h 報價成交額前 top_n 幣種（排除穩定幣，可指定支援標的白名單與外部機器人黑名單）"""
+        """非同步獲取 24h 報價成交額前 top_n 幣種（排除穩定幣與 TradFi，可指定支援標的白名單與外部機器人黑名單）"""
         url = f"{self.base_url}/fapi/v1/ticker/24hr"
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
             data = await resp.json()
+
+        should_exclude_tradfi = self.exclude_tradfi if exclude_tradfi is None else bool(exclude_tradfi)
+        tradfi_symbols: Set[str] = set()
+        if should_exclude_tradfi:
+            tradfi_symbols = await self.fetch_tradfi_symbols(session)
 
         clean_allowed = {s.upper().replace("/", "").replace(":", "") for s in allowed_symbols} if allowed_symbols else None
         
@@ -95,10 +165,14 @@ class CoinFullPrimeQuant:
             if not sym:
                 return True
             s = sym.upper()
+            if should_exclude_tradfi and s in tradfi_symbols:
+                return True
             if s in clean_excluded:
                 return True
             base = s[:-4] if s.endswith("USDT") else s
             if base in clean_base_excluded or base in clean_excluded:
+                return True
+            if should_exclude_tradfi and f"{base}USDT" in tradfi_symbols:
                 return True
             return False
 
@@ -114,6 +188,8 @@ class CoinFullPrimeQuant:
         usdt_pairs.sort(key=lambda x: float(x.get("quoteVolume", 0)), reverse=True)
         universe = [item["symbol"] for item in usdt_pairs[:self.top_n]]
         filter_msg = []
+        if should_exclude_tradfi:
+            filter_msg.append(f"排除 TradFi: {len(tradfi_symbols)} 標的")
         if clean_allowed:
             filter_msg.append(f"白名單: {len(clean_allowed)} 幣")
         if clean_excluded or clean_base_excluded:
@@ -442,15 +518,17 @@ class CoinFullPrimeQuant:
         allowed_symbols: Optional[Set[str]] = None,
         excluded_symbols: Optional[Set[str]] = None,
         capital_override: Optional[float] = None,
-        leverage_override: Optional[float] = None
+        leverage_override: Optional[float] = None,
+        exclude_tradfi: Optional[bool] = None
     ) -> UniverseRankResult:
-        """完整執行一日數據拉取與算分管線（支援白名單、避碰排除黑名單與本金/槓桿覆蓋）"""
+        """完整執行一日數據拉取與算分管線（支援白名單、避碰排除黑名單、TradFi 過濾與本金/槓桿覆蓋）"""
         logger.info("開始執行 CoinFull Prime 每日量化算分管線...")
         async with aiohttp.ClientSession() as session:
             universe = await self.fetch_universe(
                 session,
                 allowed_symbols=allowed_symbols,
-                excluded_symbols=excluded_symbols
+                excluded_symbols=excluded_symbols,
+                exclude_tradfi=exclude_tradfi
             )
             if not universe:
                 return UniverseRankResult(status="failed", message="無法獲取 Universe 79 標的")

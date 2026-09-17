@@ -13,6 +13,7 @@ import {
   Bot,
   Sparkles,
   AlertTriangle,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface CrossSectionRankingsProps {
@@ -29,6 +30,13 @@ export const CrossSectionRankings: React.FC<CrossSectionRankingsProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [rankResult, setRankResult] = useState<UniverseRankResult | null>(null);
 
+  // TradFi (美股/ETF/大宗商品) 排除開關狀態 (持久化至 localStorage，預設 true)
+  const [excludeTradfi, setExcludeTradfi] = useState<boolean>(() => {
+    const saved = localStorage.getItem('coinfull_exclude_tradfi');
+    if (saved !== null) return saved === 'true';
+    return true;
+  });
+
   // 篩選與搜尋狀態
   const [filterTab, setFilterTab] = useState<'baskets' | 'long' | 'short' | 'all'>(() => {
     const saved = localStorage.getItem('cross_section_filter_tab');
@@ -37,7 +45,7 @@ export const CrossSectionRankings: React.FC<CrossSectionRankingsProps> = ({
   });
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  const loadData = useCallback(async (isRefresh = false) => {
+  const loadData = useCallback(async (isRefresh = false, overrideExcludeTradfi?: boolean) => {
     if (isRefresh) {
       setRefreshing(true);
     } else {
@@ -46,7 +54,8 @@ export const CrossSectionRankings: React.FC<CrossSectionRankingsProps> = ({
     setError(null);
 
     try {
-      const rankings = await api.getCoinFullPrimeRankings(isRefresh);
+      const exTradfi = overrideExcludeTradfi !== undefined ? overrideExcludeTradfi : excludeTradfi;
+      const rankings = await api.getCoinFullPrimeRankings(isRefresh, exTradfi);
       setRankResult(rankings);
     } catch (err: unknown) {
       if (err instanceof ApiError && err.status === 401 && onUnauthorized) {
@@ -59,12 +68,22 @@ export const CrossSectionRankings: React.FC<CrossSectionRankingsProps> = ({
       setLoading(false);
       setRefreshing(false);
     }
-  }, [onUnauthorized]);
+  }, [onUnauthorized, excludeTradfi]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadData(false);
   }, [loadData]);
+
+  const handleToggleExcludeTradfi = (val: boolean) => {
+    setExcludeTradfi(val);
+    try {
+      localStorage.setItem('coinfull_exclude_tradfi', String(val));
+    } catch {
+      // ignore
+    }
+    void loadData(true, val);
+  };
 
   const handleFilterTabChange = (tab: 'baskets' | 'long' | 'short' | 'all') => {
     setFilterTab(tab);
@@ -136,6 +155,25 @@ export const CrossSectionRankings: React.FC<CrossSectionRankingsProps> = ({
         </div>
 
         <div className="header-actions">
+          <button
+            type="button"
+            className={`pill-btn ${excludeTradfi ? 'active' : 'warning'}`}
+            onClick={() => handleToggleExcludeTradfi(!excludeTradfi)}
+            style={{
+              fontSize: '0.78rem',
+              padding: '0.35rem 0.75rem',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.35rem',
+              borderColor: excludeTradfi ? 'rgba(34, 197, 94, 0.4)' : 'rgba(234, 179, 8, 0.5)',
+              background: excludeTradfi ? 'rgba(34, 197, 94, 0.15)' : 'rgba(234, 179, 8, 0.15)'
+            }}
+            title="AI 顧問建議：排除美股、韓股、指數 ETF 與大宗商品等 TradFi 合約，保持純加密貨幣市場中性對沖"
+          >
+            <ShieldCheck size={14} className={excludeTradfi ? 'text-success' : 'text-warning'} />
+            <span>{excludeTradfi ? '🛡️ 排除美股/ETF/商品 (純加密)' : '⚠️ 包含 TradFi 美股/ETF'}</span>
+          </button>
+
           <button
             type="button"
             className="btn btn-outline"
@@ -286,14 +324,25 @@ export const CrossSectionRankings: React.FC<CrossSectionRankingsProps> = ({
           </button>
         </div>
 
-        <div className="search-box">
-          <Search size={16} className="search-icon" />
-          <input
-            type="text"
-            placeholder="搜尋幣種代號 (例: BTC, SOL, DOGE)..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+          <span
+            className={`badge ${excludeTradfi ? 'badge-success' : 'badge-warning'}`}
+            style={{ fontSize: '0.74rem', padding: '0.3rem 0.6rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+            onClick={() => handleToggleExcludeTradfi(!excludeTradfi)}
+            title="點擊切換 TradFi 合約過濾狀態"
+          >
+            {excludeTradfi ? '🛡️ 純加密 79 幣宇宙' : '⚠️ 含 TradFi (美股/ETF/商品)'}
+          </span>
+
+          <div className="search-box">
+            <Search size={16} className="search-icon" />
+            <input
+              type="text"
+              placeholder="搜尋幣種代號 (例: BTC, SOL, DOGE)..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
         </div>
       </section>
 

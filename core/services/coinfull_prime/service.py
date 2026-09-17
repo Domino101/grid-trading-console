@@ -92,8 +92,10 @@ class CoinFullPrimeService(BaseService):
 
         saved_state = self.load_scheduler_state()
         self.selected_account: str = saved_state.get("account_id") or "paper"
+        self.exclude_tradfi: bool = bool(saved_state.get("exclude_tradfi", True))
 
         self.last_rank_result: Optional[UniverseRankResult] = None
+        self._last_rank_result_exclude_tradfi: Optional[bool] = None
         self.last_rebalance_report: Optional[RebalanceReport] = None
         self.last_run_timestamp: Optional[str] = saved_state.get("last_run_timestamp")
         self.last_regime_decision: Optional[RegimeDecision] = None
@@ -318,6 +320,8 @@ class CoinFullPrimeService(BaseService):
             try:
                 with open(cfg_file, "r", encoding="utf-8") as f:
                     self.config = yaml.safe_load(f) or {}
+                if "exclude_tradfi" in self.config.get("universe", {}):
+                    self.exclude_tradfi = bool(self.config["universe"]["exclude_tradfi"])
             except Exception as e:
                 logger.error(f"讀取 CoinFull Prime 設定檔失敗: {e}，將使用預設值")
                 self.config = {}
@@ -348,6 +352,7 @@ class CoinFullPrimeService(BaseService):
         """初始化量化引擎、風險閘門與預設適配器"""
         self.load_config()
         self.quant_engine = CoinFullPrimeQuant(self.config)
+        self.quant_engine.exclude_tradfi = self.exclude_tradfi
         self.rebalancer = PortfolioRebalancer(self.config)
         self.regime_filter = RegimeFilter(self.config)
 
@@ -647,7 +652,8 @@ class CoinFullPrimeService(BaseService):
         capital: Optional[float] = None,
         leverage: Optional[float] = None,
         balance_pct: Optional[float] = None,
-        ignore_crash_defer: bool = False
+        ignore_crash_defer: bool = False,
+        exclude_tradfi: Optional[bool] = None
     ) -> Tuple[UniverseRankResult, RebalanceReport]:
         """
         立即執行一次換倉管線 (支援指定帳號環境與動態本金/槓桿覆蓋)
@@ -709,13 +715,17 @@ class CoinFullPrimeService(BaseService):
         )
 
         is_dry_run = dry_run if dry_run is not None else self.rebalancer.dry_run
+        should_exclude_tradfi = self.exclude_tradfi if exclude_tradfi is None else bool(exclude_tradfi)
 
         # 4. 取宇宙 + 風險閘門判定 (換倉前必算 pts；資料抓取失敗 → 閘門保守處理)
         universe: List[str] = []
         try:
             async with aiohttp.ClientSession() as session:
                 universe = await self.quant_engine.fetch_universe(
-                    session, allowed_symbols=allowed_symbols, excluded_symbols=protected_symbols
+                    session,
+                    allowed_symbols=allowed_symbols,
+                    excluded_symbols=protected_symbols,
+                    exclude_tradfi=should_exclude_tradfi
                 )
                 gate_inputs = await self.regime_filter.collect(session, universe)
         except Exception as ex:
@@ -814,6 +824,7 @@ class CoinFullPrimeService(BaseService):
                 leverage_override=leverage
             )
         self.last_rank_result = rank_result
+        self._last_rank_result_exclude_tradfi = should_exclude_tradfi
 
         # 7. 執行換倉調度 (帶入專屬持倉籃子隔離、外部機器人絕對保護與風險閘門參數)
         rebalance_report = await self.rebalancer.execute_rebalance(
@@ -1306,6 +1317,7 @@ class CoinFullPrimeService(BaseService):
             "capital": self.scheduler_capital,
             "leverage": self.scheduler_leverage,
             "balance_pct": self.scheduler_balance_pct,
+            "exclude_tradfi": getattr(self, "exclude_tradfi", True),
             "enabled": getattr(self, "scheduler_enabled", True),
             "is_running": self._is_running,
             "defer_count": self._defer_count,
@@ -1346,15 +1358,18 @@ class CoinFullPrimeService(BaseService):
             cap = saved.get("capital")
             lev = saved.get("leverage")
             bp = saved.get("balance_pct")
+            ex_tradfi = saved.get("exclude_tradfi", True)
+            self.exclude_tradfi = bool(ex_tradfi)
             should_run = saved.get("enabled", saved.get("is_running", True))
-            logger.info(f"🔄 從持久化紀錄恢復 CoinFull Prime 排程: 帳號={acc_id}, DryRun={dry_run}, 啟用狀態={should_run}")
+            logger.info(f"🔄 從持久化紀錄恢復 CoinFull Prime 排程: 帳號={acc_id}, DryRun={dry_run}, 排除TradFi={self.exclude_tradfi}, 啟用狀態={should_run}")
             if should_run:
                 self.start_scheduler(
                     account_id=acc_id,
                     dry_run=dry_run,
                     capital=cap,
                     leverage=lev,
-                    balance_pct=bp
+                    balance_pct=bp,
+                    exclude_tradfi=self.exclude_tradfi
                 )
                 # 重啟補排：若重啟前已排定 T2 崩跌日延後換倉且尚未到期，重新排定 one-shot 任務
                 self._rearm_pending_defer()
@@ -1368,7 +1383,7 @@ class CoinFullPrimeService(BaseService):
                 self._rearm_pending_defer()
         else:
             logger.info("ℹ️ 無 CoinFull Prime 歷史排程紀錄，以預設測試網環境啟動排程")
-            self.start_scheduler(account_id="binance_testnet", dry_run=False)
+            self.start_scheduler(account_id="binance_testnet", dry_run=False, exclude_tradfi=True)
 
     def start_scheduler(
         self,
@@ -1376,9 +1391,10 @@ class CoinFullPrimeService(BaseService):
         dry_run: Optional[bool] = None,
         capital: Optional[float] = None,
         leverage: Optional[float] = None,
-        balance_pct: Optional[float] = None
+        balance_pct: Optional[float] = None,
+        exclude_tradfi: Optional[bool] = None
     ):
-        """啟動定時排程 (支援配置定時換倉的目標環境與資金配置)"""
+        """啟動定時排程 (支援配置定時換倉的目標環境、資金配置與 TradFi 過濾)"""
         self.scheduler_enabled = True
         if account_id:
             self.selected_account = account_id
@@ -1394,6 +1410,10 @@ class CoinFullPrimeService(BaseService):
             self.scheduler_leverage = leverage
         if balance_pct is not None:
             self.scheduler_balance_pct = balance_pct
+        if exclude_tradfi is not None:
+            self.exclude_tradfi = bool(exclude_tradfi)
+            if self.quant_engine:
+                self.quant_engine.exclude_tradfi = self.exclude_tradfi
 
         if self._scheduler_task and not self._scheduler_task.done():
             logger.warning("排程已經在運行中，已即時更新配置參數")
@@ -1409,9 +1429,10 @@ class CoinFullPrimeService(BaseService):
         dry_run: Optional[bool] = None,
         capital: Optional[float] = None,
         leverage: Optional[float] = None,
-        balance_pct: Optional[float] = None
+        balance_pct: Optional[float] = None,
+        exclude_tradfi: Optional[bool] = None
     ) -> Dict[str, Any]:
-        """即時變更或同步定時排程器的目標帳號環境與資金參數"""
+        """即時變更或同步定時排程器的目標帳號環境、資金參數與 TradFi 過濾設定"""
         if account_id:
             self.selected_account = account_id
         if dry_run is not None:
@@ -1426,12 +1447,16 @@ class CoinFullPrimeService(BaseService):
             self.scheduler_leverage = leverage
         if balance_pct is not None:
             self.scheduler_balance_pct = balance_pct
+        if exclude_tradfi is not None:
+            self.exclude_tradfi = bool(exclude_tradfi)
+            if self.quant_engine:
+                self.quant_engine.exclude_tradfi = self.exclude_tradfi
 
         self.save_scheduler_state()
 
         logger.info(
             f"🔄 CoinFull Prime 定時排程目標已更新: 目標帳號={self.selected_account}, "
-            f"DryRun={self.scheduler_dry_run}, 本金={self.scheduler_capital}, 槓桿={self.scheduler_leverage}, 餘額%={self.scheduler_balance_pct}"
+            f"DryRun={self.scheduler_dry_run}, 本金={self.scheduler_capital}, 槓桿={self.scheduler_leverage}, 餘額%={self.scheduler_balance_pct}, 排除TradFi={self.exclude_tradfi}"
         )
         return self.get_status()
 
@@ -1447,7 +1472,7 @@ class CoinFullPrimeService(BaseService):
             self.save_scheduler_state()
 
     def get_status(self) -> Dict[str, Any]:
-        """取得當前運行狀態（含風險閘門最近一次判定與下次換倉時間）"""
+        """取得當前運行狀態（含風險閘門最近一次判定、下次換倉時間與 TradFi 設定）"""
         now = datetime.now(timezone.utc)
         next_run_dt = self._next_rebalance_run(now)
         next_run = next_run_dt.isoformat()
@@ -1464,7 +1489,7 @@ class CoinFullPrimeService(BaseService):
         ]
 
         target_acc = self.selected_account or "paper"
-        active_basket = self.load_active_basket(target_acc)
+        active_basket = self.load_basket_entries(target_acc)
         protected_bots = self.get_external_bot_symbols()
         sched_p = self._schedule_params()
 
@@ -1476,12 +1501,14 @@ class CoinFullPrimeService(BaseService):
             "next_scheduled_run_utc": next_run,
             "seconds_until_next_run": round(secs_left, 1),
             "hours_until_next_run": hours_left,
+            "exclude_tradfi": getattr(self, "exclude_tradfi", True),
             "scheduler_config": {
                 "account_id": self.selected_account or "paper",
                 "dry_run": getattr(self, "scheduler_dry_run", True),
                 "capital": getattr(self, "scheduler_capital", None),
                 "leverage": getattr(self, "scheduler_leverage", None),
                 "balance_pct": getattr(self, "scheduler_balance_pct", None),
+                "exclude_tradfi": getattr(self, "exclude_tradfi", True),
                 "rebalance_days": sched_p["rebalance_days"],
                 "execution_weekday": sched_p["execution_weekday"],
                 "execution_minute_utc": sched_p["execution_minute_utc"],
@@ -1491,7 +1518,7 @@ class CoinFullPrimeService(BaseService):
                 self.last_regime_decision.model_dump(mode="json")
                 if self.last_regime_decision else None
             ),
-            "managed_symbols": sorted(list(active_basket)),
+            "managed_symbols": sorted(list({e.symbol for e in active_basket})),
             "protected_bot_symbols": sorted(list(protected_bots)),
             "current_portfolio": {
                 "long_top8": long_summary,
@@ -1503,7 +1530,7 @@ class CoinFullPrimeService(BaseService):
             "exchange": self.selected_account or self.config.get("portfolio", {}).get("exchange", "paper")
         }
 
-    async def get_regime(self, refresh: bool = False) -> RegimeDecision:
+    async def get_regime(self, refresh: bool = False, exclude_tradfi: Optional[bool] = None) -> RegimeDecision:
         """取得最近一次風險閘門判定（refresh=True 時重新抓取即時資料計算）
 
         供 GET /api/v1/coinfull-prime/regime 端點使用。
@@ -1511,11 +1538,14 @@ class CoinFullPrimeService(BaseService):
         if not self.quant_engine or not self.regime_filter:
             await self.initialize()
 
+        should_exclude_tradfi = self.exclude_tradfi if exclude_tradfi is None else bool(exclude_tradfi)
         if refresh or self.last_regime_decision is None:
             protected_symbols = self.get_external_bot_symbols()
             async with aiohttp.ClientSession() as session:
                 universe = await self.quant_engine.fetch_universe(
-                    session, excluded_symbols=protected_symbols
+                    session,
+                    excluded_symbols=protected_symbols,
+                    exclude_tradfi=should_exclude_tradfi
                 )
                 gate_inputs = await self.regime_filter.collect(session, universe)
             self.last_regime_decision = self.regime_filter.decide(
