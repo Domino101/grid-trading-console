@@ -3,6 +3,26 @@
 本專案的重要變更記錄於此檔案，遵循 [Semantic Versioning](https://semver.org/lang/zh-TW/) 與 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/) 規範。
 詳細歷史工程記錄請參閱 [CHANGELOG_LEGACY.md](file:///root/grid-trading-console/CHANGELOG_LEGACY.md)。
 
+## [0.3.7] — 2026-09-17
+
+### Fixed
+- **CoinFull Prime 換倉執行適配器預檢修復 (Paper Adapter False-Positive)**：修復 `PortfolioRebalancer._find_exchange_market` 與預檢條件僅以單一屬性判別適配器，導致 `PaperExchangeAdapter`（實盤模式下若由 paper 測試或未綁定 ccxt 市場資訊）被誤判為實盤未支援市場而全數跳過（`skipped`）之瑕疵。
+  - 新增 `_is_paper_adapter` 綜合檢視 `config.exchange_id`、`config.name`、適配器屬性與類別名稱。
+  - Paper 模式下標的（如 `龙虾USDT`、`CRCLUSDT`）免去 `_market_info` 硬比對，確保模擬單正常撮合。
+- **數量精度裁切動態退避 (Quantization Fallback)**：`PortfolioRebalancer._quantize_order_amount` 在無交易所步長資料時，原固定裁切至 2 位小數，對高價值加密貨幣（如 BTC/ETH 數量 < 1.0）會被裁切為 0。升級為動態精度機制：數量 < 1.0 時保留 6 位小數，確保高價值微量訂單能精確下單。
+- **前端語義與下單提示混淆修復 (UI Semantics & Target Visibility)**：
+  - 修復 `CoinFullPrimePage.tsx` 中在 Paper 帳號下同時出現「Paper」與「真實發單 (無 Dry Run)」之語義矛盾，改為清晰顯示實盤/模擬環境。
+  - 頂部導航列新增排程鎖定帳號狀態指示晶片（`Clock` 徽章），直觀顯示背景定時器目前綁定之執行帳號（如 `binance_live` / `paper`）與是否真實下單。
+  - 排程參數區同步更新各因子權重提示（多時距動能 60% + 平滑資金費率反向 40% + Regime Gate 閘門防護）。
+
+### Added
+- **定時換倉自動退避重試機制 (3-Stage Exponential Retry Guard)**：
+  - `CoinFullPrimeService._execute_rebalance_with_retry`：定時換倉遭遇交易所瞬時網路超時、API 限頻或所有訂單被異常跳過時，啟動 3 次自動退避重試（間隔 5 分鐘、15 分鐘、30 分鐘），避免因單次瞬時網路波動錯過整週換倉窗口。
+- **服務重啟錯過補跑防護 (Missed-Run Catch-Up)**：
+  - `CoinFullPrimeService._scheduler_loop`：服務啟動時主動比對當日是否為每週排程換倉日（例如週四）且已過 UTC 00:00 窗口；若持久化狀態中無今日執行紀錄，在啟動 15 秒後自動啟動補跑換倉。
+- **排程執行時間持久化**：`last_run_timestamp` 同步持久化至 canonical ledger (`bot_runtime_state`) 與匯出鏡像 `coinfull_prime_scheduler.json`。
+- **回歸防護測試**：新增 `test_paper_adapter_rebalance_execution_not_skipped` 於 `tests/test_coinfull_prime_rebalance.py`。
+
 ## [0.3.6] — 2026-09-16
 
 ### Added
