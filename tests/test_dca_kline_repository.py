@@ -363,8 +363,83 @@ class TestDcaKlineRepository(unittest.TestCase):
         self.assertIn("o", data["candles"][0])
         self.assertIn("h", data["candles"][0])
         self.assertIn("l", data["candles"][0])
-        self.assertIn("c", data["candles"][0])
-        self.assertIn("v", data["candles"][0])
+        self.assertEqual(data["candles"][0]["t"], 1699999200)
+
+    def test_exchange_mode_ignores_synthetic_data(self):
+        """Exchange mode must strictly ignore synthetic=1 candles and fetch real ones."""
+        # Store synthetic candles for binance SOL/USDT
+        synthetic_bars = [
+            (1700000000 + i * 900, "100", "105", "95", "102", "50")
+            for i in range(50)
+        ]
+        self.repo.save_candles("binance", "SOL/USDT", "15m", synthetic_bars, synthetic=1)
+
+        fetch_call_count = 0
+        now_sec = int(time.time())
+        step = 900
+
+        def mock_fetch(symbol, exchange, timeframe, since_ms, limit):
+            nonlocal fetch_call_count
+            fetch_call_count += 1
+            # Return real candles up to now
+            return [
+                [(now_sec - (50 - i) * step) * 1000, 150.0, 155.0, 145.0, 152.0, 80.0]
+                for i in range(50)
+            ]
+
+        service = KlineService(repository=self.repo, fetch_fn=mock_fetch)
+        res = service.get_candles_sync(
+            exchange="binance",
+            symbol="SOL/USDT",
+            timeframe="15m",
+            limit=50,
+        )
+
+        # Must have fetched real candles from fetch_fn, ignoring the 50 synthetic candles
+        self.assertEqual(fetch_call_count, 1)
+        self.assertEqual(res.data_status, "live")
+        self.assertEqual(len(res.candles), 50)
+        self.assertEqual(res.candles[0].synthetic, 0)
+        self.assertEqual(res.candles[0].close, Decimal("152.0"))
+
+    def test_live_cache_freshness_and_ttl_refresh(self):
+        """In live mode, fresh cache within TTL does not fetch; expired TTL triggers refresh."""
+        now_sec = int(time.time())
+        step = 900
+        current_bar_ts = (now_sec // step) * step
+
+        # Save 50 fresh bars where the last bar is current_bar_ts, fetched 2 seconds ago
+        bars = [
+            (current_bar_ts - (49 - i) * step, "100", "105", "95", "102", "50")
+            for i in range(50)
+        ]
+        self.repo.save_candles("binance", "NEAR/USDT", "15m", bars, synthetic=0, fetched_at=time.time() - 2.0)
+
+        fetch_call_count = 0
+
+        def mock_fetch(symbol, exchange, timeframe, since_ms, limit):
+            nonlocal fetch_call_count
+            fetch_call_count += 1
+            return [
+                [current_bar_ts * 1000, 100.0, 108.0, 95.0, 107.0, 60.0]
+            ]
+
+        service = KlineService(repository=self.repo, fetch_fn=mock_fetch)
+
+        # 1. First call: within 10s TTL -> cache hit, 0 fetch calls
+        res1 = service.get_candles_sync("binance", "NEAR/USDT", "15m", limit=50)
+        self.assertEqual(fetch_call_count, 0)
+        self.assertEqual(res1.source, "cache")
+        self.assertEqual(res1.data_status, "live")
+
+        # 2. Simulate TTL expiration by updating fetched_at to 30 seconds ago
+        self.repo.save_candles("binance", "NEAR/USDT", "15m", bars, synthetic=0, fetched_at=time.time() - 30.0)
+
+        # Second call: TTL expired -> must fetch to refresh latest bar
+        res2 = service.get_candles_sync("binance", "NEAR/USDT", "15m", limit=50)
+        self.assertEqual(fetch_call_count, 1)
+        self.assertEqual(res2.data_status, "live")
+        self.assertEqual(res2.candles[-1].close, Decimal("107.0"))
 
 
 if __name__ == "__main__":

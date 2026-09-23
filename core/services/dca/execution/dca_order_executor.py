@@ -89,6 +89,7 @@ class DcaOrderExecutor(IDcaOrderExecutor):
         self._min_notional = min_notional
         self._circuit_probe = circuit_probe or self._default_circuit_probe
         self._symbol = config.symbol
+        self._order_seq = 0  # 單調遞增序號，保證 client_order_id 跨輪唯一
 
     # ── 熔斷 ──────────────────────────────────────────────
 
@@ -129,7 +130,8 @@ class DcaOrderExecutor(IDcaOrderExecutor):
             slot = f"so{slot_index:02d}"
         else:
             slot = _ROLE_SLOT[role]
-        return build_client_order_id(self._bot_id, leg, slot)
+        self._order_seq += 1
+        return build_client_order_id(self._bot_id, leg, slot, seq=self._order_seq)
 
     def _quantize(self, price: Optional[Decimal], quantity: Decimal):
         q_price = quantize_price(price, self._config.price_decimals) \
@@ -284,6 +286,29 @@ class DcaOrderExecutor(IDcaOrderExecutor):
                             },
                         )
                         return OrderOutcome(OutcomeKind.ERROR, order=order, reason=str(fallback_exc))
+
+            err_msg_lower = err_msg.lower()
+            is_margin_err = (
+                "-2019" in err_msg
+                or "margin is insufficient" in err_msg_lower
+                or "insufficient margin" in err_msg_lower
+                or "insufficient balance" in err_msg_lower
+            )
+            if is_margin_err:
+                logger.warning(
+                    "限價單因可用保證金不足被交易所拒絕",
+                    extra={
+                        "symbol": self._symbol, "bot_id": self._bot_id,
+                        "action": "place_order", "result": "rejected_insufficient_margin",
+                        "role": role.value, "client_order_id": client_id,
+                        "error": err_msg,
+                    },
+                )
+                return OrderOutcome(
+                    OutcomeKind.REJECTED_INSUFFICIENT_MARGIN,
+                    order=order,
+                    reason=err_msg,
+                )
 
             logger.error(
                 "限價單送出失敗",
@@ -488,28 +513,56 @@ class DcaOrderExecutor(IDcaOrderExecutor):
                     "entry_price": Decimal("0"),
                 }
             target_norm = self._symbol.replace("/", "").replace(":", "").upper()
+            target_direction = str(getattr(self._config, "direction", "") or "").lower()
+            if hasattr(target_direction, "value"):
+                target_direction = target_direction.value
+
+            matched_pos = None
             for p in positions:
                 sym = getattr(p, "symbol", "")
                 sym_norm = sym.replace("/", "").replace(":", "").upper()
                 if sym == self._symbol or sym_norm == target_norm:
-                    raw_amt = getattr(p, "amount", getattr(p, "size", 0))
-                    amt_dec = Decimal(str(raw_amt or 0))
+                    raw_amt = getattr(p, "amount", None)
                     side_attr = getattr(p, "side", None)
                     side_str = str(getattr(side_attr, "value", side_attr or "")).lower()
-                    if "long" in side_str or amt_dec > 0:
-                        pos_side = "long"
-                    elif "short" in side_str or amt_dec < 0:
+                    if "short" in side_str:
                         pos_side = "short"
+                    elif "long" in side_str:
+                        pos_side = "long"
+                    elif raw_amt is not None:
+                        amt_val = float(raw_amt)
+                        if amt_val < 0:
+                            pos_side = "short"
+                        elif amt_val > 0:
+                            pos_side = "long"
+                        else:
+                            pos_side = "none"
                     else:
                         pos_side = "none"
-                    size_dec = abs(amt_dec)
+
+                    size_val = getattr(p, "size", None)
+                    if size_val is not None:
+                        size_dec = abs(Decimal(str(size_val)))
+                    elif raw_amt is not None:
+                        size_dec = abs(Decimal(str(raw_amt)))
+                    else:
+                        size_dec = Decimal("0")
+
+                    amt_dec = Decimal(str(raw_amt)) if raw_amt is not None else (-size_dec if pos_side == "short" else size_dec)
                     entry_px = Decimal(str(getattr(p, "entry_price", 0) or 0))
-                    return {
+                    candidate = {
                         "size": size_dec,
                         "side": pos_side if size_dec > 0 else "none",
                         "raw_amount": amt_dec,
                         "entry_price": entry_px,
                     }
+                    if target_direction and pos_side == target_direction:
+                        return candidate
+                    if matched_pos is None:
+                        matched_pos = candidate
+
+            if matched_pos is not None:
+                return matched_pos
             return {
                 "size": Decimal("0"),
                 "side": "none",

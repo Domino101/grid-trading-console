@@ -1120,8 +1120,8 @@
     "semantic_hash": "aad27ae666a14635e4faf66246deb4dd"
   },
   "web_ui/frontend/package.json": {
-    "mtime": 1789613901.643636,
-    "ast_hash": "50ed11c73fc4b49e14cd89fc18560011",
+    "mtime": 1790173959.6876283,
+    "ast_hash": "c96eeb9dd585bc72f2bc8a0c3a648699",
     "semantic_hash": ""
   },
   "web_ui/frontend/src/App.tsx": {
@@ -2200,8 +2200,8 @@
     "semantic_hash": "f740091170aea6b356ed96fe7e6ab3f2"
   },
   "CHANGELOG.md": {
-    "mtime": 1789613921.930636,
-    "ast_hash": "d7110b28068874e6967d709381d055ae",
+    "mtime": 1790172062.0062108,
+    "ast_hash": "d466eba368c6006ae1c0f946d3ee2196",
     "semantic_hash": ""
   },
   "docs/archive/README_fake_download_page.md": {
@@ -2445,8 +2445,8 @@
     "semantic_hash": "eb7789e8e3d87da3814af39785c1c727"
   },
   "core/services/dca/coordinator/dca_coordinator.py": {
-    "mtime": 1789487154.8526988,
-    "ast_hash": "12ba6aef8342151f5eedf660ef46aaf7",
+    "mtime": 1790171331.5412085,
+    "ast_hash": "e91d31ad7b7086de7479911014f8f93b",
     "semantic_hash": ""
   },
   "core/services/dca/coordinator/direction_lock.py": {
@@ -2460,7 +2460,7 @@
     "semantic_hash": "a323138ec7fd5ec6963c3f375a6fb0b0"
   },
   "core/services/dca/coordinator/take_profit_manager.py": {
-    "mtime": 1788489029.1521087,
+    "mtime": 1789793034.7426767,
     "ast_hash": "5ab716b7976a7cf640223e9486c7b03f",
     "semantic_hash": ""
   },
@@ -2480,8 +2480,8 @@
     "semantic_hash": "05cf80acc3266297560d4f6e9476e4ee"
   },
   "core/services/dca/execution/dca_order_executor.py": {
-    "mtime": 1788489006.7751086,
-    "ast_hash": "7385da7bde0609dfd37b2e4677e5c5fd",
+    "mtime": 1789792330.0516746,
+    "ast_hash": "20b31e6dbf0319ce0200179fbdb14b99",
     "semantic_hash": ""
   },
   "core/services/dca/indicators/__init__.py": {
@@ -2525,8 +2525,8 @@
     "semantic_hash": "5566c980cab8ea5ec8f756dd1f62247e"
   },
   "core/services/dca/interfaces/dca_executor.py": {
-    "mtime": 1788488980.5471084,
-    "ast_hash": "962bcdc19d7641ef924b52ed4f5649d9",
+    "mtime": 1789751948.9150548,
+    "ast_hash": "28555c21b4a05183c100824bc9e23a27",
     "semantic_hash": ""
   },
   "core/services/dca/ladder.py": {
@@ -2555,9 +2555,9 @@
     "semantic_hash": ""
   },
   "core/services/dca/models/dca_order.py": {
-    "mtime": 1787739469.3997748,
-    "ast_hash": "ed117ecacce90a39e9b1b42b92b76bf6",
-    "semantic_hash": "ed117ecacce90a39e9b1b42b92b76bf6"
+    "mtime": 1789750062.3470027,
+    "ast_hash": "17eb20e23ed923eb9ec1447d295bc6d4",
+    "semantic_hash": ""
   },
   "core/services/dca/models/dca_state.py": {
     "mtime": 1788488969.8601084,
@@ -2605,14 +2605,14 @@
     "semantic_hash": "b597a264b6b8bb3832beb00eca72e7af"
   },
   "tests/test_dca_coordinator.py": {
-    "mtime": 1787739469.4647813,
-    "ast_hash": "8fb338d4553a4dd8628bf83853a762cc",
-    "semantic_hash": "8fb338d4553a4dd8628bf83853a762cc"
+    "mtime": 1790171051.8192077,
+    "ast_hash": "d2b1f39f4ac79db727c12a6560544812",
+    "semantic_hash": ""
   },
   "tests/test_dca_executor.py": {
-    "mtime": 1788112345.704973,
-    "ast_hash": "109aa06f31b054589ef18f06a7b66a43",
-    "semantic_hash": "109aa06f31b054589ef18f06a7b66a43"
+    "mtime": 1789750398.1220038,
+    "ast_hash": "efe2bf8ce925dcc5b6213c2d59d872ef",
+    "semantic_hash": ""
   },
   "tests/test_dca_frontend_contract.py": {
     "mtime": 1788112345.704973,
@@ -2640,8 +2640,8 @@
     "semantic_hash": "7ee1164dba03a7707cd889a84192036d"
   },
   "tests/test_dca_paper_e2e.py": {
-    "mtime": 1788629626.974608,
-    "ast_hash": "3b3a54164772978d3de6358c8c39bf0e",
+    "mtime": 1789750205.2650032,
+    "ast_hash": "a0a7b4dfa75a885bdddbf66f264c4cd0",
     "semantic_hash": ""
   },
   "tests/test_dca_snapshot.py": {
@@ -2660,8 +2660,8 @@
     "semantic_hash": "6ef0877cbad50d7fa027f4ec457ce194"
   },
   "web_ui/backend/routes/dca.py": {
-    "mtime": 1789378388.3756976,
-    "ast_hash": "2f16cc0fba0b85c9f56a21f44ab96395",
+    "mtime": 1790066644.467773,
+    "ast_hash": "eee552f43da2df391b627d8c22ce6321",
     "semantic_hash": ""
   },
   "web_ui/frontend/src/components/DcaCard.tsx": {
@@ -2675,8 +2675,8 @@
     "semantic_hash": "db6ad0a33bbde4158cb33393c3d9a3ec"
   },
   "web_ui/frontend/src/components/DcaDetail.tsx": {
-    "mtime": 1789551640.2046666,
-    "ast_hash": "26be7315524ac9eb5f1d596aaa53242d",
+    "mtime": 1790066683.9357731,
+    "ast_hash": "ebf05f44071e2b61bc72bbdbd38c1fac",
     "semantic_hash": ""
   },
   "web_ui/frontend/src/components/DcaForm.tsx": {
@@ -2805,9 +2805,9 @@
     "semantic_hash": "28a1d51d7fb9175ba4caba802cefc209"
   },
   "core/services/dca/backtest/replay_driver.py": {
-    "mtime": 1788112345.622973,
-    "ast_hash": "e7c1bb805fb372b2320ed049587c3395",
-    "semantic_hash": "e7c1bb805fb372b2320ed049587c3395"
+    "mtime": 1789750866.9290028,
+    "ast_hash": "073d726e6ffa219f76d39de3aa0cc653",
+    "semantic_hash": ""
   },
   "core/services/dca/backtest/replay_exchange.py": {
     "mtime": 1788112345.622973,
@@ -2845,13 +2845,13 @@
     "semantic_hash": ""
   },
   "tests/test_dca_kline_repository.py": {
-    "mtime": 1788112345.7059731,
-    "ast_hash": "743b1a384b98a9b0722cbd962e7549b2",
-    "semantic_hash": "743b1a384b98a9b0722cbd962e7549b2"
+    "mtime": 1790066731.5387733,
+    "ast_hash": "266b29aa6783afbe11b38ae8cfc6edba",
+    "semantic_hash": ""
   },
   "tests/test_dca_replay_driver.py": {
-    "mtime": 1789573623.318334,
-    "ast_hash": "29c4a7840e75c1e55d9a4bf7c53ebb53",
+    "mtime": 1790173911.595628,
+    "ast_hash": "3d07720b9e81bdaf36957b38ea46deef",
     "semantic_hash": ""
   },
   "tests/test_dca_replay_exchange.py": {
@@ -2865,13 +2865,13 @@
     "semantic_hash": "74c6e33aabab2002a765e3ff11c0865c"
   },
   "web_ui/backend/kline_repository.py": {
-    "mtime": 1788150684.2892034,
-    "ast_hash": "dde66fea438743ebb3e238c5a92d8e05",
-    "semantic_hash": "dde66fea438743ebb3e238c5a92d8e05"
+    "mtime": 1790066548.7027726,
+    "ast_hash": "7f5d6c9d3b1543a3b4f4151a911cdabf",
+    "semantic_hash": ""
   },
   "web_ui/backend/kline_service.py": {
-    "mtime": 1789292076.123304,
-    "ast_hash": "4c5dc65d19c67cdd45abe3936c191808",
+    "mtime": 1790066589.4388342,
+    "ast_hash": "b34beaec0df9f0503d9293b1b14787ea",
     "semantic_hash": ""
   },
   "web_ui/frontend/src/components/DcaBacktestPanel.tsx": {
@@ -2885,9 +2885,9 @@
     "semantic_hash": "60edf0b0429a561b183c60e784dac5dc"
   },
   "web_ui/frontend/src/components/DcaChart.tsx": {
-    "mtime": 1788112345.710973,
-    "ast_hash": "91d0e6cbd2ae4ad7166d5fc14de86133",
-    "semantic_hash": "91d0e6cbd2ae4ad7166d5fc14de86133"
+    "mtime": 1790066673.7647731,
+    "ast_hash": "6b6055068ff6574eaf85821fefe25684",
+    "semantic_hash": ""
   },
   "web_ui/frontend/src/components/DcaSweepTable.tsx": {
     "mtime": 1788112345.711973,
@@ -2990,9 +2990,9 @@
     "semantic_hash": ""
   },
   "tests/services/dca/test_dca_snapshot_recovery.py": {
-    "mtime": 1788112345.703973,
-    "ast_hash": "2c740836079e88ce85530f547a360e05",
-    "semantic_hash": "2c740836079e88ce85530f547a360e05"
+    "mtime": 1789750750.6840048,
+    "ast_hash": "153879a6c80af485579e08ef41d75ba9",
+    "semantic_hash": ""
   },
   "CHANGELOG_LEGACY.md": {
     "mtime": 1788151064.4204488,
@@ -3070,8 +3070,8 @@
     "semantic_hash": "cebccc3be57122c6226074f8f1050aa9"
   },
   "core/services/reconciler/exchange_reconciler.py": {
-    "mtime": 1789374930.3503606,
-    "ast_hash": "a0966aa4cbde69d3a9d29d83881759d4",
+    "mtime": 1789792357.1436749,
+    "ast_hash": "17691ce6e9d4619fa89b4baab65be451",
     "semantic_hash": ""
   },
   "migrations/env.py": {
@@ -3155,8 +3155,8 @@
     "semantic_hash": "46e0b1e8dd675273c8b2ec61444fa5f2"
   },
   "tests/test_exchange_reconciler.py": {
-    "mtime": 1789375000.9233608,
-    "ast_hash": "5a92a50d6e0a02765e6fb783c1f8a128",
+    "mtime": 1789752084.6080554,
+    "ast_hash": "acf58ea41808f5d2132999422f46bb2a",
     "semantic_hash": ""
   },
   "tests/test_grid_fill_ledger.py": {
@@ -3354,19 +3354,14 @@
     "ast_hash": "ae9703b4cad69d414396e85b8ae0deb4",
     "semantic_hash": "ae9703b4cad69d414396e85b8ae0deb4"
   },
-  "config/dca/dca-binance-short-cl-usdt-20260902170448.yaml": {
-    "mtime": 1788339888.6553626,
-    "ast_hash": "9e9b8df6f578cdd0a45e8e4fb8c696b9",
-    "semantic_hash": ""
-  },
   "tests/test_binance_symbol_mapping.py": {
     "mtime": 1788449461.5427654,
     "ast_hash": "5e72bb31f27d36c74b232d83a382ba55",
     "semantic_hash": ""
   },
   "tests/test_dca_self_healing_and_oneway_fallback.py": {
-    "mtime": 1788489134.213109,
-    "ast_hash": "ee894c2ac8c1595726931e264c53b1ba",
+    "mtime": 1789791571.6166723,
+    "ast_hash": "cc0773f1b58d4507c0fa759df66d5444",
     "semantic_hash": ""
   },
   "docs/ai_trader_operating_guide.md": {
@@ -3639,11 +3634,6 @@
     "ast_hash": "ff0291c7ab8631db2568c45d59b10d66",
     "semantic_hash": ""
   },
-  "config/dca/dca-binance-short-inj-usdt-usdt-20260907141150.yaml": {
-    "mtime": 1788761510.3624382,
-    "ast_hash": "465ee745202b456f67c476a642f0f647",
-    "semantic_hash": ""
-  },
   "docs/CoinFull_Prime_Local_Dev_Plan.md": {
     "mtime": 1788771896.1951659,
     "ast_hash": "c1d19009531170968697978051e99cd7",
@@ -3652,16 +3642,6 @@
   "tests/test_exchange_audit_and_switch.py": {
     "mtime": 1789292611.1933057,
     "ast_hash": "7f92f7f45dc7b5cfc179db4b0a70084f",
-    "semantic_hash": ""
-  },
-  "config/dca/dca-binance-both-eth-usdc-usdc-20260915224640.yaml": {
-    "mtime": 1789483600.0389605,
-    "ast_hash": "bf11c6bea16037232c51db3da26ddb2c",
-    "semantic_hash": ""
-  },
-  "config/dca/dca-binance-short-br-usdt-usdt-20260914201623.yaml": {
-    "mtime": 1789388183.4266906,
-    "ast_hash": "1c2bdaed032a837459a28682a479a17c",
     "semantic_hash": ""
   },
   "web_ui/frontend/src/components/CrossSectionRankings.tsx": {
@@ -3989,9 +3969,39 @@
     "ast_hash": "159b667a9057e4e588cba73e648de1a3",
     "semantic_hash": ""
   },
-  "config/grid/binance-neutral-perp-br-usdt-usdt-0_20193-0_72805.yaml": {
-    "mtime": 1789636853.9801302,
-    "ast_hash": "aa928b4d9f32585c7a1b5001bec54ead",
+  "scripts/remediate_uni_dca.py": {
+    "mtime": 1789793188.4696772,
+    "ast_hash": "a3dcbcd8f16bcc6cf962149a5799d862",
+    "semantic_hash": ""
+  },
+  "scripts/reset_uni_dca_state.py": {
+    "mtime": 1789793344.3706777,
+    "ast_hash": "796cb70445069bf5269295ea091c3630",
+    "semantic_hash": ""
+  },
+  "config/dca/dca-binance-long-eth-usdc-usdc-20260922162543.yaml": {
+    "mtime": 1790065543.3478944,
+    "ast_hash": "39d01ea69200aa393ddea4b4a94e8101",
+    "semantic_hash": ""
+  },
+  "config/dca/dca-binance-long-xrp-usdc-usdc-20260922163606.yaml": {
+    "mtime": 1790066166.2397716,
+    "ast_hash": "e959a103948f78d07673ee0f199a0150",
+    "semantic_hash": ""
+  },
+  "config/dca/dca-binance-long-sol-usdc-usdc-20260923212013.yaml": {
+    "mtime": 1790169613.731582,
+    "ast_hash": "5bc483b94d48bfc11f297e08248e9d55",
+    "semantic_hash": ""
+  },
+  "config/dca/dca-binance-long-sui-usdc-usdc-20260922232719.yaml": {
+    "mtime": 1790090839.1861703,
+    "ast_hash": "fc971fcf2aaee0b34b571db0e1e31810",
+    "semantic_hash": ""
+  },
+  "config/dca/dca-binance-long-uni-usdc-usdc-20260923012302.yaml": {
+    "mtime": 1790097782.1560822,
+    "ast_hash": "48b813e080c0d820ec8ba6ca41d30a87",
     "semantic_hash": ""
   }
 }

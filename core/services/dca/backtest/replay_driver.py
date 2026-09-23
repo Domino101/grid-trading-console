@@ -480,7 +480,10 @@ class ReplayDriver:
 
         # INV-2: AVERAGING 且持倉 > 0 時，在世 TP 掛單必須恰好 1 張 (3.6)
         if status is DcaStatus.AVERAGING and self.coordinator.state.position_quantity > Decimal("0"):
-            tp_orders = [o for o in open_orders if getattr(o, "client_id", "").endswith("_tp")]
+            tp_orders = [
+                o for o in open_orders
+                if "_tp_" in getattr(o, "client_id", "") or getattr(o, "client_id", "").endswith("_tp")
+            ]
             if len(tp_orders) != 1:
                 raise AssertionError(
                     f"INV-2 違規（棒 {bar_idx}, ts={bar_ts}）：status 為 AVERAGING 且持倉 {self.coordinator.state.position_quantity}，但 TP 掛單數為 {len(tp_orders)}（預期恰好 1 張）"
@@ -488,7 +491,10 @@ class ReplayDriver:
 
         # INV-6: 單方向互斥，禁止同時存在 long 與 short 方向的在世安全/基礎單 (3.7)
         if len(open_orders) > 1:
-            sides = {o.side for o in open_orders if not getattr(o, "client_id", "").endswith("_tp")}
+            sides = {
+                o.side for o in open_orders
+                if not ("_tp_" in getattr(o, "client_id", "") or getattr(o, "client_id", "").endswith("_tp"))
+            }
             if len(sides) > 1:
                 raise AssertionError(
                     f"INV-6 違規（棒 {bar_idx}）：在世基礎/安全單同時存在多個方向: {sides}"

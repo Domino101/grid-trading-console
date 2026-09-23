@@ -3,6 +3,35 @@
 本專案的重要變更記錄於此檔案，遵循 [Semantic Versioning](https://semver.org/lang/zh-TW/) 與 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/) 規範。
 詳細歷史工程記錄請參閱 [CHANGELOG_LEGACY.md](file:///root/grid-trading-console/CHANGELOG_LEGACY.md)。
 
+## [0.3.9] — 2026-09-23
+
+### Fixed
+- **DCA 協調器基礎單取消/過期死鎖修復 (Base Order Cancellation Deadlock & State Rearm)**：
+  - 修復 `DcaCoordinator._reconcile()` 在 Base Order（處於 `TRIGGERING` 階段）被交易所端取消或過期（`CANCELLED`/`EXPIRED`/`REJECTED`）時，未清理 `self._base_order` 且未釋放 `active_direction` 方向互斥鎖（INV-6）之死鎖瑕疵。該瑕疵會導致狀態機持續認定存在活躍 Base Order 而無法發出新入場單，進而永久阻塞安全單（Safety Orders）掛載。
+  - 修復後立即清理 `self._base_order = None`、釋放 `self._lock.release()`、清除 `self.state.active_direction = None` 並將狀態轉回 `ARMED`。
+- **孤立 Base Order 防禦性自癒機制 (Orphaned Base Order Self-Healing)**：
+  - 在 `DcaCoordinator._step_triggering()` 於 `_reconcile()` 完成後增設防禦檢驗：若 `self._base_order` 既未成交亦已自 `_active` 中移除（如網路瞬斷或狀態不同步），自動重置該訂單、釋放方向鎖並回到 `ARMED` 重新偵測入場指標。
+- **Safety Order 取消自動重置槽位 (Safety Order Cancellation Slot Recovery)**：
+  - 在 `_reconcile()` 中 Safety Order 被取消或拒絕時，將對應槽位自 `SlotStatus.PLACED` 重置為 `SlotStatus.WAITING`，杜絕槽位假性佔用而無法補掛新安全單之問題。
+- **單向持倉模式 (One-Way Mode) 反向持倉衝突防護與平倉誤判消除**：
+  - 修復在 Binance 單向持倉模式（`positionSide: BOTH`）下，當帳戶同時運行同標的之反向/網格部位時，巡檢模組（`ExchangeReconciler` 與 `DcaCoordinator`）誤將反向部位判定為「外部已平倉」而觸發錯誤收輪之嚴重問題。
+  - 增設方向相容性檢驗：檢測到交易所持倉方向與機器人方向不符時，記錄警告並略過認領，維持本機累積部位，杜絕異常強制平倉。
+- **實盤同向持倉數量自癒同步與 TP 自動修正 (Position Quantity Sync & TP Self-Correction)**：
+  - 當巡檢發現交易所同向實盤持倉數量與本機記錄不一致時，自動同步持倉數量與均價，並觸發 `_attempt_tp_replace()` 自動修正止盈單（Take-Profit）之數量與價格，確保止盈單覆蓋完整持倉。
+- **保證金不足狀態碼處置 (Insufficient Margin Handling)**：
+  - `DcaOrderExecutor` 捕獲交易所 `-2019`（`Margin is insufficient`）錯誤，精確歸類為 `OutcomeKind.REJECTED_INSUFFICIENT_MARGIN`，避免被吞掉或誤判為一般系統異常。
+- **客戶端訂單 ID 唯一序號保障 (Client Order ID Monotonic Sequence)**：
+  - `build_client_order_id` 導入單調遞增序號 `seq:04d`，解決同輪次多次 TP 替換或跨輪次 base 單重用相同 `client_order_id` 導致 REST 對帳誤匹配歷史成交之問題。
+
+### Optimized
+- **安全單補單窗口延遲大幅減半 (Batch Replenishment Latency Optimization)**：
+  - `_replenish_window()` 在循環掛載視窗安全單時快取 `mark` 標記價格，避免每一張安全單皆重複發起交易所 REST `last_price()` 請求，使 5 張安全單補掛之 REST 呼叫量減少 50%，大幅緩解在高頻或多機器人併發下 Binance 限頻（throttle acquire）造成的掛單延遲。
+- **Web UI 即時 K 線快取時效性與增量回填 (Kline Freshness & Incremental Fetching)**：
+  - `KlineService` 導入 `LIVE_CACHE_TTL` (10s) 與最新柱時效檢驗，即時模式下未封閉柱每 10 秒自動向交易所拉取最新價格，歷史已快取且無 gap 之完整數據直接命中本地快取；增量補取時精確從 `cached[-1].ts` 開始拉取，大幅提升圖表載入流暢度並減少交易所 API 消耗。
+  - 修復 paper 模擬合成 K 線與實盤歷史混用的問題，純實盤快取不混入合成柱；若連線異常使用本地快取時誠實提示「stale」。
+- **前端圖表時框切換自適應與兜底價格 (DCA Chart Timeframe Fit & Current Price Fallback)**：
+  - `DcaChart.tsx` 支援 `timeframe` 響應，切換 K 線週期時自動調用 `timeScale().fitContent()` 自適應時間軸跨度；`DcaDetail.tsx` 與後端 `/api/v1/dca/chart/{bot_id}` 強化無成交時的 `effective_current_price` 兜底，避免圖表基線斷崖。
+
 ## [0.3.8] — 2026-09-18
 
 ### Added

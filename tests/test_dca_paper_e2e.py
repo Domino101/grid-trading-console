@@ -319,7 +319,8 @@ class PaperE2ETests(unittest.IsolatedAsyncioTestCase):
 
             # ── INV-2 / INV-3：進入 averaging 後 TP 恰 1 筆、安全單 ≤ 窗口 ──
             open_orders = await paper.get_open_orders(SYMBOL)
-            role_of_tp = [o for o in open_orders if o.client_id.endswith("_tp")]
+            role_of_tp = [o for o in open_orders
+                          if "_tp_" in (o.client_id or "") or (o.client_id or "").endswith("_tp")]
             safety_open = [o for o in open_orders if "_so" in (o.client_id or "")]
             self.assertEqual(len(role_of_tp), 1)
             self.assertLessEqual(len(safety_open), config.active_safety_orders_window)

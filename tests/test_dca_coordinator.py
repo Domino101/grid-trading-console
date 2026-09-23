@@ -90,11 +90,16 @@ def safety_creates(fake: FakeExchange) -> list:
 
 
 def tp_creates(fake: FakeExchange) -> list:
-    return [c for c in fake.calls if c[0] == "create" and str(c[1]).endswith("_tp")]
+    # 新格式: dca_{hash}_{leg}_tp_{seq}；相容舊格式 _tp 結尾
+    return [c for c in fake.calls if c[0] == "create"
+            and ("_tp_" in str(c[1]) or str(c[1]).endswith("_tp"))]
 
 
 def open_with_suffix(fake: FakeExchange, suffix: str) -> list:
-    return [r for r in fake.open_order_records() if r.client_id.endswith(suffix)]
+    # 相容新格式（suffix 後面可能還有 _NNNN 序號）
+    # suffix 例如 "_tp"、"_so01"
+    return [r for r in fake.open_order_records()
+            if f"{suffix}_" in r.client_id or r.client_id.endswith(suffix)]
 
 
 def event_names(coord) -> set:
@@ -144,7 +149,7 @@ class TriggerFlowTests(unittest.IsolatedAsyncioTestCase):
         await coord.step()  # 下基礎單：本輪恰好 1 次 create
         self.assertEqual(fake.create_call_count(), 1)
         call = fake.calls[0]
-        self.assertTrue(str(call[1]).endswith("_long_base"))
+        self.assertIn("_long_base_", str(call[1]))
         self.assertEqual(call[4], quantize_quantity(BASE_QTY, 6))  # 0.008
         self.assertEqual(call[5], D("2500.00"))
 
@@ -163,7 +168,8 @@ class TriggerFlowTests(unittest.IsolatedAsyncioTestCase):
         open_orders = fake.open_order_records()
         self.assertEqual(len(open_orders), 6)
         self.assertEqual(len(open_with_suffix(fake, "_tp")), 1)
-        safety_suffixes = sorted(r.client_id.rsplit("_", 1)[1]
+        # 新格式: dca_{hash}_{leg}_{slot}_{seq} — slot 為倒數第二個 _ 段
+        safety_suffixes = sorted(r.client_id.split("_")[-2]
                                  for r in open_orders if "_so" in r.client_id)
         self.assertEqual(safety_suffixes, ["so01", "so02", "so03", "so04", "so05"])
         stats = coord.build_statistics(last_price=E0)
@@ -253,7 +259,7 @@ class TakeProfitInvariantTests(unittest.IsolatedAsyncioTestCase):
 
         create_tp_idx = next(
             i for i, c in enumerate(fake.calls)
-            if c[0] == "create" and str(c[1]).endswith("_tp")
+            if c[0] == "create" and ("_tp_" in str(c[1]) or str(c[1]).endswith("_tp"))
             and i > 1  # 首張 TP 之後
         )
         cancel_idx = next(i for i, c in enumerate(fake.calls)
@@ -579,7 +585,7 @@ class DirectionLockEngineTests(unittest.IsolatedAsyncioTestCase):
                            for c in fake.calls if c[0] == "create"
                            and str(c[1]).split("_")[2] == "short"]]
         self.assertGreaterEqual(len(round2_creates), 1)
-        self.assertTrue(any(str(c[1]).endswith("_short_base")
+        self.assertTrue(any("_short_base_" in str(c[1])
                             for c in fake.calls if c[0] == "create"))
 
 
@@ -598,6 +604,53 @@ class FailureTransitionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(coord.state.status, DcaStatus.FAILED)
         self.assertIn(DcaStatus.FAILED.value, published)
         self.assertIsNotNone(coord.state.last_error)
+
+    async def test_base_order_cancelled_rearms_without_deadlock(self):
+        config = make_config()
+        fake = FakeExchange(E0 + D("100"))  # 市價高於掛單，確保限價單掛在盤口不上成交
+        coord, _, published = build_coordinator(config, fake)
+        coord.begin()
+        await coord.step()
+        self.assertIs(coord.state.status, DcaStatus.TRIGGERING)
+        await coord.step()  # 下基礎單
+        self.assertIsNotNone(coord._base_order)
+        self.assertEqual(len(coord._active), 1)
+
+        # 模擬交易所外部撤單（如過期或用戶手動撤銷）
+        base_client_id = coord._base_order.client_order_id
+        fake.by_client_id[base_client_id].status = "cancelled"
+
+        # 對帳輪詢 step: 應移出追蹤並自動重置回 ARMED
+        await coord.step()
+        self.assertIs(coord.state.status, DcaStatus.ARMED)
+        self.assertIsNone(coord._base_order)
+        self.assertEqual(len(coord._active), 0)
+
+        # 下一輪 step: 應能重新進入 TRIGGERING 並重新下基礎單，解除永久死鎖
+        await coord.step()
+        self.assertIs(coord.state.status, DcaStatus.TRIGGERING)
+        await coord.step()
+        self.assertIsNotNone(coord._base_order)
+        self.assertNotEqual(coord._base_order.client_order_id, base_client_id)
+
+    async def test_orphaned_base_order_self_heals(self):
+        config = make_config()
+        fake = FakeExchange(E0)
+        coord, _, published = build_coordinator(config, fake)
+        coord.begin()
+        coord.state.status = DcaStatus.TRIGGERING
+        # 構造孤立基礎單（在 _base_order 但不在 _active）
+        from core.services.dca.models.dca_order import DcaOrder, DcaOrderRole
+        coord._base_order = DcaOrder(
+            client_order_id="orphaned_base_1", symbol=SYMBOL, side="buy",
+            role=DcaOrderRole.BASE, price=E0, quantity=D("1.0"),
+        )
+        coord._active.clear()
+
+        # step_triggering 偵測到孤立單，自癒重置為 ARMED
+        await coord.step()
+        self.assertIs(coord.state.status, DcaStatus.ARMED)
+        self.assertIsNone(coord._base_order)
 
 
 class StaticConstraintTests(unittest.TestCase):

@@ -22,6 +22,7 @@ class OutcomeKind(Enum):
     REJECTED_MIN_NOTIONAL = "rejected_min_notional"  # 低於最小名目，未送出（稽核 2.15）
     DEFERRED_CIRCUIT_OPEN = "deferred_circuit_open"  # 熔斷中延後（稽核 2.14）
     POSITION_CLOSED_EXTERNALLY = "position_closed_externally"  # 交易所持倉已歸零（外部已平倉）
+    REJECTED_INSUFFICIENT_MARGIN = "rejected_insufficient_margin"  # 帳戶可用保證金/餘額不足
     ERROR = "error"                      # 交易所拋錯
 
 
