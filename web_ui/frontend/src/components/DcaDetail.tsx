@@ -595,6 +595,7 @@ const DcaDetail: React.FC<DcaDetailProps> = ({ bot: initialBot, onBack, onUnauth
                                 direction={activeDirection}
                                 liveLastPrice={chart?.current_price ?? currentPrice}
                                 height={440}
+                                timeframe={chartTimeframe}
                                 ariaLabel={`${bot.symbol ?? botId} ${chartTimeframe} K 線與 DCA 交易標記`}
                             />
                         </Suspense>

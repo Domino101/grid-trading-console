@@ -213,6 +213,69 @@ class TestExchangeReconciler(unittest.TestCase):
         self.assertIsNotNone(coordinator._tp_manager)
         self.assertEqual(coordinator._tp_manager.current_tp, existing_tp)
 
+    def test_dca_reconciler_syncs_discrepant_position_and_replaces_tp(self):
+        """實盤持倉 60.2 但本地快照僅 30.2 且 TP 單僅 30.2 時，自癒對齊持倉為 60.2 並重新掛出 60.2 的 TP 單"""
+        from core.services.dca.models.dca_order import bot_id_hash8
+        from core.services.dca.interfaces.dca_executor import OrderOutcome, OutcomeKind
+
+        executor = MagicMock()
+        executor._bot_id = self.bot_id
+        executor._symbol = "PNUT/USDC:USDC"
+        executor._order_seq = 0
+        my_hash = bot_id_hash8(self.bot_id)
+
+        # 舊 TP 單只有 30.2
+        old_tp = DcaOrder(
+            client_order_id=f"dca_{my_hash}_long_tp_0001",
+            symbol="PNUT/USDC:USDC",
+            side="sell",
+            role=DcaOrderRole.TAKE_PROFIT,
+            price=Decimal("0.05075"),
+            quantity=Decimal("30.2"),
+            status=DcaOrderStatus.PLACED,
+        )
+        executor.fetch_open_orders = AsyncMock(return_value=[old_tp])
+        executor.last_price = AsyncMock(return_value=Decimal("0.050"))
+        executor.cancel = AsyncMock(return_value=True)
+
+        new_tp = DcaOrder(
+            client_order_id=f"dca_{my_hash}_long_tp_0002",
+            symbol="PNUT/USDC:USDC",
+            side="sell",
+            role=DcaOrderRole.TAKE_PROFIT,
+            price=Decimal("0.05075"),
+            quantity=Decimal("60.2"),
+            status=DcaOrderStatus.PLACED,
+        )
+        executor.place_limit = AsyncMock(return_value=OrderOutcome(OutcomeKind.PLACED, order=new_tp))
+
+        # 交易所實盤持倉 60.2 @ 0.05
+        mock_exchange = MagicMock()
+        mock_exchange.get_positions = AsyncMock(return_value=[DummyPosition("PNUT/USDC:USDC", 60.2, 0.05)])
+        executor._exchange = mock_exchange
+
+        coordinator = DcaCoordinator(self.config, self.bot_id, executor)
+        # 本地快照僅 30.2
+        coordinator.state.position_quantity = Decimal("30.2")
+        coordinator.state.total_cost = Decimal("1.51")
+        coordinator.state.status = DcaStatus.AVERAGING
+
+        # 執行自癒對帳
+        res = asyncio.run(ExchangeReconciler.reconcile_dca(coordinator, has_snapshot=True))
+
+        # 驗證持倉已自癒對齊至 60.2
+        self.assertEqual(res["status"], "success")
+        self.assertTrue(res["rehydrated"])
+        self.assertTrue(res["tp_deployed"])
+        self.assertEqual(coordinator.state.position_quantity, Decimal("60.2"))
+
+        # 驗證舊 TP 被撤銷且掛上了 60.2 的新 TP
+        executor.cancel.assert_called_once_with(old_tp)
+        executor.place_limit.assert_called_once()
+        _, kwargs = executor.place_limit.call_args
+        self.assertEqual(executor.place_limit.call_args[0][3], Decimal("60.2"))
+        self.assertEqual(coordinator._tp_client_id, new_tp.client_order_id)
+
 
 if __name__ == "__main__":
     unittest.main()

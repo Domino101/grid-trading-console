@@ -20,6 +20,7 @@ tests/test_dca_replay_driver.py —— Phase C3 稽核測試（ReplayDriver 接�
 
 import asyncio
 import json
+import logging
 import os
 import subprocess
 import time
@@ -303,9 +304,14 @@ class TestDcaReplayDriver(unittest.TestCase):
         cfg = _make_default_config()
         driver = ReplayDriver(cfg, candles, initial_capital="5000")
 
-        t0 = time.perf_counter()
-        res = asyncio.run(driver.run())
-        elapsed = time.perf_counter() - t0
+        prev_disable = logging.root.manager.disable
+        logging.disable(logging.WARNING)
+        try:
+            t0 = time.perf_counter()
+            res = asyncio.run(driver.run())
+            elapsed = time.perf_counter() - t0
+        finally:
+            logging.disable(prev_disable)
 
         self.assertEqual(res.bars, 3000)
         self.assertGreater(res.bars_per_second, 500)

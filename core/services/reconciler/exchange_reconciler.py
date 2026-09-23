@@ -53,6 +53,8 @@ class ExchangeReconciler:
             exchange_pos_qty = Decimal("0")
             exchange_pos_side: Optional[str] = None
             exchange_avg_cost = Decimal("0")
+            opposing_pos_qty = Decimal("0")
+            opposing_pos_side: Optional[str] = None
             bot_dir = _normalize_dir(getattr(coordinator._config, "direction", "long"))
 
             # Try executor method or underlying exchange adapter
@@ -75,6 +77,8 @@ class ExchangeReconciler:
 
                                 # 方向相容性過濾：單向機器人只匹配同向持倉
                                 if bot_dir in ("long", "short") and side_str != bot_dir:
+                                    opposing_pos_qty = qty
+                                    opposing_pos_side = side_str
                                     logger.warning(
                                         f"⚠️ [Reconciler {symbol}] 發現交易所持倉 {qty} ({side_str})，但機器人方向設定為 {bot_dir}，方向衝突，略過認領",
                                         extra={"bot_id": bot_id, "symbol": symbol, "exchange_side": side_str, "bot_direction": bot_dir},
@@ -128,13 +132,41 @@ class ExchangeReconciler:
                     coordinator.state.status = DcaStatus.AVERAGING
                     result["rehydrated"] = True
             elif local_qty > Decimal("0") and exchange_pos_qty == Decimal("0"):
+                if opposing_pos_qty > Decimal("0"):
+                    logger.warning(
+                        f"⚠️ [Reconciler {symbol}] 交易所存在反向持倉 ({opposing_pos_qty} {opposing_pos_side})！單向持倉或外部反向部位下禁止判定為外部平倉，維持本機持倉={local_qty}！",
+                        extra={"bot_id": bot_id, "symbol": symbol, "local_qty": str(local_qty), "opposing_qty": str(opposing_pos_qty), "opposing_side": opposing_pos_side},
+                    )
+                else:
+                    logger.warning(
+                        f"🚨 [Reconciler {symbol}] 檢測到狀態不一致！本地記錄持倉 {local_qty} 但交易所端已無持倉（外部已平倉）。啟動自癒收輪！",
+                        extra={"bot_id": bot_id, "symbol": symbol, "local_qty": str(local_qty)},
+                    )
+                    from core.services.dca.models import DcaStatus
+                    coordinator._flag_round_finished = True
+                    await coordinator._finish_round()
+                    result["rehydrated"] = True
+            elif exchange_pos_qty > Decimal("0") and local_qty > Decimal("0") and abs(exchange_pos_qty - local_qty) > Decimal("0.0001"):
                 logger.warning(
-                    f"🚨 [Reconciler {symbol}] 檢測到狀態不一致！本地記錄持倉 {local_qty} 但交易所端已無持倉（外部已平倉）。啟動自癒收輪！",
-                    extra={"bot_id": bot_id, "symbol": symbol, "local_qty": str(local_qty)},
+                    f"🚨 [Reconciler {symbol}] 檢測到持倉數量不一致！本地記錄持倉 {local_qty}，交易所實盤持倉 {exchange_pos_qty} ({exchange_pos_side})。啟動自癒對齊！",
+                    extra={"bot_id": bot_id, "symbol": symbol, "local_qty": str(local_qty), "exchange_qty": str(exchange_pos_qty), "side": exchange_pos_side},
                 )
-                from core.services.dca.models import DcaStatus
-                coordinator._flag_round_finished = True
-                await coordinator._finish_round()
+                if exchange_avg_cost <= Decimal("0"):
+                    try:
+                        exchange_avg_cost = await executor.last_price()
+                    except Exception:
+                        exchange_avg_cost = Decimal("0")
+
+                coordinator.state.position_quantity = exchange_pos_qty
+                if exchange_avg_cost > Decimal("0"):
+                    coordinator.state.entry_price = exchange_avg_cost
+                    coordinator.state.total_cost = exchange_pos_qty * exchange_avg_cost
+                elif coordinator.state.entry_price:
+                    coordinator.state.total_cost = exchange_pos_qty * coordinator.state.entry_price
+
+                if exchange_pos_side in ("long", "short"):
+                    coordinator.state.active_direction = exchange_pos_side
+
                 result["rehydrated"] = True
 
             # 4. Critical TP Protection Check: If position > 0, make sure Take-Profit order is deployed
@@ -169,7 +201,14 @@ class ExchangeReconciler:
                 if active_tp:
                     coordinator._tp_manager.current_tp = active_tp
                     coordinator._tp_client_id = active_tp.client_order_id
-                    if coordinator.state.status == DcaStatus.DEGRADED:
+                    if abs(active_tp.quantity - coordinator.state.position_quantity) > Decimal("0.0001"):
+                        logger.warning(
+                            f"🛡️ [Reconciler {symbol}] 當前 TP 單數量 ({active_tp.quantity}) 與實盤持倉 ({coordinator.state.position_quantity}) 不符，即刻執行 Take-Profit 原子修正！",
+                            extra={"bot_id": bot_id, "symbol": symbol, "tp_qty": str(active_tp.quantity), "pos_qty": str(coordinator.state.position_quantity)},
+                        )
+                        await coordinator._attempt_tp_replace()
+                        result["tp_deployed"] = True
+                    elif coordinator.state.status == DcaStatus.DEGRADED:
                         if hasattr(coordinator, "_transition"):
                             coordinator._transition(DcaStatus.AVERAGING)
                         else:

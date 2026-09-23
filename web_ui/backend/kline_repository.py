@@ -211,11 +211,15 @@ class KlineRepository:
         end_ts: Optional[int] = None,
         limit: Optional[int] = None,
         desc: bool = False,
+        synthetic: Optional[int] = None,
     ) -> List[StoredKline]:
         """Fetch klines matching range constraints with fully parameterized query."""
         conditions = ["exchange = ?", "symbol = ?", "timeframe = ?"]
         params: List[Any] = [exchange.lower(), symbol, timeframe.lower()]
 
+        if synthetic is not None:
+            conditions.append("synthetic = ?")
+            params.append(int(synthetic))
         if start_ts is not None:
             conditions.append("ts >= ?")
             params.append(int(start_ts))
@@ -264,6 +268,7 @@ class KlineRepository:
         timeframe: str,
         limit: int = 300,
         until: Optional[int] = None,
+        synthetic: Optional[int] = None,
     ) -> List[StoredKline]:
         """Fetch the most recent `limit` candles up to `until`, sorted ascending."""
         desc_candles = self.get_range(
@@ -273,30 +278,39 @@ class KlineRepository:
             end_ts=until,
             limit=limit,
             desc=True,
+            synthetic=synthetic,
         )
         return list(reversed(desc_candles))
 
-    def count(self, exchange: str, symbol: str, timeframe: str) -> int:
+    def count(self, exchange: str, symbol: str, timeframe: str, synthetic: Optional[int] = None) -> int:
         """Count total candles stored for the given pair and timeframe."""
+        conditions = ["exchange = ?", "symbol = ?", "timeframe = ?"]
+        params: List[Any] = [exchange.lower(), symbol, timeframe.lower()]
+        if synthetic is not None:
+            conditions.append("synthetic = ?")
+            params.append(int(synthetic))
         query_sql = (
-            "SELECT COUNT(*) AS total FROM dca_klines "
-            "WHERE exchange = ? AND symbol = ? AND timeframe = ?"
+            "SELECT COUNT(*) AS total FROM dca_klines WHERE " + " AND ".join(conditions)
         )
         with self._lock, self._connect() as connection:
-            cursor = connection.execute(query_sql, (exchange.lower(), symbol, timeframe.lower()))
+            cursor = connection.execute(query_sql, params)
             row = cursor.fetchone()
             return int(row["total"]) if row else 0
 
     def get_time_bounds(
-        self, exchange: str, symbol: str, timeframe: str
+        self, exchange: str, symbol: str, timeframe: str, synthetic: Optional[int] = None
     ) -> Tuple[Optional[int], Optional[int]]:
         """Get (min_ts, max_ts) for stored candles."""
+        conditions = ["exchange = ?", "symbol = ?", "timeframe = ?"]
+        params: List[Any] = [exchange.lower(), symbol, timeframe.lower()]
+        if synthetic is not None:
+            conditions.append("synthetic = ?")
+            params.append(int(synthetic))
         query_sql = (
-            "SELECT MIN(ts) AS min_ts, MAX(ts) AS max_ts FROM dca_klines "
-            "WHERE exchange = ? AND symbol = ? AND timeframe = ?"
+            "SELECT MIN(ts) AS min_ts, MAX(ts) AS max_ts FROM dca_klines WHERE " + " AND ".join(conditions)
         )
         with self._lock, self._connect() as connection:
-            cursor = connection.execute(query_sql, (exchange.lower(), symbol, timeframe.lower()))
+            cursor = connection.execute(query_sql, params)
             row = cursor.fetchone()
             if row and row["min_ts"] is not None:
                 return int(row["min_ts"]), int(row["max_ts"])

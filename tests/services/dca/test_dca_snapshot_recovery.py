@@ -8,18 +8,38 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from types import SimpleNamespace
+
 from core.services.dca.coordinator import DcaCoordinator
-from core.services.dca.models import DcaConfig, DcaDirection, DcaOrder, DcaOrderRole, DcaOrderStatus, DcaStatus
+from core.services.dca.models import (
+    DcaConfig,
+    DcaDirection,
+    DcaOrder,
+    DcaOrderRole,
+    DcaOrderStatus,
+    DcaStatus,
+    bot_id_hash8,
+)
 from web_ui.backend.runtime_repository import RuntimeSnapshotRepository
 
 
 class DummyExecutor:
-    def __init__(self, bot_id="test-dca-bot", symbol="ETH/USDC:USDC"):
+    def __init__(self, bot_id="test-dca-bot", symbol="ETH/USDC:USDC", position_qty=Decimal("0")):
         self._bot_id = bot_id
         self._symbol = symbol
         self.fetch_open_orders = AsyncMock(return_value=[])
         self.fetch_order = AsyncMock(return_value=None)
         self.last_price = AsyncMock(return_value=Decimal("2500"))
+        pos_list = []
+        if position_qty > 0:
+            pos_list.append(SimpleNamespace(
+                symbol=symbol,
+                amount=position_qty,
+                size=position_qty,
+                side=SimpleNamespace(value="long"),
+                entry_price=Decimal("2450"),
+            ))
+        self._exchange = SimpleNamespace(get_positions=AsyncMock(return_value=pos_list))
 
 
 @pytest.fixture
@@ -36,7 +56,7 @@ def dca_config():
 @pytest.mark.asyncio
 async def test_dca_recover_state_from_snapshot_restores_cycles_and_profit(dca_config, monkeypatch):
     bot_id = "test-dca-recovery-bot"
-    executor = DummyExecutor(bot_id=bot_id)
+    executor = DummyExecutor(bot_id=bot_id, position_qty=Decimal("0.5"))
     coordinator = DcaCoordinator(dca_config, bot_id, executor)
 
     snapshot_data = {
@@ -85,9 +105,10 @@ async def test_dca_recover_state_from_snapshot_restores_cycles_and_profit(dca_co
 async def test_dca_reconcile_startup_orders_takes_over_open_orders(dca_config):
     bot_id = "test-dca-orders-bot"
     executor = DummyExecutor(bot_id=bot_id)
+    my_hash = bot_id_hash8(bot_id)
 
     base_order = DcaOrder(
-        client_order_id="dca_12345678_long_base",
+        client_order_id=f"dca_{my_hash}_long_base_0001",
         symbol="ETH/USDC:USDC",
         side="buy",
         role=DcaOrderRole.BASE,
@@ -96,7 +117,7 @@ async def test_dca_reconcile_startup_orders_takes_over_open_orders(dca_config):
         status=DcaOrderStatus.PLACED,
     )
     so_order = DcaOrder(
-        client_order_id="dca_12345678_long_so01",
+        client_order_id=f"dca_{my_hash}_long_so01_0002",
         symbol="ETH/USDC:USDC",
         side="buy",
         role=DcaOrderRole.SAFETY,
@@ -105,7 +126,7 @@ async def test_dca_reconcile_startup_orders_takes_over_open_orders(dca_config):
         status=DcaOrderStatus.PLACED,
     )
     tp_order = DcaOrder(
-        client_order_id="dca_12345678_long_tp",
+        client_order_id=f"dca_{my_hash}_long_tp_0003",
         symbol="ETH/USDC:USDC",
         side="sell",
         role=DcaOrderRole.TAKE_PROFIT,
@@ -120,7 +141,7 @@ async def test_dca_reconcile_startup_orders_takes_over_open_orders(dca_config):
     taken = await coordinator.reconcile_startup_orders()
 
     assert taken == 3
-    assert "dca_12345678_long_base" in coordinator._active
+    assert f"dca_{my_hash}_long_base_0001" in coordinator._active
     assert coordinator._base_order == base_order
-    assert coordinator._tp_client_id == "dca_12345678_long_tp"
-    assert coordinator._active["dca_12345678_long_so01"].slot_index == 1
+    assert coordinator._tp_client_id == f"dca_{my_hash}_long_tp_0003"
+    assert coordinator._active[f"dca_{my_hash}_long_so01_0002"].slot_index == 1

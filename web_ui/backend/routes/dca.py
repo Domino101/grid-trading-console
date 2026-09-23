@@ -1492,12 +1492,16 @@ async def get_dca_chart(
     if kline_result.data_status == "paper" and "使用合成 K 線，非真實歷史" not in warnings:
         warnings.append("使用合成 K 線，非真實歷史")
     
+    effective_current_price = current_price
+    if effective_current_price is None and chart_candles:
+        effective_current_price = chart_candles[-1].c
+
     return DcaChartResponse(
         bot_id=bot_id,
         candles=chart_candles,
         marks=marks,
         lines=lines,
-        current_price=current_price,
+        current_price=effective_current_price,
         data_status=kline_result.data_status,
         source=kline_result.source,
         warnings=warnings,

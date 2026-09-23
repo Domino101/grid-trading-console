@@ -44,6 +44,7 @@ export interface DcaChartProps {
     liveLastPrice?: number | null;
     height?: number;
     ariaLabel?: string;
+    timeframe?: string;
 }
 
 /** 主題色以 CSS 變數解析（稽核：不得硬編碼新色票）。 */
@@ -68,6 +69,7 @@ const DcaChart: React.FC<DcaChartProps> = ({
     liveLastPrice,
     height = 420,
     ariaLabel = 'DCA K 線圖表',
+    timeframe,
 }) => {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const chartRef = useRef<IChartApi | null>(null);
@@ -76,6 +78,7 @@ const DcaChart: React.FC<DcaChartProps> = ({
     const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
     const priceLinesRef = useRef<IPriceLine[]>([]);
     const fittedRef = useRef(false);
+    const prevTimeframeRef = useRef<string | undefined>(timeframe);
 
     // 純函式轉換（E-6.3）：全部數學/排序/文字都在 utils/dcaChart.ts。
     const candleSeries = useMemo(() => toCandleSeries(candles, liveLastPrice), [candles, liveLastPrice]);
@@ -162,6 +165,16 @@ const DcaChart: React.FC<DcaChartProps> = ({
             fittedRef.current = true;
         }
     }, [candleSeries]);
+
+    // 時框切換時重新 fitContent，適應新資料時間跨度
+    useEffect(() => {
+        if (timeframe && prevTimeframeRef.current !== timeframe) {
+            prevTimeframeRef.current = timeframe;
+            if (chartRef.current && candleSeries.length > 0) {
+                chartRef.current.timeScale().fitContent();
+            }
+        }
+    }, [timeframe, candleSeries.length]);
 
     // ── 標記 ──
     useEffect(() => {

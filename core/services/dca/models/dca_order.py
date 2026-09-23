@@ -38,15 +38,19 @@ def bot_id_hash8(bot_id: str) -> str:
     return hashlib.sha1(bot_id.encode("utf-8")).hexdigest()[:8]
 
 
-def build_client_order_id(bot_id: str, leg: str, slot: str) -> str:
+def build_client_order_id(bot_id: str, leg: str, slot: str,
+                          seq: int = 0) -> str:
     """
     組出凍結格式的客戶端訂單 ID。
 
     slot 建議值：base / soNN（NN 兩位數）/ tp / sl。
+    seq 為單調遞增序號，保證跨輪次與 TP 重掛的 client_order_id 唯一性——
+    不加序號時，同輪次的 TP cancel-then-place 和跨輪次的 base 單
+    會重用同一 client_order_id，導致 REST 對帳匹配到已成交的舊單。
     """
     if leg not in ("long", "short"):
         raise ValueError(f"無效的 leg: {leg!r}，合法值: long, short")
-    return f"dca_{bot_id_hash8(bot_id)}_{leg}_{slot}"
+    return f"dca_{bot_id_hash8(bot_id)}_{leg}_{slot}_{seq:04d}"
 
 
 @dataclass

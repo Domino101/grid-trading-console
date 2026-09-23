@@ -203,9 +203,18 @@ class DcaCoordinator:
                 if not cid or not isinstance(cid, str):
                     continue
                 parts = cid.split("_")
+                # 新格式: dca_{hash}_{leg}_{slot}_{seq} (5 parts)
+                # 舊格式: dca_{hash}_{leg}_{slot}          (4 parts)
                 if len(parts) < 4 or parts[0] != "dca" or parts[1] != my_hash:
                     continue
                 slot = parts[3]
+                if len(parts) >= 5 and parts[4].isdigit():
+                    try:
+                        seq_val = int(parts[4])
+                        if hasattr(self._executor, "_order_seq"):
+                            self._executor._order_seq = max(self._executor._order_seq, seq_val)
+                    except ValueError:
+                        pass
                 
                 if slot == "base":
                     order.role = DcaOrderRole.BASE
@@ -420,6 +429,23 @@ class DcaCoordinator:
         if self._flag_base_filled:
             self._flag_base_filled = False
             await self._enter_averaging()
+            return
+
+        if (
+            self._base_order is not None
+            and not self._base_order.is_filled()
+            and self._base_order.client_order_id not in self._active
+        ):
+            logger.warning(
+                "偵測到基礎單未成交且已脫離活躍追蹤清單（如外部撤單/失效），啟動自癒重置為 ARMED",
+                extra={"symbol": self._config.symbol, "bot_id": self._bot_id,
+                       "action": "triggering_base_order_orphaned_healed",
+                       "client_order_id": self._base_order.client_order_id},
+            )
+            self._base_order = None
+            self._lock.release()
+            self.state.active_direction = None
+            self._transition(DcaStatus.ARMED)
 
     async def _step_averaging(self) -> None:
         await self._reconcile()
@@ -528,6 +554,7 @@ class DcaCoordinator:
         window = self._config.active_safety_orders_window
         direction = self.state.active_direction
         side = "buy" if direction == "long" else "sell"
+        mark = None
 
         while self._active_safety_count() < window:
             slot = next((s for s in self.state.safety_slots
@@ -562,13 +589,15 @@ class DcaCoordinator:
                 return
 
             # —— 急跌穿透窗口 → 以現價重新對齊（稽核 2.3c）——
-            mark = await self._executor.last_price()
+            if mark is None:
+                mark = await self._executor.last_price()
             price_above_market = (
                 (direction == "long" and slot.planned_price > mark)
                 or (direction == "short" and slot.planned_price < mark)
             )
             if price_above_market:
                 await self._realign_remaining_slots(mark)
+                mark = None  # 重對齊後清空緩存，下一輪重新取現價
                 continue  # 槽位計畫價已更新，重取下一個 WAITING 槽
 
             outcome = await self._executor.place_limit(
@@ -594,6 +623,17 @@ class DcaCoordinator:
                 continue
             elif outcome.kind is OutcomeKind.DEFERRED_CIRCUIT_OPEN:
                 return  # 熔斷中：下輪再補
+            elif (
+                outcome.kind is OutcomeKind.REJECTED_INSUFFICIENT_MARGIN
+                or (outcome.reason and ("-2019" in outcome.reason or "margin is insufficient" in outcome.reason.lower()))
+            ):
+                logger.warning(
+                    f"⚠️ [DCA {self._config.symbol}] 安全單因可用保證金不足掛單被拒，暫緩補單，維持現有持倉與止盈保護: {outcome.reason}",
+                    extra={"symbol": self._config.symbol, "bot_id": self._bot_id,
+                           "action": "place_safety", "result": "rejected_insufficient_margin",
+                           "slot_index": slot.index},
+                )
+                return  # 暫緩後續補單，保留現有 TP 與持倉正常運行，切勿崩潰撤單
             else:
                 self._fail(RuntimeError(f"安全單下單失敗: {outcome.reason}"))
                 return
@@ -645,6 +685,17 @@ class DcaCoordinator:
             self._tp_manager = TakeProfitManager(self._executor, direction)
             if self._tp_client_id and self._tp_client_id in self._active:
                 self._tp_manager.current_tp = self._active[self._tp_client_id]
+
+        if self._tp_manager.current_tp is None:
+            if self._tp_client_id and self._tp_client_id in self._active:
+                self._tp_manager.current_tp = self._active[self._tp_client_id]
+            else:
+                for o in self._active.values():
+                    role_val = str(getattr(getattr(o, "role", None), "value", getattr(o, "role", "")))
+                    if role_val in ("take_profit", "tp"):
+                        self._tp_manager.current_tp = o
+                        self._tp_client_id = o.client_order_id
+                        break
         old_id = self._tp_client_id
         try:
             new_tp = await self._tp_manager.replace(
@@ -680,6 +731,52 @@ class DcaCoordinator:
                     "TP 重掛失敗，舊 TP 仍在保護中，下輪重試",
                     extra={"symbol": self._config.symbol, "bot_id": self._bot_id,
                            "action": "tp_replace", "result": "retry_next_cycle"},
+                )
+
+            # ── 持倉自癒（Fix 3）：TP 失敗時以交易所持倉為準修正本機倉位 ──
+            # 若本機 position_quantity 因重複成交膨脹超過交易所實際持倉，
+            # TP reduce_only 會被拒（數量超限），形成永遠無法成交的 cancel-retry 迴圈。
+            try:
+                pos = await self._executor.fetch_position()
+                if pos is not None and pos.get("size", Decimal("0")) > Decimal("0"):
+                    pos_side = pos.get("side")
+                    pos_size = pos.get("size", Decimal("0"))
+                    expected_dir = self.state.active_direction or (
+                        self._config.direction.value if hasattr(self._config.direction, "value")
+                        else str(self._config.direction or "").lower()
+                    )
+                    if pos_side == expected_dir:
+                        if pos_size != self.state.position_quantity:
+                            logger.warning(
+                                "持倉自癒：本機倉位與交易所同向持倉不符，以交易所為準修正",
+                                extra={
+                                    "symbol": self._config.symbol,
+                                    "bot_id": self._bot_id,
+                                    "action": "tp_position_self_heal",
+                                    "local_qty": str(self.state.position_quantity),
+                                    "exchange_qty": str(pos_size),
+                                },
+                            )
+                            self.state.position_quantity = pos_size
+                            entry_px = pos.get("entry_price", Decimal("0"))
+                            if entry_px > 0:
+                                self.state.total_cost = pos_size * entry_px
+                    else:
+                        logger.warning(
+                            f"持倉自癒略過：交易所持倉方向 ({pos_side}) 與機器人方向 ({expected_dir}) 不符，禁止覆蓋本機持倉！",
+                            extra={
+                                "symbol": self._config.symbol,
+                                "bot_id": self._bot_id,
+                                "action": "tp_position_self_heal_direction_mismatch_skipped",
+                                "local_qty": str(self.state.position_quantity),
+                                "exchange_qty": str(pos_size),
+                                "exchange_side": str(pos_side),
+                            },
+                        )
+            except Exception as heal_exc:
+                logger.debug(
+                    "持倉自癒查詢失敗（不影響主流程）",
+                    extra={"error": str(heal_exc)},
                 )
             return
         if old_id and old_id != new_tp.client_order_id:
@@ -833,6 +930,20 @@ class DcaCoordinator:
                 continue
             latest = await self._executor.fetch_order(client_id)
             if latest is not None and latest.status in (DcaOrderStatus.FILLED, DcaOrderStatus.PARTIAL):
+                # 防禦性交叉比對：若追蹤中的 order_id 與交易所回傳的不符，
+                # 代表交易所返回了同 client_id 的舊輪訂單 → 忽略，避免重複成交
+                tracked = self._active.get(client_id)
+                if tracked and tracked.order_id and latest.order_id \
+                        and tracked.order_id != latest.order_id:
+                    logger.warning(
+                        "REST 返回的 order_id 與追蹤不符（疑似舊輪訂單），忽略",
+                        extra={"symbol": self._config.symbol, "bot_id": self._bot_id,
+                               "action": "reconcile_stale_order",
+                               "client_order_id": client_id,
+                               "tracked_order_id": tracked.order_id,
+                               "exchange_order_id": latest.order_id},
+                    )
+                    continue
                 price = latest.average_fill_price or latest.price
                 qty = latest.filled_quantity or latest.quantity
                 await self._fill_funnel(client_id, price, qty)
@@ -851,6 +962,30 @@ class DcaCoordinator:
                         and self.state.status in (DcaStatus.AVERAGING, DcaStatus.DEGRADED):
                     self._tp_client_id = None
                     self._pending_tp_replace = True
+                elif order.role is DcaOrderRole.BASE:
+                    self._base_order = None
+                    if self.state.status is DcaStatus.TRIGGERING:
+                        self._lock.release()
+                        self.state.active_direction = None
+                        self._transition(DcaStatus.ARMED)
+                        logger.warning(
+                            "基礎單在交易所被撤銷或消失，重置回 ARMED 狀態以解除死鎖並允許重新入場",
+                            extra={"symbol": self._config.symbol, "bot_id": self._bot_id,
+                                   "action": "base_order_cancelled_rearm",
+                                   "client_order_id": client_id},
+                        )
+                elif order.role is DcaOrderRole.SAFETY:
+                    if order.slot_index is not None:
+                        for slot in self.state.safety_slots:
+                            if slot.index == order.slot_index and slot.status is SlotStatus.ACTIVE:
+                                slot.status = SlotStatus.WAITING
+                                logger.warning(
+                                    f"安全單 so{slot.index:02d} 在交易所被撤銷或消失，重置槽位狀態為 WAITING 待重新掛單",
+                                    extra={"symbol": self._config.symbol, "bot_id": self._bot_id,
+                                           "action": "safety_order_cancelled_rewait",
+                                           "slot_index": slot.index,
+                                           "client_order_id": client_id},
+                                )
             elif latest is None:
                 logger.warning(
                     "反查訂單暫無回應（保留追蹤待下輪重試）",
@@ -859,16 +994,48 @@ class DcaCoordinator:
                            "client_order_id": client_id},
                 )
 
-        # 持倉真值巡檢（方案 1-A）：當本機有持倉且處於 AVERAGING 或 DEGRADED 時，若交易所持倉已歸零，自動標記本輪完成
+        # 持倉真值巡檢（方案 1-A）：當本機有持倉且處於 AVERAGING 或 DEGRADED 時，若交易所同向持倉已歸零，自動標記本輪完成；若同向持倉不一致，自癒同步並觸發 TP 修正
         if self.state.position_quantity > Decimal("0") and self.state.status in (DcaStatus.AVERAGING, DcaStatus.DEGRADED):
             pos = await self._executor.fetch_position()
-            if pos is not None and pos.get("size") == Decimal("0"):
-                logger.info(
-                    "對帳巡檢偵測到交易所持倉已歸零（外部已平倉），自動標記本輪完成",
-                    extra={"symbol": self._config.symbol, "bot_id": self._bot_id,
-                           "action": "reconcile_self_healing"},
-                )
-                self._flag_round_finished = True
+            if pos is not None:
+                pos_side = pos.get("side")
+                pos_size = pos.get("size", Decimal("0"))
+                if pos_size == Decimal("0") or pos_side == "none":
+                    logger.info(
+                        "對帳巡檢偵測到交易所持倉已歸零（外部已平倉），自動標記本輪完成",
+                        extra={"symbol": self._config.symbol, "bot_id": self._bot_id,
+                               "action": "reconcile_self_healing"},
+                    )
+                    self._flag_round_finished = True
+                else:
+                    expected_dir = self.state.active_direction or (
+                        self._config.direction.value if hasattr(self._config.direction, "value")
+                        else str(self._config.direction or "").lower()
+                    )
+                    if pos_side == expected_dir:
+                        if abs(pos_size - self.state.position_quantity) > Decimal("0.0001"):
+                            logger.warning(
+                                f"🚨 [DCA {self._config.symbol}] 巡檢偵測到同向持倉不一致！本機持倉={self.state.position_quantity}, 交易所實盤={pos_size}。啟動自癒同步與 TP 修正！",
+                                extra={"symbol": self._config.symbol, "bot_id": self._bot_id,
+                                       "action": "reconcile_position_sync",
+                                       "local_qty": str(self.state.position_quantity),
+                                       "exchange_qty": str(pos_size)},
+                            )
+                            self.state.position_quantity = pos_size
+                            entry_px = pos.get("entry_price") or self.state.entry_price
+                            if entry_px and entry_px > Decimal("0"):
+                                self.state.entry_price = entry_px
+                                self.state.total_cost = pos_size * entry_px
+                            self._pending_tp_replace = True
+                    else:
+                        logger.warning(
+                            f"⚠️ [DCA {self._config.symbol}] 巡檢發現交易所存在反向持倉 (side={pos_side}, size={pos_size})！與機器人方向 ({expected_dir}) 衝突，禁止覆蓋本機持倉，維持本機累計持倉={self.state.position_quantity}！",
+                            extra={"symbol": self._config.symbol, "bot_id": self._bot_id,
+                                   "action": "reconcile_direction_mismatch_ignored",
+                                   "local_qty": str(self.state.position_quantity),
+                                   "exchange_qty": str(pos_size),
+                                   "exchange_side": str(pos_side)},
+                        )
 
     # ══════════════════ 收輪 / 停止 ══════════════════
 

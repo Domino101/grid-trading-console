@@ -60,15 +60,15 @@ class ExecutorPlaceTests(unittest.IsolatedAsyncioTestCase):
             slot_index=3, leg="long",
         )
         cid = outcome.order.client_order_id
-        self.assertEqual(cid, f"dca_{bot_id_hash8(BOT_ID)}_long_so03")
+        self.assertIn(f"dca_{bot_id_hash8(BOT_ID)}_long_so03_", cid)
         self.assertTrue(cid.startswith(f"dca_{bot_id_hash8(BOT_ID)}_"))
 
     async def test_base_and_tp_slot_naming(self):
         ex, _ = _executor()
         base = await ex.place_limit(DcaOrderRole.BASE, "buy", D("2500"), D("0.008"))
-        self.assertTrue(base.order.client_order_id.endswith("_long_base"))
+        self.assertIn("_long_base_", base.order.client_order_id)
         tp = await ex.place_limit(DcaOrderRole.TAKE_PROFIT, "sell", D("2525"), D("0.008"))
-        self.assertTrue(tp.order.client_order_id.endswith("_long_tp"))
+        self.assertIn("_long_tp_", tp.order.client_order_id)
 
     async def test_min_notional_rejects_without_exchange_call(self):
         ex, fake = _executor(min_notional=D("100"))

@@ -92,7 +92,8 @@ def _default_fetch_ccxt_ohlcv(
         return ohlcv or []
     finally:
         try:
-            client.close()
+            if hasattr(client, "close") and callable(client.close):
+                client.close()
         except Exception:
             pass
 
@@ -259,6 +260,7 @@ class KlineService:
             timeframe=timeframe,
             limit=limit,
             until=until,
+            synthetic=1,
         )
         gaps = self.repository.count_gaps(candles, timeframe)
         oldest_ts = candles[0].ts if candles else None
@@ -290,13 +292,34 @@ class KlineService:
             timeframe=timeframe,
             limit=limit,
             until=until,
+            synthetic=0,
         )
         cached_gaps = self.repository.count_gaps(cached, timeframe)
 
-        # S-1: If cache is complete and gapless, return immediately
+        step_sec = TIMEFRAME_SECONDS.get(str(timeframe).lower(), 900)
+        step_ms = step_sec * 1000
+        now_sec = int(time.time())
+        target_end_sec = int(until) if until is not None else now_sec
+        target_start_sec = target_end_sec - (limit * step_sec)
+
+        # S-1: Freshness determination:
+        # 1. Must have at least `limit` candles and 0 gaps in cache.
+        # 2. If `until` is specified (historical range), latest candle must reach target_end_sec (within 1 bar).
+        # 3. If `until` is None (live mode), latest candle must reach current bar (now_sec - step_sec),
+        #    AND it must have been fetched within LIVE_CACHE_TTL (10 seconds) so the unclosed bar is fresh.
+        is_fresh = False
         if len(cached) >= limit and cached_gaps == 0:
-            synth = cached[0].synthetic == 1
-            data_status = "paper" if synth else "live"
+            latest_ts = cached[-1].ts
+            if until is not None:
+                if latest_ts >= target_end_sec - step_sec:
+                    is_fresh = True
+            else:
+                is_current_bar = latest_ts >= (now_sec - step_sec)
+                is_within_ttl = (now_sec - cached[-1].fetched_at) <= 10.0
+                if is_current_bar and is_within_ttl:
+                    is_fresh = True
+
+        if is_fresh:
             oldest_ts = cached[-limit].ts if cached else None
             return KlineResult(
                 symbol=symbol,
@@ -304,20 +327,26 @@ class KlineService:
                 timeframe=timeframe,
                 candles=cached[-limit:],
                 source="cache",
-                data_status=data_status,
+                data_status="live",
                 gaps=0,
                 warnings=[],
                 oldest_ts=oldest_ts,
             )
 
-        # Need backfilling
-        step_sec = TIMEFRAME_SECONDS.get(timeframe, 900)
-        step_ms = step_sec * 1000
-        now_sec = int(until) if until is not None else int(time.time())
-        target_start_sec = now_sec - (limit * step_sec)
-        current_since_ms = max(0, target_start_sec * 1000)
-        page_size = min(limit, self.page_size)
+        # Cache is either incomplete, has gaps, or is stale. Fetch from exchange.
+        # Optimization: If cache already has limit gapless bars and the latest bar is recent
+        # (within 2 intervals of now), we only need to fetch/refresh from latest_ts.
+        if (
+            len(cached) >= limit
+            and cached_gaps == 0
+            and until is None
+            and cached[-1].ts >= (now_sec - step_sec * 2)
+        ):
+            current_since_ms = cached[-1].ts * 1000
+        else:
+            current_since_ms = max(0, target_start_sec * 1000)
 
+        page_size = min(limit, self.page_size)
         fetched_pages = 0
         all_fetched: List[List[Any]] = []
         fetch_error: Optional[Exception] = None
@@ -350,7 +379,7 @@ class KlineService:
             all_fetched.extend(batch)
 
             last_ts_ms = int(batch[-1][0])
-            if len(batch) < page_size or last_ts_ms >= (now_sec * 1000 - step_ms):
+            if len(batch) < page_size or last_ts_ms >= (target_end_sec * 1000 - step_ms):
                 break
 
             current_since_ms = last_ts_ms + step_ms
@@ -358,23 +387,15 @@ class KlineService:
         # S-5: Error handling with honesty
         if fetch_error is not None:
             if cached:
-                synth = cached[0].synthetic == 1
-                data_status = "paper" if synth else "stale"
-                source = "paper_synthetic" if synth else "cache"
-                warning_msg = (
-                    "使用合成 K 線，非真實歷史"
-                    if synth
-                    else f"交易所連線異常 ({type(fetch_error).__name__})，使用本地快取"
-                )
                 return KlineResult(
                     symbol=symbol,
                     exchange=exchange,
                     timeframe=timeframe,
                     candles=cached,
-                    source=source,
-                    data_status=data_status,
+                    source="cache",
+                    data_status="stale",
                     gaps=cached_gaps,
-                    warnings=[warning_msg],
+                    warnings=[f"交易所連線異常 ({type(fetch_error).__name__})，使用本地快取"],
                     oldest_ts=cached[0].ts if cached else None,
                 )
             return KlineResult(
@@ -405,6 +426,7 @@ class KlineService:
             timeframe=timeframe,
             limit=limit,
             until=until,
+            synthetic=0,
         )
         updated_gaps = self.repository.count_gaps(updated_candles, timeframe)
         warnings: List[str] = []
