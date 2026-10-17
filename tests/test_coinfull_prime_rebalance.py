@@ -293,6 +293,85 @@ class TestCoinFullPrimeRebalancer(unittest.TestCase):
 
         asyncio.run(run_exec())
 
+    def test_execute_stop_loss_settles_and_records(self):
+        """驗證盤中單幣硬止損（市價 reduceOnly 平倉）的均價法結算與記帳完整性"""
+        from core.infrastructure.database.strategy_ledger import StrategyLedger
+        from core.infrastructure.database.models import BasketEntry
+        import time
+
+        ledger = StrategyLedger.instance()
+        bot_id = "coinfull_prime:paper"
+        account_id = "paper"
+
+        # 登記身分
+        ledger.ensure_bot(
+            bot_id=bot_id,
+            strategy_type="coinfull_prime",
+            symbol="BASKET_16",
+            exchange=account_id,
+            account_mode="paper",
+            status="running",
+        )
+
+        # 設置初始多頭部位：買入 100 顆 CRASHCOIN，進場價 10.0 (名義 1000 USDT)
+        ledger.save_basket(
+            bot_id=bot_id,
+            account_id=account_id,
+            entries=[
+                BasketEntry(
+                    bot_id=bot_id,
+                    account_id=account_id,
+                    symbol="CRASHCOIN",
+                    side="long",
+                    quantity=100.0,
+                    entry_price=10.0,
+                    notional_usdt=1000.0,
+                    status="active",
+                    updated_at=time.time(),
+                )
+            ],
+            close_missing=False
+        )
+
+        async def run_stop_loss():
+            # 觸發止損：市價暴跌至 8.5 (-15.0%，觸發 -12% 硬止損)
+            res = await self.rebalancer.execute_stop_loss(
+                symbol="CRASHCOIN",
+                account_id=account_id,
+                current_price=8.5,
+                dry_run=True,
+                reason="intra_week_stop_loss"
+            )
+
+            self.assertEqual(res["status"], "filled")
+            self.assertEqual(res["symbol"], "CRASHCOIN")
+            self.assertEqual(res["entry_price"], 10.0)
+            self.assertEqual(res["exit_price"], 8.5)
+            self.assertAlmostEqual(res["pnl_pct"], -0.15, places=2)
+            # 均價法已實現損益: (8.5 - 10.0) * 100 = -150.0 USDT
+            self.assertAlmostEqual(res["realized_pnl"], -150.0, places=2)
+
+            # 檢驗籃子中該標的部位已清空並結算
+            entries = ledger.load_basket(bot_id, account_id=account_id, active_only=True)
+            crash_entries = [e for e in entries if e.symbol == "CRASHCOIN"]
+            self.assertEqual(len(crash_entries), 0) # active_only 應不再包含已平倉標的
+
+            # 檢驗 trade_fills 表有記錄 stop_loss 流水
+            fills = ledger.get_fills(bot_id, limit=20)
+            sl_fills = [f for f in fills if f.role == "stop_loss"]
+            self.assertGreaterEqual(len(sl_fills), 1)
+            self.assertEqual(sl_fills[-1].side, "sell")
+            self.assertAlmostEqual(sl_fills[-1].realized_pnl, -150.0, places=2)
+
+            # 檢驗 bot_events 表有記錄 stop_loss 事件
+            events = ledger.get_events(bot_id, limit=20)
+            sl_events = [e for e in events if e.event_type == "stop_loss"]
+            self.assertGreaterEqual(len(sl_events), 1)
+            self.assertEqual(sl_events[-1].payload.get("symbol"), "CRASHCOIN")
+
+        asyncio.run(run_stop_loss())
+
 
 if __name__ == "__main__":
     unittest.main()
+

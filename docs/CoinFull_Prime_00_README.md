@@ -11,6 +11,9 @@
 | 2 | [最適用情境手冊](./CoinFull_Prime_02_Regime_Playbook.md) | 風險分數 pts、各狀態績效、即時快照、狀態轉換原則 | 交易 / 風控 |
 | 3 | [自動規避下單時機規格書](./CoinFull_Prime_03_NoTrade_Trigger_Spec.md) | 6 條觸發規則（T1–T6）、每日檢查流程、實作位置 | 工程 |
 | 4 | [倉位增減時機規格書](./CoinFull_Prime_04_Position_Sizing_Timing.md) | 倉位對照表、加倉/減倉條件、公式、檢核表 | 交易 / 工程 |
+| 5 | [75天回測與策略規範說明書 (v2.1)](./CoinFull_Prime_75d_Backtest_and_Strategy_Spec.md) | 幣安合約 58 天實測逐筆成交還原、多空雙腿歸因、基線基準 | 交易 / 工程 |
+| 6 | [量化策略深度稽核與優化指南 (v3.0)](./CoinFull_Prime_Strategy_Audit_and_Optimization_Report.md) | 統計倖存與空頭腿失血機理診斷、五大優化升級藍圖 (評級 C+) | 量化 / 風控 |
+| 7 | [v3.0 策略優化實證回測報告](./CoinFull_Prime_v3_Comparative_Backtest_Report.md) | 歷史同週期逐筆模擬比對、開單內容變更對照、績效翻倍實證 (評級 A-) | 決策者 / 量化 |
 
 ## 三個關鍵數字
 

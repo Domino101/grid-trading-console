@@ -36,9 +36,9 @@ DEFAULT_FALLBACK_TRADFI_SYMBOLS: Set[str] = {
     # 槓桿與指數 ETF
     "SPYUSDT", "QQQUSDT", "TQQQUSDT", "SQQQUSDT", "SOXLUSDT", "SOXSUSDT",
     "SPCXUSDT", "EWYUSDT", "EWJUSDT", "KORUUSDT",
-    # 貴金屬與大宗商品
-    "XAUUSDT", "XAGUSDT", "CLUSDT", "BZUSDT", "NATGASUSDT", "COPPERUSDT",
-    "XPTUSDT", "XPDUSDT",
+    # 貴金屬與大宗商品（含 RWA 黃金代幣）
+    "XAUUSDT", "XAGUSDT", "PAXGUSDT", "XAUTUSDT", "XAUMUSDT",
+    "CLUSDT", "BZUSDT", "NATGASUSDT", "COPPERUSDT", "XPTUSDT", "XPDUSDT",
     # 傳統金融與指數代號
     "BTCDOMUSDT", "DEFIUSDT"
 }
@@ -68,19 +68,41 @@ class CoinFullPrimeQuant:
         self.total_capital = float(self.config.get("portfolio", {}).get("total_capital_usdt", 1000.0))
         self.leverage = float(self.config.get("portfolio", {}).get("leverage", 1.0))
 
-        # 因子形式（v2 優化：docs/CoinFull_Prime_01_Profit_Optimization_Plan.md 階段 A）
-        # momentum.mode: "day" = 24h 漲跌幅（現行）; "blend" = 0.5*R1d + 0.3*R7d + 0.2*R30d
+        # 因子形式（v3.0 優化：docs/CoinFull_Prime_v3_Engineering_Spec_and_Optimization_Master.md）
+        # momentum.mode: "day" = 24h 漲跌幅; "blend" = 多時距混合 (r7d, r14d, r30d)
         momentum_cfg = self.config.get("momentum", {}) or {}
         self.momentum_mode = str(momentum_cfg.get("mode", "day")).lower()
+        blend_cfg = momentum_cfg.get("blend", {}) or {}
         self.momentum_blend = {
-            "r1d": float(momentum_cfg.get("blend", {}).get("r1d", 0.5)),
-            "r7d": float(momentum_cfg.get("blend", {}).get("r7d", 0.3)),
-            "r30d": float(momentum_cfg.get("blend", {}).get("r30d", 0.2)),
+            "r1d": float(blend_cfg.get("r1d", 0.0 if "r14d" in blend_cfg else 0.5)),
+            "r7d": float(blend_cfg.get("r7d", 0.3)),
+            "r14d": float(blend_cfg.get("r14d", 0.0)),
+            "r30d": float(blend_cfg.get("r30d", 0.2)),
         }
-        # funding.mode: "spot" = 單點快照（現行）; "smooth" = 最近 N 次 8 小時結算平均
+        self.overheat_penalty = bool(momentum_cfg.get("overheat_penalty", False))
+
+        # funding.mode: "spot" = 單點快照; "smooth" = 最近 N 次 8 小時結算平均
         funding_cfg = self.config.get("funding", {}) or {}
         self.funding_mode = str(funding_cfg.get("mode", "spot")).lower()
         self.funding_settlements = int(funding_cfg.get("settlements", 3))
+        self.annual_max_long_pct = float(funding_cfg.get("annual_max_long_pct", 0.0))
+        self.annual_min_short_pct = float(funding_cfg.get("annual_min_short_pct", 0.0))
+
+        # 非對稱空頭對沖配置 (v3.0 Opt C)
+        hedge_cfg = self.config.get("hedge", {}) or {}
+        self.hedge_mode = str(hedge_cfg.get("mode", "basket")).lower()
+        self.short_hedge_symbol = str(hedge_cfg.get("symbol", "BTCUSDT"))
+        self.short_hedge_weight = float(hedge_cfg.get("weight", 0.50))
+        self.short_dual_weights = hedge_cfg.get("dual_weights", {"BTCUSDT": 0.25, "ETHUSDT": 0.25})
+
+        # 質量與流動性初篩門檻 (v3.0 Opt D)
+        univ_cfg = self.config.get("universe", {}) or {}
+        self.min_24h_volume_usdt = float(univ_cfg.get("min_24h_volume_usdt", 0.0))
+        self.max_7d_atr_pct = float(univ_cfg.get("max_7d_atr_pct", 0.0))
+
+        self.latest_prices: Dict[str, float] = {}
+        self.quote_volumes: Dict[str, float] = {}
+
         if self.momentum_mode not in ("day", "blend"):
             logger.warning(f"momentum.mode 未支援: {self.momentum_mode}，退回 day")
             self.momentum_mode = "day"
@@ -216,6 +238,7 @@ class CoinFullPrimeQuant:
         # 2. 24h 動能與市價全市場批次
         mom_map: Dict[str, float] = {}
         price_map: Dict[str, float] = {}
+        quote_vol_map: Dict[str, float] = {}
         try:
             async with session.get(f"{self.base_url}/fapi/v1/ticker/24hr", timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 ticker_data = await resp.json()
@@ -224,9 +247,11 @@ class CoinFullPrimeQuant:
                         if isinstance(item, dict) and "symbol" in item:
                             sym = item["symbol"]
                             mom_map[sym] = float(item.get("priceChangePercent", 0.0))
+                            quote_vol_map[sym] = float(item.get("quoteVolume", 0.0))
                             if item.get("lastPrice"):
                                 price_map[sym] = float(item.get("lastPrice", 0.0))
             self.latest_prices = price_map
+            self.quote_volumes = quote_vol_map
         except Exception as e:
             logger.warning(f"獲取動能批次失敗，將使用中性值: {e}")
 
@@ -268,7 +293,7 @@ class CoinFullPrimeQuant:
                     except Exception:
                         liq_val = 1.0
 
-                # 動能：blend 模式改以日線 K 線計算多時距混合
+                # 動能：blend 模式改以日線 K 線計算多時距混合 (v3.0: 支援 7d, 14d, 30d 與防夾懲罰)
                 mom_val = mom_map.get(symbol, 0.0)
                 if need_klines:
                     try:
@@ -283,10 +308,20 @@ class CoinFullPrimeQuant:
                         if len(closes) >= 31 and closes[-2] > 0 and closes[-8] > 0 and closes[-31] > 0:
                             r1 = closes[-1] / closes[-2] - 1.0
                             r7 = closes[-1] / closes[-8] - 1.0
+                            r14 = closes[-1] / closes[-15] - 1.0 if len(closes) >= 15 and closes[-15] > 0 else r7
                             r30 = closes[-1] / closes[-31] - 1.0
                             b = self.momentum_blend
+                            raw_mom = (
+                                b.get("r1d", 0.0) * r1 +
+                                b.get("r7d", 0.0) * r7 +
+                                b.get("r14d", 0.0) * r14 +
+                                b.get("r30d", 0.0) * r30
+                            )
+                            # 短線過熱防夾懲罰 (Overheating Penalty)
+                            if self.overheat_penalty and r7 > 0 and r1 > 0.65 * r7:
+                                raw_mom *= 0.5
                             # 以 % 表示（與 24h priceChangePercent 同量綱）
-                            mom_val = 100.0 * (b["r1d"] * r1 + b["r7d"] * r7 + b["r30d"] * r30)
+                            mom_val = 100.0 * raw_mom
                     except Exception as e:
                         logger.debug(f"{symbol} 日線動能抓取失敗，退回 24h 漲跌幅: {e}")
 
@@ -468,40 +503,146 @@ class CoinFullPrimeQuant:
         for idx, item in enumerate(ranked_items):
             item.rank = idx + 1
 
-        # 多頭權重配置 (各分配 50% 總多頭資金)
+        # 多頭與空頭名額配置
         effective_capital = float(capital_override) if capital_override is not None and float(capital_override) > 0 else self.total_capital
         effective_leverage = float(leverage_override) if leverage_override is not None and float(leverage_override) > 0 else self.leverage
 
+        # 確定對沖排除標的 (避免做多對沖標的造成自成交)
+        hedge_symbols_to_exclude: Set[str] = set()
+        if self.hedge_mode == "benchmark":
+            hedge_symbols_to_exclude.add(self.short_hedge_symbol)
+        elif self.hedge_mode == "dual_benchmark":
+            hedge_symbols_to_exclude.update(self.short_dual_weights.keys())
+
+        # 1. 篩選多頭候選 (初篩門檻：成交額與資費過熱)
+        long_candidates: List[RankedItem] = []
+        for item in ranked_items:
+            if item.symbol in hedge_symbols_to_exclude:
+                continue
+            # 質量初篩：24h 成交額門檻
+            if self.min_24h_volume_usdt > 0 and getattr(self, "quote_volumes", None):
+                vol = self.quote_volumes.get(item.symbol, 0.0)
+                if vol < self.min_24h_volume_usdt:
+                    continue
+            # 資費過熱過濾：年化資費上限
+            if self.annual_max_long_pct > 0 and hasattr(item, "raw_params") and item.raw_params:
+                ann_funding = item.raw_params.funding_rate_pct * 3 * 365
+                if ann_funding > self.annual_max_long_pct:
+                    continue
+            long_candidates.append(item)
+            if len(long_candidates) >= self.long_count:
+                break
+
+        # 若初篩後標的不足 long_count，回退補足排名前列標的（避免空名單）
+        if len(long_candidates) < self.long_count:
+            for item in ranked_items:
+                if item.symbol in hedge_symbols_to_exclude or item in long_candidates:
+                    continue
+                long_candidates.append(item)
+                if len(long_candidates) >= self.long_count:
+                    break
+
+        long_list = long_candidates
         long_weight_each = 1.0 / max(self.long_count, 1)
         long_notional_each = (effective_capital * effective_leverage * 0.5) * long_weight_each
 
-        for item in ranked_items[:self.long_count]:
+        for item in long_list:
             item.side = "long"
             item.target_weight = round(long_weight_each, 4)
             item.target_notional = round(long_notional_each, 2)
             item.evaluations.overall_eval = f"強烈做多 (Top {item.rank}) 🚀"
 
-        # 空頭權重配置 (各分配 50% 總空頭資金)
-        short_weight_each = 1.0 / max(self.short_count, 1)
-        short_notional_each = (effective_capital * effective_leverage * 0.5) * short_weight_each
+        # 2. 確定空頭名單 (支援 benchmark 基準對沖 / dual_benchmark / basket 倒序小幣)
+        short_list: List[RankedItem] = []
+        if self.hedge_mode == "benchmark":
+            hedge_sym = self.short_hedge_symbol
+            sym_price = prices.get(hedge_sym, 0.0)
+            existing = next((x for x in ranked_items if x.symbol == hedge_sym), None)
+            if existing:
+                hedge_item = RankedItem(
+                    symbol=hedge_sym,
+                    score=existing.score,
+                    rank=existing.rank,
+                    signals=existing.signals,
+                    raw_params=existing.raw_params,
+                    evaluations=ParameterEvaluations(
+                        momentum_eval=existing.evaluations.momentum_eval,
+                        flow_eval=existing.evaluations.flow_eval,
+                        funding_eval=existing.evaluations.funding_eval,
+                        liquidation_eval=existing.evaluations.liquidation_eval,
+                        overall_eval=f"基準指數對沖做空 ({hedge_sym} {int(self.short_hedge_weight*100)}%) 🛡️"
+                    )
+                )
+            else:
+                hedge_item = RankedItem(
+                    symbol=hedge_sym,
+                    score=0.0,
+                    rank=0,
+                    signals=SignalZScores(),
+                    raw_params=RawMetrics(price=sym_price),
+                    evaluations=ParameterEvaluations(
+                        overall_eval=f"基準指數對沖做空 ({hedge_sym} {int(self.short_hedge_weight*100)}%) 🛡️"
+                    )
+                )
+            hedge_item.side = "short"
+            hedge_item.target_weight = round(self.short_hedge_weight, 4)
+            hedge_item.target_notional = round(effective_capital * effective_leverage * self.short_hedge_weight, 2)
+            short_list = [hedge_item]
 
-        for idx, item in enumerate(ranked_items[-self.short_count:]):
-            item.side = "short"
-            item.target_weight = round(short_weight_each, 4)
-            item.target_notional = round(short_notional_each, 2)
-            item.evaluations.overall_eval = f"強烈做空 (Bottom {idx + 1}) 🔻"
+        elif self.hedge_mode == "dual_benchmark":
+            for h_sym, h_weight in self.short_dual_weights.items():
+                sym_price = prices.get(h_sym, 0.0)
+                existing = next((x for x in ranked_items if x.symbol == h_sym), None)
+                if existing:
+                    h_item = RankedItem(
+                        symbol=h_sym,
+                        score=existing.score,
+                        rank=existing.rank,
+                        signals=existing.signals,
+                        raw_params=existing.raw_params,
+                        evaluations=ParameterEvaluations(
+                            overall_eval=f"雙基準對沖做空 ({h_sym} {int(float(h_weight)*100)}%) 🛡️"
+                        )
+                    )
+                else:
+                    h_item = RankedItem(
+                        symbol=h_sym,
+                        score=0.0,
+                        rank=0,
+                        signals=SignalZScores(),
+                        raw_params=RawMetrics(price=sym_price),
+                        evaluations=ParameterEvaluations(
+                            overall_eval=f"雙基準對沖做空 ({h_sym} {int(float(h_weight)*100)}%) 🛡️"
+                        )
+                    )
+                h_item.side = "short"
+                h_item.target_weight = round(float(h_weight), 4)
+                h_item.target_notional = round(effective_capital * effective_leverage * float(h_weight), 2)
+                short_list.append(h_item)
 
-        # 中間標的評估
-        for item in ranked_items[self.long_count:-self.short_count]:
+        else:
+            # "basket" 模式 (倒序選取得分最低的小幣籃子)
+            short_weight_each = 1.0 / max(self.short_count, 1)
+            short_notional_each = (effective_capital * effective_leverage * 0.5) * short_weight_each
+            for idx, item in enumerate(ranked_items[-self.short_count:]):
+                item.side = "short"
+                item.target_weight = round(short_weight_each, 4)
+                item.target_notional = round(short_notional_each, 2)
+                item.evaluations.overall_eval = f"強烈做空 (Bottom {idx + 1}) 🔻"
+                short_list.append(item)
+
+        # 3. 中間標的評估
+        long_symbols = {x.symbol for x in long_list}
+        short_symbols = {x.symbol for x in short_list}
+        for item in ranked_items:
+            if item.symbol in long_symbols or item.symbol in short_symbols:
+                continue
             if item.score >= 0.4:
                 item.evaluations.overall_eval = "偏多候選 ↗️"
             elif item.score <= -0.4:
                 item.evaluations.overall_eval = "偏空候選 ↘️"
             else:
                 item.evaluations.overall_eval = "中性觀望 ⚪"
-
-        long_list = ranked_items[:self.long_count]
-        short_list = ranked_items[-self.short_count:]
 
         return UniverseRankResult(
             version="1.0",

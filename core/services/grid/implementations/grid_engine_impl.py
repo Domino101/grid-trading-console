@@ -596,12 +596,14 @@ class GridEngineImpl(IGridEngine):
 
         if ex_id == 'binance':
             try:
+                if self.config.grid_type == GridType.NEUTRAL and not orders:
+                    self.logger.info("中性网格：初始不生成订单，跳过批量下单")
+                    return []
+                if total_orders <= 0:
+                    return []
                 allowed = await self._allowed_orders_for_symbol(total_orders)
                 if allowed <= 0:
                     self.logger.warning("跳過批量下單：該交易對已達200掛單上限")
-                    return []
-                if self.config.grid_type == GridType.NEUTRAL and not orders:
-                    self.logger.info("中性网格：初始不生成订单，跳过批量下单")
                     return []
 
                 window_each_side = int(getattr(self.config, 'active_window_each_side', 0) or 0)
@@ -931,32 +933,37 @@ class GridEngineImpl(IGridEngine):
             )
             api_results = await rest_adapter.create_batch_orders(symbol, batch_order_dicts)
             for idx, res in enumerate(api_results):
+                order = orders[idx]
+                real_order_id = ""
+                real_client_id = ""
                 if res is not None:
-                    order = orders[idx]
-                    order.status = GridOrderStatus.PENDING
                     if hasattr(res, 'order_id') and res.order_id:
-                        order.exchange_order_id = str(res.order_id)
-                        order.order_id = str(res.order_id)
+                        real_order_id = str(res.order_id)
                     elif hasattr(res, 'id') and res.id:
-                        order.exchange_order_id = str(res.id)
-                        order.order_id = str(res.id)
+                        real_order_id = str(res.id)
                     if hasattr(res, 'client_id') and res.client_id:
-                        order.client_id = str(res.client_id)
+                        real_client_id = str(res.client_id)
+
+                if res is not None and (real_order_id or real_client_id):
+                    order.status = GridOrderStatus.PENDING
+                    if real_order_id:
+                        order.exchange_order_id = real_order_id
+                        order.order_id = real_order_id
+                    if real_client_id:
+                        order.client_id = real_client_id
                         self._pending_orders_by_client_id[order.client_id] = order
 
-                    if order.order_id and order.order_id != "pending":
-                        self._pending_orders[order.order_id] = order
-                    elif order.client_id:
-                        self._pending_orders[order.client_id] = order
-                    else:
-                        temp_id = f"grid_{order.grid_id}_{int(order.price)}_{int(order.amount*1000000)}"
-                        order.order_id = temp_id
-                        self._pending_orders[order.order_id] = order
+                    target_key = order.order_id or order.client_id
+                    self._pending_orders[target_key] = order
 
                     await self._increment_symbol_open_cache()
                     results.append(order)
                 else:
-                    results.append(Exception(f"批量下單失敗: grid_id={orders[idx].grid_id}"))
+                    self.logger.error(
+                        f"❌ 批量下單單筆無效 (grid_id={order.grid_id}, price={order.price}, side={order.side}): "
+                        f"交易所未回傳有效訂單 ID (res={res})"
+                    )
+                    results.append(Exception(f"批量下單失敗: grid_id={order.grid_id}"))
         else:
             self.logger.warning("⚠️ 無法取得 BinanceRest adapter，退回逐筆下單")
             for order in orders:

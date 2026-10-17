@@ -140,10 +140,24 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
     return isNaN(val) || val <= 0 ? 1000 : val;
   }, [sizingMode, capitalInput, balancePctInput, currentAccount.balance_usdt]);
 
-  // 目標配置數量 K (動態自適應 K 多 K 空平配)
+  const longList = useMemo(() => rankResult?.long_list || [], [rankResult?.long_list]);
+  const shortList = useMemo(() => rankResult?.short_list || [], [rankResult?.short_list]);
+
+  // 判斷是否為 v3 Opt C 基準對沖做空模式 (單主流 BTC 對沖，或雙基準 BTC+ETH)
+  const isBenchmarkHedge = useMemo(() => {
+    if (!shortList || shortList.length === 0) return true;
+    return shortList.length <= 2 || shortList.some(x => x.symbol === 'BTCUSDT' || x.evaluations?.overall_eval?.includes('基準'));
+  }, [shortList]);
+
+  // 目標配置數量 K (多頭數量，預設 5)
   const targetCount = useMemo(() => {
-    return rankResult?.long_list?.length || statusInfo?.current_portfolio?.long_top8?.length || 5;
-  }, [rankResult?.long_list?.length, statusInfo?.current_portfolio?.long_top8?.length]);
+    return longList.length || statusInfo?.current_portfolio?.long_top8?.length || 5;
+  }, [longList.length, statusInfo?.current_portfolio?.long_top8?.length]);
+
+  const top1Long = longList[0];
+  const top1Short = shortList.length > 0
+    ? (isBenchmarkHedge ? shortList[0] : shortList[shortList.length - 1])
+    : undefined;
 
   // 總名義曝險與單幣目標金額
   const grossExposure = useMemo(() => {
@@ -427,16 +441,25 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
       : `固定本金 $${effectiveCapital.toLocaleString()} USDT`;
 
     let confirmMsg: string;
-    const rebalanceRuleNotice = `\n\n💡 換倉執行邏輯：\n1. 查詢交易所當前持倉。\n2. 掉出今日 Top ${targetCount} / Bottom ${targetCount} 的標的將自動全數平倉 (釋放保證金)。\n3. 留榜標的僅微調數量差額 (不重複平開，節省摩擦手續費)。\n4. 新進榜標的建立全新多/空部位。\n• 標的宇宙過濾: ${excludeTradfi ? '🛡️ 已排除美股/ETF/大宗商品 (純加密)' : '⚠️ 包含 TradFi 美股/ETF'}`;
+    const rebalanceRuleNotice = isBenchmarkHedge
+      ? `\n\n💡 換倉執行邏輯 (v3.0 基準對沖)：\n1. 查詢交易所當前持倉。\n2. 掉出今日 Top ${targetCount} 多頭或對沖空頭的名單將自動全數平倉 (釋放保證金)。\n3. 留榜標的僅微調數量差額 (不重複平開，節省摩擦手續費)。\n4. 新進榜標的建立多頭 (Top ${targetCount} 各 10% 資金) 與基準對沖空頭 (BTC 50% 資金)。\n• 標的宇宙過濾: ${excludeTradfi ? '🛡️ 已排除美股/ETF/大宗商品 (純加密)' : '⚠️ 包含 TradFi 美股/ETF'}`
+      : `\n\n💡 換倉執行邏輯：\n1. 查詢交易所當前持倉。\n2. 掉出今日 Top ${targetCount} / Bottom ${targetCount} 的標的將自動全數平倉 (釋放保證金)。\n3. 留榜標的僅微調數量差額 (不重複平開，節省摩擦手續費)。\n4. 新進榜標的建立全新多/空部位。\n• 標的宇宙過濾: ${excludeTradfi ? '🛡️ 已排除美股/ETF/大宗商品 (純加密)' : '⚠️ 包含 TradFi 美股/ETF'}`;
+
+    const orderCountDesc = isBenchmarkHedge
+      ? `Top ${targetCount}多 + ${shortList.length || 1}基準對沖 (共 ${targetCount + (shortList.length || 1)} 筆)`
+      : `${targetCount}多${targetCount}空共 ${targetCount * 2} 筆`;
+    const allocDesc = isBenchmarkHedge
+      ? `預估多方每幣 $${perSymbolNotional.toFixed(2)} USDT (各 10%) · 基準對沖空頭 $${(grossExposure * 0.5).toFixed(2)} USDT (50%)`
+      : `預估單幣分配 (${targetCount}多${targetCount}空): $${perSymbolNotional.toFixed(2)} USDT`;
 
     if (dryRunMode) {
-      confirmMsg = `即將執行 [DRY-RUN 模擬換倉]\n• 目標環境: ${currentAccount.name}\n• 總名義本金: ${sizingSummary}\n• 槓桿倍數: ${leverageInput}x (總名義曝險: $${grossExposure.toLocaleString()} USDT)\n• 預估單幣分配 (${targetCount}多${targetCount}空): $${perSymbolNotional.toFixed(2)} USDT${rebalanceRuleNotice}\n\n僅計算並在日誌記錄訂單，不會發送真實交易。確定執行嗎？`;
+      confirmMsg = `即將執行 [DRY-RUN 模擬換倉]\n• 目標環境: ${currentAccount.name}\n• 總名義本金: ${sizingSummary}\n• 槓桿倍數: ${leverageInput}x (總名義曝險: $${grossExposure.toLocaleString()} USDT)\n• 配置規劃: ${allocDesc} (${orderCountDesc})${rebalanceRuleNotice}\n\n僅計算並在日誌記錄訂單，不會發送真實交易。確定執行嗎？`;
     } else if (currentAccount.environment === 'testnet') {
-      confirmMsg = `🧪 注意：即將向【Binance 合約測試網】發送真實 API 訂單！\n• 總名義本金: ${sizingSummary}\n• 槓桿倍數: ${leverageInput}x (總名義曝險: $${grossExposure.toLocaleString()} USDT)\n• 單幣預計下單: $${perSymbolNotional.toFixed(2)} USDT (${targetCount}多${targetCount}空共 ${targetCount * 2} 筆)${rebalanceRuleNotice}\n\n將使用測試網沙盒資金撮合。確定繼續嗎？`;
+      confirmMsg = `🧪 注意：即將向【Binance 合約測試網】發送真實 API 訂單！\n• 總名義本金: ${sizingSummary}\n• 槓桿倍數: ${leverageInput}x (總名義曝險: $${grossExposure.toLocaleString()} USDT)\n• 下單配置: ${allocDesc} (${orderCountDesc})${rebalanceRuleNotice}\n\n將使用測試網沙盒資金撮合。確定繼續嗎？`;
     } else if (currentAccount.environment === 'live') {
-      confirmMsg = `🚨 極度危險警告：即將向【Binance 實盤】發送真實真金訂單！\n• 總名義本金: ${sizingSummary}\n• 槓桿倍數: ${leverageInput}x (總名義曝險: $${grossExposure.toLocaleString()} USDT)\n• 單幣預計下單: $${perSymbolNotional.toFixed(2)} USDT (${targetCount}多${targetCount}空共 ${targetCount * 2} 筆)${rebalanceRuleNotice}\n\n這將在幣安交易所真實下單並調整真實保證金倉位！\n請務必再次確認是否繼續？`;
+      confirmMsg = `🚨 極度危險警告：即將向【Binance 實盤】發送真實真金訂單！\n• 總名義本金: ${sizingSummary}\n• 槓桿倍數: ${leverageInput}x (總名義曝險: $${grossExposure.toLocaleString()} USDT)\n• 下單配置: ${allocDesc} (${orderCountDesc})${rebalanceRuleNotice}\n\n這將在幣安交易所真實下單並調整真實保證金倉位！\n請務必再次確認是否繼續？`;
     } else {
-      confirmMsg = `即將在【Paper 本地模擬盤】執行模擬撮合換倉。\n• 總名義本金: ${sizingSummary}\n• 槓桿倍數: ${leverageInput}x (單幣 $${perSymbolNotional.toFixed(2)} USDT)${rebalanceRuleNotice}\n確定執行嗎？`;
+      confirmMsg = `即將在【Paper 本地模擬盤】執行模擬撮合換倉。\n• 總名義本金: ${sizingSummary}\n• 槓桿倍數: ${leverageInput}x (${orderCountDesc})${rebalanceRuleNotice}\n確定執行嗎？`;
     }
 
     if (!window.confirm(confirmMsg)) return;
@@ -553,9 +576,6 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
     );
   }
 
-  const top1Long = rankResult?.long_list?.[0];
-  const top1Short = rankResult?.short_list?.[rankResult.short_list.length - 1];
-
   return (
     <div className="coinfull-container">
       {/* 頁頭與控制列 */}
@@ -563,7 +583,11 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
         <div className="header-title-block">
           <div className="title-with-badge">
             <h2>CoinFull Prime 策略機器人</h2>
-            <span className="badge badge-accent">{targetCount} 多 {targetCount} 空市場中性量化對沖</span>
+            <span className="badge badge-accent">
+              {isBenchmarkHedge
+                ? `Top ${targetCount} 多頭 + ${shortList.map(s => s.symbol.replace('USDT', '')).join('+') || 'BTC'} 基準對沖 (v3.0)`
+                : `${targetCount} 多 ${targetCount} 空市場中性量化對沖`}
+            </span>
             {currentAccount.environment === 'testnet' && !dryRunMode && (
               <span className="badge badge-warning" title="已連線幣安合約測試網，發送 API 真實撮合訂單">
                 🧪 測試網 API 撮合中
@@ -887,10 +911,16 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
 
         <div className="sizing-bar-right">
           <div className="sizing-calc-chip">
-            <span className="calc-title">💡 換倉試算 ({targetCount}多{targetCount}空):</span>
+            <span className="calc-title">
+              💡 換倉試算 ({isBenchmarkHedge ? `Top ${targetCount}多 + ${shortList.map(s => s.symbol.replace('USDT', '')).join('+') || 'BTC'}基準空` : `${targetCount}多${targetCount}空`}):
+            </span>
             <span className="calc-metric">總名義曝險 <strong>${grossExposure.toLocaleString()}</strong></span>
             <span className="calc-divider">•</span>
-            <span className="calc-metric highlight">單幣目標 <strong>${perSymbolNotional.toFixed(2)} USDT</strong></span>
+            <span className="calc-metric highlight">
+              {isBenchmarkHedge
+                ? `多方單幣 $${perSymbolNotional.toFixed(2)} · 對沖空頭 $${(grossExposure * 0.5).toFixed(2)} USDT`
+                : `單幣目標 $${perSymbolNotional.toFixed(2)} USDT`}
+            </span>
           </div>
         </div>
       </section>
@@ -950,47 +980,92 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
 
         <div className="glass-card summary-card short-card">
           <div className="card-top">
-            <span className="card-label">🔴 最弱空頭重災 (Bottom 1)</span>
+            <span className="card-label">
+              {isBenchmarkHedge ? '🛡️ 基準指數對沖 (Benchmark)' : '🔴 最弱空頭重災 (Bottom 1)'}
+            </span>
             <TrendingDown size={20} className="text-negative" />
           </div>
-          <div className="card-symbol">{top1Short?.symbol || '—'}</div>
+          <div className="card-symbol">
+            {isBenchmarkHedge
+              ? (shortList.length > 1 ? shortList.map(s => s.symbol).join(' + ') : (top1Short?.symbol || 'BTCUSDT'))
+              : (top1Short?.symbol || '—')}
+          </div>
           <div className="card-score-row">
-            <span className="score-val text-negative">{top1Short?.score.toFixed(4)}</span>
-            <span className="eval-tag">{top1Short?.evaluations.overall_eval}</span>
+            {isBenchmarkHedge ? (
+              <>
+                <span className="score-val text-accent">
+                  對沖權重: {(((top1Short?.target_weight ?? 0.5)) * 100).toFixed(0)}%
+                </span>
+                <span className="eval-tag">
+                  {top1Short?.evaluations?.overall_eval || '單主流 BTC 指數對沖 🛡️'}
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="score-val text-negative">{top1Short?.score.toFixed(4)}</span>
+                <span className="eval-tag">{top1Short?.evaluations.overall_eval}</span>
+              </>
+            )}
           </div>
           <div className="card-detail-sub">
-            動能: {(top1Short?.raw_params?.price_change_pct ?? 0) > 0 ? '+' : ''}{top1Short?.raw_params?.price_change_pct ?? 0}% ({top1Short?.evaluations?.momentum_eval || '—'}) · 流向: {top1Short?.raw_params?.taker_flow_ratio ?? 1} ({top1Short?.evaluations?.flow_eval || '—'})
+            {isBenchmarkHedge ? (
+              <span>
+                市價: {top1Short?.raw_params?.price ? `$${top1Short.raw_params.price.toLocaleString()}` : '—'} · 目標對沖名義額: ${(grossExposure * 0.5).toFixed(2)} USDT (單主流 BTC 對沖，規避小幣反抽軋空)
+              </span>
+            ) : (
+              <span>
+                動能: {(top1Short?.raw_params?.price_change_pct ?? 0) > 0 ? '+' : ''}{top1Short?.raw_params?.price_change_pct ?? 0}% ({top1Short?.evaluations?.momentum_eval || '—'}) · 流向: {top1Short?.raw_params?.taker_flow_ratio ?? 1} ({top1Short?.evaluations?.flow_eval || '—'})
+              </span>
+            )}
           </div>
         </div>
 
         <div className="glass-card summary-card neutral-card">
           <div className="card-top">
-            <span className="card-label">⚖️ 對沖籃子組合配置</span>
+            <span className="card-label">
+              {isBenchmarkHedge ? '⚖️ 多空對沖組合配置' : '⚖️ 對沖籃子組合配置'}
+            </span>
             <Sliders size={20} className="text-accent" />
           </div>
           <div className="card-stats-grid">
             <div className="stat-box">
               <span className="stat-num text-positive">{targetCount} 隻</span>
-              <span className="stat-desc">做多標的 (各 {(100 / targetCount).toFixed(1)}%)</span>
+              <span className="stat-desc">
+                {isBenchmarkHedge
+                  ? `做多標的 (各 ${(50 / targetCount).toFixed(1)}% 資金)`
+                  : `做多標的 (各 ${(100 / targetCount).toFixed(1)}%)`}
+              </span>
               {positions.length > 0 && (
                 <span
-                  className={`stat-pnl-chip ${positionStats.longPnl >= 0 ? 'text-positive' : 'text-negative'}`}
+                  className={`stat-pnl-chip ${positionStats.longCount > 0 ? (positionStats.longPnl >= 0 ? 'text-positive' : 'text-negative') : 'text-muted'}`}
                   title="目前選定帳號之多方持倉未實現收益"
                 >
-                  多方: {positionStats.longPnl >= 0 ? '+' : ''}{positionStats.longPnl.toFixed(2)} U
+                  {positionStats.longCount > 0
+                    ? `多方: ${positionStats.longPnl >= 0 ? '+' : ''}${positionStats.longPnl.toFixed(2)} U`
+                    : '多方: 未持倉'}
                 </span>
               )}
             </div>
             <div className="stat-divider">VS</div>
             <div className="stat-box">
-              <span className="stat-num text-negative">{targetCount} 隻</span>
-              <span className="stat-desc">做空標的 (各 {(100 / targetCount).toFixed(1)}%)</span>
+              <span className="stat-num text-negative">
+                {isBenchmarkHedge
+                  ? `${shortList.length || 1} 隻 (${shortList.map(s => s.symbol.replace('USDT', '')).join('+') || 'BTC'})`
+                  : `${shortList.length || targetCount} 隻`}
+              </span>
+              <span className="stat-desc">
+                {isBenchmarkHedge
+                  ? '做空對沖 (佔 50.0% 資金)'
+                  : `做空標的 (各 ${(100 / (shortList.length || targetCount)).toFixed(1)}%)`}
+              </span>
               {positions.length > 0 && (
                 <span
-                  className={`stat-pnl-chip ${positionStats.shortPnl >= 0 ? 'text-positive' : 'text-negative'}`}
+                  className={`stat-pnl-chip ${positionStats.shortCount > 0 ? (positionStats.shortPnl >= 0 ? 'text-positive' : 'text-negative') : 'text-muted'}`}
                   title="目前選定帳號之空方持倉未實現收益"
                 >
-                  空方: {positionStats.shortPnl >= 0 ? '+' : ''}{positionStats.shortPnl.toFixed(2)} U
+                  {positionStats.shortCount > 0
+                    ? `空方: ${positionStats.shortPnl >= 0 ? '+' : ''}${positionStats.shortPnl.toFixed(2)} U`
+                    : '空方: 未持倉'}
                 </span>
               )}
             </div>
@@ -1001,7 +1076,11 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
                 持倉未實現: <strong className={positionStats.totalPnl >= 0 ? 'text-positive' : 'text-negative'}>{positionStats.totalPnl >= 0 ? '+' : ''}{positionStats.totalPnl.toFixed(2)} USDT</strong> · 淨敞口: {positionStats.netExposure >= 0 ? '+' : ''}${positionStats.netExposure.toFixed(1)} USDT
               </span>
             ) : (
-              <span>名義本金: ${effectiveCapital.toLocaleString()} USDT · 槓桿: {leverageInput}x (多空對沖淨敞口 ≈ 0)</span>
+              <span>
+                {isBenchmarkHedge
+                  ? `名義本金: $${effectiveCapital.toLocaleString()} USDT · 槓桿: ${leverageInput}x (Top ${targetCount} 多頭 50% + BTC 基準對沖 50%)`
+                  : `名義本金: $${effectiveCapital.toLocaleString()} USDT · 槓桿: ${leverageInput}x (多空對沖淨敞口 ≈ 0)`}
+              </span>
             )}
           </div>
         </div>
@@ -1043,24 +1122,105 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
               const needsSync = Boolean(schedCfg?.account_id && schedCfg.account_id !== selectedAccount);
               const schedIsLive = schedAccId === 'binance_live';
 
+              // 排程換倉倉位大小計算
+              const schedCap = typeof schedCfg?.capital === 'number' ? schedCfg.capital : null;
+              const schedBp = typeof schedCfg?.balance_pct === 'number' ? schedCfg.balance_pct : null;
+              const schedLev = typeof schedCfg?.leverage === 'number' ? schedCfg.leverage : 1.0;
+              const schedK = typeof schedCfg?.target_count === 'number' ? schedCfg.target_count : (targetCount || 5);
+
+              const targetAccBal = accounts.find(a => a.id === schedAccId)?.balance_usdt ?? currentAccount.balance_usdt ?? 10000;
+              const schedEffCap = schedBp !== null && schedBp > 0
+                ? Math.round(targetAccBal * (schedBp / 100) * 100) / 100
+                : (schedCap !== null && schedCap > 0 ? schedCap : 1000);
+
+              const schedCapDesc = schedBp !== null && schedBp > 0
+                ? `餘額 ${schedBp}% (約 $${schedEffCap.toLocaleString()} USDT)`
+                : (schedCap !== null && schedCap > 0 ? `固定 $${schedCap.toLocaleString()} USDT` : '預設 $1,000 USDT');
+
+              const schedGross = typeof schedCfg?.estimated_gross_exposure === 'number'
+                ? schedCfg.estimated_gross_exposure
+                : Math.round(schedEffCap * schedLev * 100) / 100;
+
+              const schedPerSym = typeof schedCfg?.estimated_per_symbol_notional === 'number'
+                ? schedCfg.estimated_per_symbol_notional
+                : Math.round(((schedGross * 0.5) / schedK) * 100) / 100;
+
+              const schedHalf = Math.round(schedGross * 0.5 * 100) / 100;
+
+              // 檢測當前輸入框本金 vs 後台排程設定本金是否不一致
+              const isMismatch = sizingMode === 'fixed'
+                ? (schedCap !== null && Math.abs(schedCap - effectiveCapital) > 0.01)
+                : (schedBp !== null && Math.abs(schedBp - balancePctInput) > 0.01);
+
               return (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-                  <span>
-                    定時排程實際目標: <strong>{targetAccName}</strong>
-                    · {schedIsLive ? (!schedDryRun ? '🚨 實盤真實發單 (真金)' : '🛡️ 實盤安全試算') : schedAccId === 'binance_testnet' ? (!schedDryRun ? '🚀 測試網真實下單' : '🔍 測試網試算') : (!schedDryRun ? '📝 本地模擬撮合' : '🔍 模擬試算')}
-                  </span>
-                  {needsSync && (
-                    <button
-                      type="button"
-                      className="btn btn-outline"
-                      style={{ padding: '0.1rem 0.4rem', fontSize: '0.68rem', borderColor: 'var(--accent)', color: 'var(--accent)' }}
-                      onClick={handleSyncSchedulerTarget}
-                      title="將後端背景定時排程目標同步更新為目前選取的帳號與下單模式"
-                    >
-                      🔄 同步排程至【{currentAccount.name}】
-                    </button>
-                  )}
-                </div>
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                    <span>
+                      定時排程實際目標: <strong>{targetAccName}</strong>
+                      · {schedIsLive ? (!schedDryRun ? '🚨 實盤真實發單 (真金)' : '🛡️ 實盤安全試算') : schedAccId === 'binance_testnet' ? (!schedDryRun ? '🚀 測試網真實下單' : '🔍 測試網試算') : (!schedDryRun ? '📝 本地模擬撮合' : '🔍 模擬試算')}
+                    </span>
+                    {needsSync && (
+                      <button
+                        type="button"
+                        className="btn btn-outline"
+                        style={{ padding: '0.1rem 0.4rem', fontSize: '0.68rem', borderColor: 'var(--accent)', color: 'var(--accent)' }}
+                        onClick={handleSyncSchedulerTarget}
+                        title="將後端背景定時排程目標同步更新為目前選取的帳號與下單模式"
+                      >
+                        🔄 同步排程至【{currentAccount.name}】
+                      </button>
+                    )}
+                  </div>
+
+                  {/* 🎯 排程換倉倉位大小明確預期區塊 */}
+                  <div className="schedule-sizing-box">
+                    <div className="sizing-box-header">
+                      <span className="sizing-box-title">
+                        <Sliders size={13} className="text-accent" style={{ marginRight: '0.25rem' }} />
+                        排程換倉倉位預期:
+                      </span>
+                      <span className="sizing-box-highlight" title="預計每次定時換倉時，單一標的的目標名義金額">
+                        單幣約 <strong>${schedPerSym.toFixed(2)}</strong> USDT
+                      </span>
+                    </div>
+
+                    <div className="sizing-box-body">
+                      <div className="sizing-meta-row">
+                        <span>
+                          排程規模: <strong>{schedCapDesc}</strong> · 槓桿: <strong>{schedLev}x</strong> (總名義曝險: ${schedGross.toLocaleString()} U)
+                        </span>
+                      </div>
+                      <div className="sizing-meta-row">
+                        <span className="text-positive">
+                          🟢 多方 {schedK} 隻 (各 ${schedPerSym.toFixed(2)}U · 合計 ${schedHalf.toFixed(2)}U)
+                        </span>
+                        {' · '}
+                        <span className="text-negative">
+                          {isBenchmarkHedge
+                            ? `🛡️ 基準對沖 ${shortList.map(s => s.symbol.replace('USDT', '')).join('+') || 'BTC'} (${shortList.length || 1} 隻 · 合計 ${schedHalf.toFixed(2)}U)`
+                            : `🔴 空方 ${schedK} 隻 (各 ${schedPerSym.toFixed(2)}U · 合計 ${schedHalf.toFixed(2)}U)`}
+                        </span>
+                      </div>
+                    </div>
+
+                    {isMismatch && (
+                      <div className="sizing-mismatch-banner">
+                        <AlertTriangle size={13} className="text-warning" style={{ flexShrink: 0 }} />
+                        <span className="mismatch-text">
+                          注意：上方輸入框 ({sizingMode === 'fixed' ? `$${effectiveCapital} USDT` : `${balancePctInput}%`}) 與排程設定 ({schedCapDesc}) <strong>不一致</strong>！自動換倉仍將以 <strong>${schedPerSym.toFixed(2)} USDT/幣</strong> 發單。
+                        </span>
+                        <button
+                          type="button"
+                          className="btn-sync-quick"
+                          onClick={handleSyncSchedulerTarget}
+                          title="點擊立即將上方輸入框設定同步至定時排程"
+                        >
+                          🔄 同步當前輸入至排程
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </>
               );
             })()}
             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
@@ -1095,9 +1255,17 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
             </span>
             {positions.length > 0 && (
               <span className="positions-stats-summary">
-                多方收益: <strong className={positionStats.longPnl >= 0 ? 'text-positive' : 'text-negative'}>{positionStats.longPnl >= 0 ? '+' : ''}{positionStats.longPnl.toFixed(2)} USDT</strong>
+                多方收益: {positionStats.longCount > 0 ? (
+                  <strong className={positionStats.longPnl >= 0 ? 'text-positive' : 'text-negative'}>{positionStats.longPnl >= 0 ? '+' : ''}{positionStats.longPnl.toFixed(2)} USDT</strong>
+                ) : (
+                  <span className="text-muted">未持倉</span>
+                )}
                 {' · '}
-                空方收益: <strong className={positionStats.shortPnl >= 0 ? 'text-positive' : 'text-negative'}>{positionStats.shortPnl >= 0 ? '+' : ''}{positionStats.shortPnl.toFixed(2)} USDT</strong>
+                空方收益: {positionStats.shortCount > 0 ? (
+                  <strong className={positionStats.shortPnl >= 0 ? 'text-positive' : 'text-negative'}>{positionStats.shortPnl >= 0 ? '+' : ''}{positionStats.shortPnl.toFixed(2)} USDT</strong>
+                ) : (
+                  <span className="text-muted">未持倉</span>
+                )}
                 {' · '}
                 總未實現: <strong className={positionStats.totalPnl >= 0 ? 'text-positive' : 'text-negative'}>{positionStats.totalPnl >= 0 ? '+' : ''}{positionStats.totalPnl.toFixed(2)} USDT</strong>
                 {' · '}
@@ -1157,24 +1325,34 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
               <div className="pnl-card-header">
                 <span className="pnl-card-title">
                   <TrendingDown size={15} className="text-negative" />
-                  <span>空方部位未實現收益</span>
+                  <span>{isBenchmarkHedge ? '基準對沖空方未實現收益' : '空方部位未實現收益'}</span>
                 </span>
                 <span className="badge badge-short-basket">
-                  {positionStats.shortCount} 隻做空 (Short)
+                  {isBenchmarkHedge
+                    ? `${positionStats.shortCount} 隻基準對沖 (Short)`
+                    : `${positionStats.shortCount} 隻做空 (Short)`}
                 </span>
               </div>
               <div className="pnl-card-value-row">
-                <span className={`pnl-card-val ${positionStats.shortPnl >= 0 ? 'text-positive' : 'text-negative'}`}>
-                  {positionStats.shortPnl >= 0 ? '+' : ''}{positionStats.shortPnl.toFixed(2)}
+                <span className={`pnl-card-val ${positionStats.shortCount > 0 ? (positionStats.shortPnl >= 0 ? 'text-positive' : 'text-negative') : 'text-muted'}`}>
+                  {positionStats.shortCount > 0
+                    ? `${positionStats.shortPnl >= 0 ? '+' : ''}${positionStats.shortPnl.toFixed(2)}`
+                    : '0.00'}
                   <span className="pnl-unit">USDT</span>
                 </span>
               </div>
               <div className="pnl-card-sub">
-                <span>名義曝險: <strong>${positionStats.shortNotional.toLocaleString()} USDT</strong></span>
-                {positionStats.shortNotional > 0 && (
-                  <span className={`pnl-yield ${positionStats.shortPnl >= 0 ? 'text-positive' : 'text-negative'}`}>
-                    ({positionStats.shortPnl >= 0 ? '+' : ''}{((positionStats.shortPnl / positionStats.shortNotional) * 100).toFixed(2)}%)
-                  </span>
+                {positionStats.shortCount > 0 ? (
+                  <>
+                    <span>名義曝險: <strong>${positionStats.shortNotional.toLocaleString()} USDT</strong></span>
+                    {positionStats.shortNotional > 0 && (
+                      <span className={`pnl-yield ${positionStats.shortPnl >= 0 ? 'text-positive' : 'text-negative'}`}>
+                        ({positionStats.shortPnl >= 0 ? '+' : ''}{((positionStats.shortPnl / positionStats.shortNotional) * 100).toFixed(2)}%)
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-muted">目前無空方對沖持倉</span>
                 )}
               </div>
             </div>
@@ -1208,7 +1386,9 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
             <span>
               {selectedAccount === 'paper'
                 ? '📝 Paper 本地模擬盤採用無狀態撮合。切換為【Binance 合約測試網】或【Binance 合約實盤】即可讀取真實交易所持倉。'
-                : `當前帳號無任何未平倉合約。下次執行換倉時，系統將全額開立 ${targetCount} 多 ${targetCount} 空共 ${targetCount * 2} 隻標的。`}
+                : isBenchmarkHedge
+                  ? `當前帳號無任何未平倉合約。下次執行換倉時，系統將開立 Top ${targetCount} 多頭 + ${shortList.length || 1} 隻基準對沖空頭 (共 ${targetCount + (shortList.length || 1)} 筆)。`
+                  : `當前帳號無任何未平倉合約。下次執行換倉時，系統將全額開立 ${targetCount} 多 ${targetCount} 空共 ${targetCount * 2} 隻標的。`}
             </span>
           </div>
         ) : (
@@ -1233,7 +1413,7 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
                 );
               } else if (stillInBasket) {
                 statusBadge = (
-                  <span className="status-tag tag-stay" title={`仍在 ${targetCount} 多 ${targetCount} 空名單中，換倉時僅微調數量差額`}>
+                  <span className="status-tag tag-stay" title={isBenchmarkHedge ? `仍在多空對沖名單 (Top ${targetCount} 多 / 基準對沖空) 中，換倉時僅微調數量差額` : `仍在 ${targetCount} 多 ${targetCount} 空名單中，換倉時僅微調數量差額`}>
                     🔵 專屬籃子 (留榜微調)
                   </span>
                 );
@@ -1577,7 +1757,9 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
             className={`pill-btn ${filterTab === 'short' ? 'active' : ''}`}
             onClick={() => handleFilterTabChange('short')}
           >
-            🔴 Bottom {targetCount} 做空籃子 ({rankResult?.short_list?.length || 0})
+            {isBenchmarkHedge
+              ? `🛡️ 基準指數對沖 (${rankResult?.short_list?.length || 0})`
+              : `🔴 Bottom ${targetCount} 做空籃子 (${rankResult?.short_list?.length || 0})`}
           </button>
           <button
             type="button"
@@ -1651,7 +1833,9 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
                         {isLong ? (
                           <span className="rank-pill rank-long">#{item.rank} 多</span>
                         ) : isShort ? (
-                          <span className="rank-pill rank-short">#{item.rank} 空</span>
+                          <span className="rank-pill rank-short">
+                            {isBenchmarkHedge ? '對沖 空' : `#${item.rank} 空`}
+                          </span>
                         ) : (
                           <span className="rank-pill rank-neutral">#{item.rank}</span>
                         )}
@@ -1747,6 +1931,9 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
           </div>
           <div className="note-item">
             <strong>⚠️ 平滑資金費率反向 (40%)</strong>：取最近 3 次 8 小時結算費率之平滑平均反向取值。深度負費率代表貼水超賣，反向加分。
+          </div>
+          <div className="note-item">
+            <strong>🛡️ 基準指數對沖 (v3.0 Opt C)</strong>：空方改採單主流 BTCUSDT（或雙主流 BTC+ETH）佔 50% 名義資金對沖系統性 Beta，徹底規避小幣反抽軋空；多方維持 Top 5 動能強者（各 10% 資金）獲取橫截面超額 Alpha。
           </div>
           <div className="note-item">
             <strong>🛡️ Regime Gate 風險閘門</strong>：即時監測 BTC 50 日均線、宇宙 50 日廣度 (&gt;30%) 與全市場費率百分位 (&gt;45%)。具備 T1 停單清倉與 T2 崩跌延後防護。

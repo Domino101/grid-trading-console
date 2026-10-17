@@ -1,14 +1,14 @@
 dca:
   exchange: binance
-  symbol: UNI/USDC:USDC
+  symbol: XRP/USDC:USDC
   direction: long
   account_mode: live
   leverage: 10
   margin_mode: isolated
   quantity_precision: 1
-  price_decimals: 3
+  price_decimals: 4
   fee_rate: '0.0004'
-  base_order_amount: '10.0'
+  base_order_amount: '6.0'
   amount_unit: quote
   dca_mode: order
   averaging_method: fixed_value
@@ -38,4 +38,4 @@ dca:
     max_wait_seconds: null
     indicators: []
 metadata:
-  bot_id: fd3fdf03f21f423188b31eaa70022856
+  bot_id: 20422e6f572d4715942cf92bcdd2eebf

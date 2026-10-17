@@ -113,6 +113,8 @@ class CoinFullPrimeService(BaseService):
                 self._schedule_anchor_date = None
 
         self._scheduler_task: Optional[asyncio.Task] = None
+        self._stop_loss_task: Optional[asyncio.Task] = None
+        self._stopping_symbols: Set[str] = set()
         self._is_running = False
         self.scheduler_dry_run: bool = saved_state.get("dry_run", False)
         self.scheduler_capital: Optional[float] = saved_state.get("capital")
@@ -856,6 +858,7 @@ class CoinFullPrimeService(BaseService):
                 for x in ranked_items
             }
             self.save_active_basket(target_acc, new_basket_symbols, sides=basket_sides)
+            self._stopping_symbols.clear()
 
         # 9. 成功執行一次換倉 → 重置 T2 延後計數；並落地每日快照（權益/PnL 可追蹤）
         self._defer_count = 0
@@ -1279,6 +1282,97 @@ class CoinFullPrimeService(BaseService):
         finally:
             self._is_running = False
 
+    async def _intra_week_stop_loss_loop(self):
+        """週內事中動態硬止損守護程序 (v3.0 Circuit Breaker Daemon)
+        
+        定時檢查多頭標的浮動損益，若跌幅達 intra_week_stop_loss_pct (預設 -12%)，
+        立即發送市價 reduceOnly 平倉單並鎖定現金，防止單一黑天鵝造成永久性損傷。
+        """
+        logger.info("🛡️ [盤中動態硬止損守護] 已啟動...")
+        while self._is_running:
+            try:
+                risk_cfg = self.config.get("risk_control", {}) or {}
+                sl_pct = float(risk_cfg.get("intra_week_stop_loss_pct", -0.12))
+                interval = float(risk_cfg.get("monitor_interval_seconds", 5))
+
+                if sl_pct < 0 and self.selected_account:
+                    await self.check_and_trigger_stop_losses(sl_pct=sl_pct)
+
+                await asyncio.sleep(max(1.0, interval))
+            except asyncio.CancelledError:
+                break
+            except Exception as ex:
+                logger.warning(f"盤中止損守護迴圈異常: {ex}")
+                await asyncio.sleep(5.0)
+        logger.info("🛡️ [盤中動態硬止損守護] 已停止")
+
+    async def check_and_trigger_stop_losses(self, sl_pct: float = -0.12) -> List[Dict[str, Any]]:
+        """檢查所有多頭部位，若浮虧達到門檻立即觸發止損"""
+        account_id = self.selected_account or "paper"
+        entries = self.load_basket_entries(account_id)
+        active_longs = [
+            e for e in entries 
+            if getattr(e, "side", "").lower() == "long" 
+            and getattr(e, "quantity", 0.0) > 0 
+            and getattr(e, "status", "").lower() == "active"
+        ]
+        if not active_longs:
+            return []
+
+        adapter = await self.get_adapter(account_id)
+        symbols = [e.symbol for e in active_longs]
+
+        # 抓取即時市價 (優先使用 ticker)
+        prices: Dict[str, float] = {}
+        if adapter:
+            for s in symbols:
+                try:
+                    ticker = await adapter.get_ticker(s)
+                    if ticker and ticker.last_price:
+                        prices[s] = float(ticker.last_price)
+                except Exception:
+                    pass
+
+        # 若某些幣從 adapter 無法取得，嘗試從公開行情補全
+        missing = [s for s in symbols if s not in prices or prices[s] <= 0]
+        if missing and self.quant_engine and getattr(self.quant_engine, "latest_prices", None):
+            for s in missing:
+                if s in self.quant_engine.latest_prices:
+                    prices[s] = self.quant_engine.latest_prices[s]
+
+        results = []
+        for e in active_longs:
+            sym = e.symbol
+            norm_sym = PortfolioRebalancer._normalize_symbol(sym)
+            if norm_sym in self._stopping_symbols:
+                continue
+
+            px = prices.get(sym) or prices.get(norm_sym)
+            if not px or px <= 0:
+                continue
+
+            entry_px = float(e.entry_price or 0.0)
+            if entry_px <= 0:
+                continue
+
+            current_pnl_pct = (px - entry_px) / entry_px
+            if current_pnl_pct <= sl_pct:
+                self._stopping_symbols.add(norm_sym)
+                try:
+                    res = await self.rebalancer.execute_stop_loss(
+                        symbol=sym,
+                        account_id=account_id,
+                        current_price=px,
+                        exchange_adapter=adapter,
+                        dry_run=self.scheduler_dry_run,
+                    )
+                    results.append(res)
+                    self._export_basket_mirror(account_id)
+                finally:
+                    self._stopping_symbols.discard(norm_sym)
+
+        return results
+
     def _get_scheduler_state_file(self) -> Path:
         base_dir = Path(__file__).resolve().parent.parent.parent.parent
         return base_dir / "data" / "coinfull_prime_scheduler.json"
@@ -1417,10 +1511,14 @@ class CoinFullPrimeService(BaseService):
 
         if self._scheduler_task and not self._scheduler_task.done():
             logger.warning("排程已經在運行中，已即時更新配置參數")
+            if self._stop_loss_task is None or self._stop_loss_task.done():
+                self._stop_loss_task = asyncio.create_task(self._intra_week_stop_loss_loop())
             self.save_scheduler_state()
             return
         self._is_running = True
         self._scheduler_task = asyncio.create_task(self._scheduler_loop())
+        if self._stop_loss_task is None or self._stop_loss_task.done():
+            self._stop_loss_task = asyncio.create_task(self._intra_week_stop_loss_loop())
         self.save_scheduler_state()
 
     def set_scheduler_target(
@@ -1468,6 +1566,9 @@ class CoinFullPrimeService(BaseService):
         if self._scheduler_task:
             self._scheduler_task.cancel()
             self._scheduler_task = None
+        if self._stop_loss_task:
+            self._stop_loss_task.cancel()
+            self._stop_loss_task = None
         if disable:
             self.save_scheduler_state()
 
@@ -1493,6 +1594,23 @@ class CoinFullPrimeService(BaseService):
         protected_bots = self.get_external_bot_symbols()
         sched_p = self._schedule_params()
 
+        sched_cap = getattr(self, "scheduler_capital", None)
+        sched_lev = float(getattr(self, "scheduler_leverage", 1.0) or 1.0)
+        sched_bp = getattr(self, "scheduler_balance_pct", None)
+        k_count = len(long_summary) if long_summary else (getattr(self.quant_engine, "long_count", 5) if self.quant_engine else 5)
+        k_count = max(int(k_count), 1)
+
+        estimated_gross = None
+        estimated_per_symbol = None
+        long_total = None
+        short_total = None
+
+        if sched_cap is not None and float(sched_cap) > 0:
+            estimated_gross = round(float(sched_cap) * sched_lev, 2)
+            long_total = round(estimated_gross * 0.5, 2)
+            short_total = round(estimated_gross * 0.5, 2)
+            estimated_per_symbol = round(long_total / k_count, 2)
+
         return {
             "service": self.name,
             "initialized": self.initialized,
@@ -1505,19 +1623,29 @@ class CoinFullPrimeService(BaseService):
             "scheduler_config": {
                 "account_id": self.selected_account or "paper",
                 "dry_run": getattr(self, "scheduler_dry_run", True),
-                "capital": getattr(self, "scheduler_capital", None),
-                "leverage": getattr(self, "scheduler_leverage", None),
-                "balance_pct": getattr(self, "scheduler_balance_pct", None),
+                "capital": sched_cap,
+                "leverage": sched_lev,
+                "balance_pct": sched_bp,
                 "exclude_tradfi": getattr(self, "exclude_tradfi", True),
                 "rebalance_days": sched_p["rebalance_days"],
                 "execution_weekday": sched_p["execution_weekday"],
                 "execution_minute_utc": sched_p["execution_minute_utc"],
-                "description": self._schedule_description()
+                "description": self._schedule_description(),
+                "target_count": k_count,
+                "estimated_gross_exposure": estimated_gross,
+                "estimated_per_symbol_notional": estimated_per_symbol,
+                "long_total_notional": long_total,
+                "short_total_notional": short_total,
             },
             "regime": (
                 self.last_regime_decision.model_dump(mode="json")
                 if self.last_regime_decision else None
             ),
+            "risk_control": {
+                "intra_week_stop_loss_pct": float(self.config.get("risk_control", {}).get("intra_week_stop_loss_pct", -0.12)),
+                "monitor_interval_seconds": float(self.config.get("risk_control", {}).get("monitor_interval_seconds", 5)),
+                "stopping_symbols": sorted(list(self._stopping_symbols)),
+            },
             "managed_symbols": sorted(list({e.symbol for e in active_basket})),
             "protected_bot_symbols": sorted(list(protected_bots)),
             "current_portfolio": {

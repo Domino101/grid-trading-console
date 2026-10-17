@@ -1602,7 +1602,24 @@ export interface CoinFullPrimeStatus {
     next_scheduled_run_utc: string | null;
     seconds_until_next_run: number | null;
     hours_until_next_run?: number | null;
-    scheduler_config?: Record<string, unknown>;
+    scheduler_config?: {
+        account_id?: string;
+        dry_run?: boolean;
+        capital?: number | null;
+        leverage?: number | null;
+        balance_pct?: number | null;
+        exclude_tradfi?: boolean;
+        rebalance_days?: number;
+        execution_weekday?: number;
+        execution_minute_utc?: number;
+        description?: string;
+        target_count?: number;
+        estimated_gross_exposure?: number | null;
+        estimated_per_symbol_notional?: number | null;
+        long_total_notional?: number | null;
+        short_total_notional?: number | null;
+        [key: string]: unknown;
+    };
     current_portfolio: {
         long_top8: Array<{ symbol: string; score: number; rank: number }>;
         short_bottom8: Array<{ symbol: string; score: number; rank: number }>;

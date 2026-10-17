@@ -133,9 +133,14 @@ export const CrossSectionRankings: React.FC<CrossSectionRankingsProps> = ({
     );
   }
 
-  const targetCount = rankResult?.long_list?.length || 5;
-  const top1Long = rankResult?.long_list?.[0];
-  const top1Short = rankResult?.short_list?.[rankResult.short_list.length - 1];
+  const longList = rankResult?.long_list || [];
+  const shortList = rankResult?.short_list || [];
+  const targetCount = longList.length || 5;
+  const isBenchmarkHedge = shortList.length <= 2 || shortList.some(x => x.symbol === 'BTCUSDT' || x.evaluations?.overall_eval?.includes('基準'));
+  const top1Long = longList[0];
+  const top1Short = shortList.length > 0
+    ? (isBenchmarkHedge ? shortList[0] : shortList[shortList.length - 1])
+    : undefined;
 
   return (
     <div className="coinfull-container">
@@ -227,37 +232,80 @@ export const CrossSectionRankings: React.FC<CrossSectionRankingsProps> = ({
 
         <div className="glass-card summary-card short-card">
           <div className="card-top">
-            <span className="card-label">🔴 最弱空頭重災 (Bottom 1)</span>
+            <span className="card-label">
+              {isBenchmarkHedge ? '🛡️ 基準指數對沖 (Benchmark)' : '🔴 最弱空頭重災 (Bottom 1)'}
+            </span>
             <TrendingDown size={20} className="text-negative" />
           </div>
-          <div className="card-symbol">{top1Short?.symbol || '—'}</div>
+          <div className="card-symbol">
+            {isBenchmarkHedge
+              ? (shortList.length > 1 ? shortList.map(s => s.symbol).join(' + ') : (top1Short?.symbol || 'BTCUSDT'))
+              : (top1Short?.symbol || '—')}
+          </div>
           <div className="card-score-row">
-            <span className="score-val text-negative">{top1Short?.score.toFixed(4)}</span>
-            <span className="eval-tag">{top1Short?.evaluations.overall_eval}</span>
+            {isBenchmarkHedge ? (
+              <>
+                <span className="score-val text-accent">
+                  對沖權重: {(((top1Short?.target_weight ?? 0.5)) * 100).toFixed(0)}%
+                </span>
+                <span className="eval-tag">
+                  {top1Short?.evaluations?.overall_eval || '單主流 BTC 指數對沖 🛡️'}
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="score-val text-negative">{top1Short?.score.toFixed(4)}</span>
+                <span className="eval-tag">{top1Short?.evaluations.overall_eval}</span>
+              </>
+            )}
           </div>
           <div className="card-detail-sub">
-            動能: {(top1Short?.raw_params?.price_change_pct ?? 0) > 0 ? '+' : ''}{top1Short?.raw_params?.price_change_pct ?? 0}% ({top1Short?.evaluations?.momentum_eval || '—'}) · 流向: {top1Short?.raw_params?.taker_flow_ratio ?? 1} ({top1Short?.evaluations?.flow_eval || '—'})
+            {isBenchmarkHedge ? (
+              <span>
+                市價: {top1Short?.raw_params?.price ? `$${top1Short.raw_params.price.toLocaleString()}` : '—'} · 單主流 BTC 對沖，徹底消除小幣軋空風險
+              </span>
+            ) : (
+              <span>
+                動能: {(top1Short?.raw_params?.price_change_pct ?? 0) > 0 ? '+' : ''}{top1Short?.raw_params?.price_change_pct ?? 0}% ({top1Short?.evaluations?.momentum_eval || '—'}) · 流向: {top1Short?.raw_params?.taker_flow_ratio ?? 1} ({top1Short?.evaluations?.flow_eval || '—'})
+              </span>
+            )}
           </div>
         </div>
 
         <div className="glass-card summary-card neutral-card">
           <div className="card-top">
-            <span className="card-label">⚖️ 對沖籃子組合配置</span>
+            <span className="card-label">
+              {isBenchmarkHedge ? '⚖️ 多空對沖組合配置' : '⚖️ 對沖籃子組合配置'}
+            </span>
             <Sliders size={20} className="text-accent" />
           </div>
           <div className="card-stats-grid">
             <div className="stat-box">
               <span className="stat-num text-positive">{targetCount} 隻</span>
-              <span className="stat-desc">做多標的 (各 {(100 / targetCount).toFixed(1)}%)</span>
+              <span className="stat-desc">
+                {isBenchmarkHedge
+                  ? `做多標的 (各 ${(50 / targetCount).toFixed(1)}% 資金)`
+                  : `做多標的 (各 ${(100 / targetCount).toFixed(1)}%)`}
+              </span>
             </div>
             <div className="stat-divider">VS</div>
             <div className="stat-box">
-              <span className="stat-num text-negative">{targetCount} 隻</span>
-              <span className="stat-desc">做空標的 (各 {(100 / targetCount).toFixed(1)}%)</span>
+              <span className="stat-num text-negative">
+                {isBenchmarkHedge
+                  ? `${shortList.length || 1} 隻 (${shortList.map(s => s.symbol.replace('USDT', '')).join('+') || 'BTC'})`
+                  : `${shortList.length || targetCount} 隻`}
+              </span>
+              <span className="stat-desc">
+                {isBenchmarkHedge
+                  ? '基準對沖 (佔 50.0% 資金)'
+                  : `做空標的 (各 ${(100 / (shortList.length || targetCount)).toFixed(1)}%)`}
+              </span>
             </div>
           </div>
           <div className="card-detail-sub text-center">
-            做多強勢標的 vs 做空劣勢標的 · 消除市場系統性 Beta 波動風險
+            {isBenchmarkHedge
+              ? `做多強勢標的 (${targetCount} 隻 · 50%) vs 基準 BTC 空頭對沖 (50%) · 徹底規避小幣反抽軋空風險`
+              : '做多強勢標的 vs 做空劣勢標的 · 消除市場系統性 Beta 波動風險'}
           </div>
         </div>
 
@@ -313,7 +361,9 @@ export const CrossSectionRankings: React.FC<CrossSectionRankingsProps> = ({
             className={`pill-btn ${filterTab === 'short' ? 'active' : ''}`}
             onClick={() => handleFilterTabChange('short')}
           >
-            🔴 Bottom {targetCount} 做空籃子 ({rankResult?.short_list?.length || 0})
+            {isBenchmarkHedge
+              ? `🛡️ 基準指數對沖 (${rankResult?.short_list?.length || 0})`
+              : `🔴 Bottom ${targetCount} 做空籃子 (${rankResult?.short_list?.length || 0})`}
           </button>
           <button
             type="button"
@@ -387,7 +437,9 @@ export const CrossSectionRankings: React.FC<CrossSectionRankingsProps> = ({
                         {isLong ? (
                           <span className="rank-pill rank-long">#{item.rank} 多</span>
                         ) : isShort ? (
-                          <span className="rank-pill rank-short">#{item.rank} 空</span>
+                          <span className="rank-pill rank-short">
+                            {isBenchmarkHedge ? '對沖 空' : `#${item.rank} 空`}
+                          </span>
                         ) : (
                           <span className="rank-pill rank-neutral">#{item.rank}</span>
                         )}
@@ -454,7 +506,7 @@ export const CrossSectionRankings: React.FC<CrossSectionRankingsProps> = ({
                         {(item.target_weight ?? 0) > 0 ? (
                           <>
                             <div className={`alloc-amount ${isLong ? 'text-positive' : 'text-negative'}`}>
-                              {isLong ? '🟢 做多' : '🔴 做空'}
+                              {isLong ? '🟢 做多' : (isBenchmarkHedge ? '🛡️ 基準對沖' : '🔴 做空')}
                             </div>
                             <div className="alloc-pct">權重: {((item.target_weight ?? 0) * 100).toFixed(1)}%</div>
                           </>
@@ -483,6 +535,9 @@ export const CrossSectionRankings: React.FC<CrossSectionRankingsProps> = ({
           </div>
           <div className="note-item">
             <strong>⚠️ 平滑資金費率反向 (40%)</strong>：取最近 3 次 8 小時結算費率之平滑平均反向取值。深度負費率代表貼水超賣，反向加分。
+          </div>
+          <div className="note-item">
+            <strong>🛡️ 基準指數對沖 (v3.0 Opt C)</strong>：空方改採單主流 BTCUSDT（或雙主流 BTC+ETH）佔 50% 名義資金對沖系統性 Beta，徹底規避小幣反抽軋空；多方維持 Top 5 動能強者（各 10% 資金）獲取橫截面超額 Alpha。
           </div>
           <div className="note-item">
             <strong>🛡️ Regime Gate 風險閘門</strong>：即時監測 BTC 50 日均線、宇宙 50 日廣度 (&gt;30%) 與全市場費率百分位 (&gt;45%)。具備 T1 停單清倉與 T2 崩跌延後防護。
