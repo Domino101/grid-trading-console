@@ -449,3 +449,23 @@ async def get_coinfull_prime_accounting(_token: str = Depends(verify_token)):
     except Exception as e:
         logger.error(f"取得記帳健康度失敗: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/stop-loss/check")
+async def trigger_stop_loss_check(_token: str = Depends(verify_token)):
+    """手動觸發一次盤中硬止損浮虧檢測並執行必要平倉（v3.0 Circuit Breaker）"""
+    try:
+        service = CoinFullPrimeService.instance()
+        risk_cfg = service.config.get("risk_control", {}) or {}
+        sl_pct = float(risk_cfg.get("intra_week_stop_loss_pct", -0.12))
+        results = await service.check_and_trigger_stop_losses(sl_pct=sl_pct)
+        return {
+            "status": "success",
+            "threshold_pct": sl_pct,
+            "triggered_count": len(results),
+            "results": results
+        }
+    except Exception as e:
+        logger.error(f"觸發盤中止損檢測失敗: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+

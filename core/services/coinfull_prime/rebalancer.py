@@ -757,3 +757,125 @@ class PortfolioRebalancer:
         closed_qty = min(float(quantity or 0.0), held_qty)
         direction_sign = -1.0 if (getattr(entry, "side", "long") == "short") else 1.0
         return round((float(price) - float(entry_price)) * closed_qty * direction_sign, 8)
+
+    async def execute_stop_loss(
+        self,
+        symbol: str,
+        account_id: str,
+        current_price: float,
+        exchange_adapter: Optional[ExchangeInterface] = None,
+        dry_run: bool = False,
+        reason: str = "intra_week_stop_loss",
+    ) -> Dict[str, Any]:
+        """執行盤中單幣硬止損（市價 reduceOnly 平倉）並由 StrategyLedger 結算已實現損益。"""
+        clean_sym = self._normalize_symbol(symbol)
+        bot_id = f"coinfull_prime:{account_id}"
+        from core.infrastructure.database.strategy_ledger import StrategyLedger
+        ledger = StrategyLedger.instance()
+
+        basket_entries = ledger.load_basket(bot_id, account_id=account_id, active_only=True)
+        target_entry = next((e for e in basket_entries if self._normalize_symbol(e.symbol) == clean_sym and e.side == "long"), None)
+        if not target_entry or target_entry.quantity <= 0:
+            logger.info(f"🛑 [盤中止損] 標的 {clean_sym} 在籃子中已無多頭部位，跳過止損")
+            return {"status": "skipped", "symbol": clean_sym, "reason": "no_position"}
+
+        qty_to_close = float(target_entry.quantity)
+        entry_price = float(target_entry.entry_price or current_price)
+        pnl_pct = (current_price - entry_price) / entry_price if entry_price > 0 else 0.0
+
+        logger.warning(
+            f"🚨 [盤中硬止損觸發] {clean_sym} 進場價={entry_price}, 現價={current_price}, "
+            f"跌幅={pnl_pct*100:.2f}%, 執行市價平倉數量={qty_to_close} (DryRun={dry_run})"
+        )
+
+        exec_price = current_price
+        exec_amount = qty_to_close
+        fee_cost = 0.0
+        now_ts = time.time()
+
+        if not dry_run and exchange_adapter:
+            try:
+                market = self._find_exchange_market(exchange_adapter, clean_sym)
+                clean_qty, _ = self._quantize_order_amount(qty_to_close, market)
+                if clean_qty > 0:
+                    exec_amount = clean_qty
+
+                res = await exchange_adapter.create_order(
+                    symbol=clean_sym,
+                    side=OrderSide.SELL,
+                    order_type=OrderType.MARKET,
+                    amount=Decimal(str(exec_amount)),
+                    params={"reduceOnly": True}
+                )
+                exec_price = float(getattr(res, "average", None) or getattr(res, "price", None) or current_price)
+                if hasattr(res, "fee") and isinstance(res.fee, dict):
+                    fee_cost = float(res.fee.get("cost", 0.0) or 0.0)
+            except Exception as ex:
+                logger.error(f"❌ [盤中止損下單失敗] {clean_sym}: {ex}")
+                return {"status": "failed", "symbol": clean_sym, "error": str(ex)}
+
+        # 寫入 Canonical Ledger 結算籃子均價部位 (均價法自動處理 closed 狀態與 realized_pnl)
+        realized_pnl = 0.0
+        try:
+            realized_pnl = ledger.apply_basket_fill(
+                bot_id=bot_id,
+                account_id=account_id,
+                symbol=clean_sym,
+                side="long",
+                price=exec_price,
+                quantity=exec_amount,
+                reduce_only=True
+            )
+        except Exception as ex:
+            logger.error(f"❌ [盤中止損結算失敗] {clean_sym}: {ex}")
+
+        # 記錄成交流水與事件
+        try:
+            from core.infrastructure.database.models import TradeFill
+            fill_id = f"sl_{account_id}_{clean_sym}_{int(now_ts)}"
+            ledger.record_fill(
+                TradeFill(
+                    fill_id=fill_id,
+                    bot_id=bot_id,
+                    exchange_order_id=None,
+                    client_order_id=fill_id,
+                    side="sell",
+                    role="stop_loss",
+                    price=exec_price,
+                    quantity=exec_amount,
+                    fee=fee_cost,
+                    fee_currency="USDT",
+                    realized_pnl=round(float(realized_pnl or 0.0), 8),
+                    executed_at=now_ts
+                )
+            )
+            ledger.append_event(
+                bot_id,
+                event_type="stop_loss",
+                payload={
+                    "symbol": clean_sym,
+                    "entry_price": entry_price,
+                    "exit_price": exec_price,
+                    "pnl_pct": pnl_pct,
+                    "realized_pnl": realized_pnl,
+                    "quantity": exec_amount,
+                    "dry_run": dry_run,
+                    "reason": reason,
+                    "message": f"Intra-week stop loss triggered for {clean_sym} at {exec_price} (drop {pnl_pct*100:.2f}%)",
+                },
+                dedupe_key=f"sl:{account_id}:{clean_sym}:{int(now_ts)}"
+            )
+        except Exception as ex:
+            logger.error(f"❌ [盤中止損事件記錄失敗]: {ex}")
+
+        return {
+            "status": "filled",
+            "symbol": clean_sym,
+            "entry_price": entry_price,
+            "exit_price": exec_price,
+            "quantity": exec_amount,
+            "pnl_pct": pnl_pct,
+            "realized_pnl": realized_pnl,
+            "dry_run": dry_run
+        }
+

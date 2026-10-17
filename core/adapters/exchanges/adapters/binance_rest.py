@@ -786,11 +786,30 @@ class BinanceRest(BinanceBase):
 
                 for idx, res in enumerate(batch_results):
                     try:
-                        if res and not isinstance(res, Exception):
-                            results.append(self.parse_order(res, symbol))
-                        else:
+                        if not res or isinstance(res, Exception):
+                            if self.logger:
+                                self.logger.error(f"❌ 批量下單單筆異常 (第 {idx+1} 張): {res}")
                             results.append(None)
-                    except Exception:
+                            continue
+                        if isinstance(res, dict) and ('code' in res or 'msg' in res) and not ('orderId' in res or 'id' in res):
+                            if self.logger:
+                                self.logger.error(
+                                    f"❌ 批量下單單筆被交易所拒絕 (第 {idx+1} 張): "
+                                    f"code={res.get('code')} msg={res.get('msg')}"
+                                )
+                            results.append(None)
+                            continue
+
+                        parsed = self.parse_order(res, symbol)
+                        if not parsed or not getattr(parsed, 'id', None):
+                            if self.logger:
+                                self.logger.error(f"❌ 批量下單單筆回傳無有效 orderId: {res}")
+                            results.append(None)
+                        else:
+                            results.append(parsed)
+                    except Exception as parse_e:
+                        if self.logger:
+                            self.logger.error(f"❌ 批量下單結果解析異常 (第 {idx+1} 張): {parse_e}")
                         results.append(None)
 
             except Exception as e:

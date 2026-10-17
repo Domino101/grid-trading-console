@@ -2,6 +2,38 @@
 
 本專案的重要變更記錄於此檔案，遵循 [Semantic Versioning](https://semver.org/lang/zh-TW/) 與 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/) 規範。
 詳細歷史工程記錄請參閱 [CHANGELOG_LEGACY.md](file:///root/grid-trading-console/CHANGELOG_LEGACY.md)。
+## [0.3.10] — 2026-10-18
+
+### Added
+- **CoinFull Prime v3.0 Opt C / Opt D 基準指數對沖做空架構 (Benchmark Index Hedge)**：
+  - **單主流 / 雙主流對沖腿**：`quant_engine.py` 實現 `hedge_mode: "benchmark"`（預設 `BTCUSDT` 佔 50% 名義資金對沖全市場 Beta）與 `dual_benchmark`（`BTCUSDT` 35% + `ETHUSDT` 15%），徹底終結舊版對稱做空 Bottom 5 小幣時遭遇的「小幣暴拉反抽軋空」流動性陷阱。
+  - **流動性與費率嚴格閘門 (Liquidity & Funding Rate Filter)**：
+    - 24h 成交額門檻由 20M 提高至 $\ge 50\text{M}$ USDT（`min_volume_24h_usdt`），剔除低流動性妖幣。
+    - 年化資金費率過濾 $< 60\%$（單次 8h 費率 $< 0.0548\%$，`max_abs_funding_rate_annualized`），杜絕極端逆向資金費率侵蝕策略淨值。
+  - **盤中 -12% 硬止損保護機制 (Intra-week Stop Loss Guard)**：
+    - `PortfolioRebalancer` 新增 `execute_stop_loss()`，合規調用 `StrategyLedger.apply_basket_fill(..., reduce_only=True)` 平倉受管部位並記錄 `bot_events`，嚴守統一記帳路徑規範。
+    - `CoinFullPrimeService` 啟動背景守護協程 `_intra_week_stop_loss_loop`（每 30 秒巡檢，具備異常退避與取消保護），並對外暴露 `POST /api/v1/coinfull-prime/stop-loss/check` REST API 供總控台隨時手動檢查與觸發。
+  - **策略配置參數升級**：更新 `config/coinfull_prime/strategy_config.yaml` 支援 `hedge_mode`、`short_hedge_symbol`、`short_hedge_weight`、`stop_loss_pct`、`stop_loss_check_interval_sec`。
+
+### Changed
+- **總控台與多空截面前端介面自適應全面升級 (Adaptive Frontend for v3.0)**：
+  - **語義與指標精確對齊**：
+    - `CoinFullPrimePage.tsx` 與 `CrossSectionRankings.tsx` 自適應偵測基準對沖模式。
+    - 卡片 2 由舊版「🔴 最弱空頭重災 (Bottom 1)」升級為「🛡️ 基準指數對沖 (Benchmark)」，顯示對沖權重 50%、即時 BTC 市價與名義目標額。
+    - 卡片 3 由「⚖️ 對沖籃子組合配置 5 隻 做空標的 (各 20.0%)」重構為「Top 5 多頭 (各 10.0% 資金) VS 1 隻 (BTC) 基準對沖 (佔 50.0% 資金)」，清晰反映名義資金真實分配。
+  - **零持倉誤導修復**：修正當帳戶未持有空方部位時誤顯示為 `空方: +0.00 U` 的問題，改為清晰明確的 `空方: 未持倉`，並同步優化持倉總覽看闆。
+  - **換倉試算與排程預期自適應**：
+    - 試算晶片與排程區塊自適應顯示多方每幣（10%）與對沖空頭（50%）名義目標。
+    - 排行 Tab 3 切換按鈕動態呈現為「🛡️ 基準指數對沖 (1)」。
+    - 表格排名標籤由 `#0 空` 修正為「對沖 空」，消除排序序號失真。
+    - 換倉二次確認彈窗精確提示「Top 5 多頭 + 1 隻基準對沖 (共 6 筆)」及其資金規劃。
+
+### Documentation
+- **發表 CoinFull Prime 完整稽核與升級手冊**：
+  - [CoinFull_Prime_v3_Engineering_Spec_and_Optimization_Master.md](file:///root/grid-trading-console/docs/CoinFull_Prime_v3_Engineering_Spec_and_Optimization_Master.md)：v3.0 策略架構工程規格與優化主手冊。
+  - [CoinFull_Prime_v3_Comparative_Backtest_Report.md](file:///root/grid-trading-console/docs/CoinFull_Prime_v3_Comparative_Backtest_Report.md)：v2.1 對稱 vs v3.0 Opt C / Opt D 基準對沖與動態權重五年實測深度對比報告。
+  - [CoinFull_Prime_Strategy_Audit_and_Optimization_Report.md](file:///root/grid-trading-console/docs/CoinFull_Prime_Strategy_Audit_and_Optimization_Report.md)：針對過去 75 天實盤交易紀錄之回溯稽核診斷與優化建議。
+  - [CoinFull_Prime_75d_Backtest_and_Strategy_Spec.md](file:///root/grid-trading-console/docs/CoinFull_Prime_75d_Backtest_and_Strategy_Spec.md)：75 天多空復盤回測與策略改版規格。
 
 ## [0.3.9] — 2026-09-23
 

@@ -7,14 +7,16 @@
 strategy:
   id: "coinfull_prime"
   name: "CoinFull Prime Market Neutral"
-  description: "Cross-Sectional Market Neutral Multi-Factor Alpha Strategy (Top 5 Long + Bottom 5 Short, v2 + regime gate)"
-  version: "2.0.0"
+  description: "Asymmetric Market Neutral Alpha Strategy (Top 5 Longs + BTC Benchmark Hedge + -12% Intra-week Stop Loss, v3.0)"
+  version: "3.0.0"
 
 # 標的池（Universe 79）過濾設定
 universe:
   top_n: 79
   quote_asset: "USDT"
   exclude_tradfi: true       # 排除非加密合約 (美股、股票、指數 ETF、大宗商品等 TradFi，維持純加密中性)
+  min_24h_volume_usdt: 50000000.0  # Opt D 質量初篩：24h 成交額 >= 5000 萬 USDT (排除極端微盤垃圾幣)
+  max_7d_atr_pct: 0.20             # Opt D 波動過濾：7 日真實振幅 ATR/Price <= 20%
   exclude_stables:
     - "USDCUSDT"
     - "FDUSDUSDT"
@@ -27,34 +29,54 @@ universe:
     - "BFDUSDUSDT"
 
 # 因子加權設定 (加總必須為 1.0)
-# v2 優化：移除 taker 買賣壓力（1–7 日 IC 為負/近零，無可用 alpha）
-# 與大戶多空比（無顯著貢獻），改以多時距動能 + 平滑資金費率為主
 weights:
-  momentum: 0.60     # 多時距混合動能（順勢成分）
-  flow: 0.0          # 已移除（保留欄位以相容舊版；0 權重時不再呼叫對應 API）
-  funding: 0.40      # 資金費率反向（carry：收費方為正）
-  liquidation: 0.0   # 已移除（保留欄位以相容舊版）
+  momentum: 0.60     # 多時距平滑動能（順勢成分）
+  flow: 0.0          # 已移除
+  funding: 0.40      # 資金費率（carry 收息 / 兩階段安全門檻）
+  liquidation: 0.0   # 已移除
 
-# 動能因子形式
+# 動能因子形式 (v3.0 Opt C / Master Spec 2.1)
 momentum:
-  mode: "blend"            # "day" = 24h 漲跌幅（舊版）; "blend" = 多時距混合（建議）
-  blend:                   # blend 權重（0.5*R1d + 0.3*R7d + 0.2*R30d）
-    r1d: 0.5
-    r7d: 0.3
-    r30d: 0.2
+  mode: "blend"            # "blend" = 多時距平滑混合 (7d/14d/30d)
+  blend:
+    r1d: 0.0               # v3 徹底移除單日動能噪音 (防追高反噬)
+    r7d: 0.5               # 7d 動能權重 50%
+    r14d: 0.3              # 14d 動能權重 30%
+    r30d: 0.2              # 30d 動能權重 20%
+  overheat_penalty: true   # 短線防夾保護：若 1d 漲幅 > 65% of 7d 漲幅 (7d > 0)，評分乘 0.5
 
-# 資金費率因子形式
+# 資金費率因子形式與兩階段過濾門檻
 funding:
-  mode: "smooth"           # "spot" = 單點快照（舊版）; "smooth" = 最近 N 次 8 小時結算平均
+  mode: "smooth"           # 最近 3 次 8 小時結算平均 (平滑快照雜訊)
   settlements: 3
+  annual_max_long_pct: 60.0    # 多頭候選年化資費上限 (+60%)，超過則強制剔除防高息爆雷
+  annual_min_short_pct: -40.0  # 空頭候選年化資費下限 (-40%)，低於則強制剔除防高息軋空
+
+# 非對稱空頭對沖配置 (v3.0 Opt C 核心架構)
+hedge:
+  mode: "benchmark"        # "benchmark" = 50% 名義資金單主流 BTC 對沖 (Opt C 推薦)
+                           # "dual_benchmark" = 25% BTC + 25% ETH (Opt B 雙主流)
+                           # "basket" = 傳統倒序小幣空頭籃子 (v2 舊版相容)
+  symbol: "BTCUSDT"        # 基準對沖合約代碼
+  weight: 0.50             # 空頭總資金佔比 (50% 名義本金)
+  dual_weights:
+    BTCUSDT: 0.25
+    ETHUSDT: 0.25
+
+# 週內事中動態風控 (Intra-week Risk Control)
+risk_control:
+  intra_week_stop_loss_pct: -0.12  # 多頭單幣硬止損 (-12.0%)，觸發後以市價 reduceOnly 平倉並鎖定為現金
+  order_type: "MARKET"
+  reduce_only: true
+  monitor_interval_seconds: 5      # 盤中監控頻率 (秒)
 
 # 投資組合與換倉設定
 portfolio:
-  long_count: 5                # 做多標的數量（v2 建議 5；K≥8 樣本外明顯變差）
-  short_count: 5               # 做空標的數量
+  long_count: 5                # 做多標的數量 (Top 5，每檔 10% 總資金)
+  short_count: 1               # 空頭標的數量 (benchmark 模式下為 1 檔 BTCUSDT 佔 50%)
   total_capital_usdt: 1000.0   # 總投入名義本金 (USDT)
-  leverage: 1.0                # 槓桿倍數（只在符合加碼條件時由閘門提高至 1.15x）
-  exchange: "paper"            # 目標交易所: paper (模擬撮合), binance (幣安實盤), okx, hyperliquid
+  leverage: 1.0                # 槓桿倍數 (總名義倉位 1.0x)
+  exchange: "paper"            # 目標交易所: paper (模擬撮合), binance (幣安實盤)
   dry_run: true                # true: 僅計算日誌，不發真實訂單; false: 實際發單
   max_slippage_pct: 0.005      # 最大允許市價滑點 (0.5%)
   execution_style: "batch"     # batch: 批次限速發單; twap: 時間加權分批

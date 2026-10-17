@@ -32,6 +32,9 @@ GRID_DIFF_ALLOWLIST: dict[str, str] = {
     "core/services/grid/implementations/position_tracker_impl.py": (
         "P4-1 統一記帳：ledger 寫入改走 StrategyLedger 門面，交易邏輯零變更"
     ),
+    "core/services/grid/implementations/grid_engine_impl.py": (
+        "防禦修補：批量下單無效回傳處理與中性網格初始訂單判斷修復"
+    ),
 }
 
 

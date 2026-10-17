@@ -1,22 +1,22 @@
 dca:
   exchange: binance
-  symbol: SOL/USDC:USDC
+  symbol: SUI/USDC:USDC
   direction: long
   account_mode: live
   leverage: 10
   margin_mode: isolated
-  quantity_precision: 2
-  price_decimals: 2
+  quantity_precision: 1
+  price_decimals: 4
   fee_rate: '0.0004'
-  base_order_amount: '8.0'
+  base_order_amount: '5.5'
   amount_unit: quote
   dca_mode: order
   averaging_method: fixed_value
   max_safety_orders: 20
-  price_deviation_percent: '0.8'
+  price_deviation_percent: '1.25'
   price_deviation_multiplier: '1.2'
   order_size_multiplier: '1.0'
-  take_profit_percent: '5.0'
+  take_profit_percent: '2.5'
   take_profit_order_type: limit
   stop_loss_percent: null
   max_position_notional: null
@@ -39,8 +39,8 @@ dca:
     indicators:
     - type: rsi
       period: 14
-      oversold: 30.0
-      overbought: 70.0
+      oversold: 20.0
+      overbought: 80.0
       condition: level
 metadata:
-  bot_id: 0d7a951d27e843fca7c8c4b38121e904
+  bot_id: bb72834ad6524ef487834fc08da74c6e

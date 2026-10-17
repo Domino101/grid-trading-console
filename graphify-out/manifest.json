@@ -55,8 +55,8 @@
     "semantic_hash": ""
   },
   "core/adapters/exchanges/adapters/binance_rest.py": {
-    "mtime": 1789143217.1515934,
-    "ast_hash": "1c901eff83b155ae5e15cbd49dd142eb",
+    "mtime": 1790592446.9136398,
+    "ast_hash": "4d263410baf9ef61600a5213bb4247e3",
     "semantic_hash": ""
   },
   "core/adapters/exchanges/adapters/binance_websocket.py": {
@@ -415,8 +415,8 @@
     "semantic_hash": "0141c14ea2e69575c703912c8d532c66"
   },
   "core/services/grid/implementations/grid_engine_impl.py": {
-    "mtime": 1789143236.7495935,
-    "ast_hash": "136acfaf2ef2bfedd644e6173d77ce7f",
+    "mtime": 1790592470.19764,
+    "ast_hash": "d073ae7d75d1d8d44332094019a73bdc",
     "semantic_hash": ""
   },
   "core/services/grid/implementations/grid_strategy_impl.py": {
@@ -1145,8 +1145,8 @@
     "semantic_hash": "ca240e63f02797d0217765ddd0be28bc"
   },
   "web_ui/frontend/src/services/api.ts": {
-    "mtime": 1789665713.1053395,
-    "ast_hash": "13e7c4ed3468e8e347abe75023408b9c",
+    "mtime": 1790342291.7945628,
+    "ast_hash": "3a80222629ab793a7b2914a1f0ad446b",
     "semantic_hash": ""
   },
   "web_ui/frontend/tsconfig.app.json": {
@@ -3590,18 +3590,18 @@
     "semantic_hash": ""
   },
   "core/services/coinfull_prime/quant_engine.py": {
-    "mtime": 1789666189.102341,
-    "ast_hash": "f3fa61695a96b8bd4ae236ad6c676378",
+    "mtime": 1792262826.4373615,
+    "ast_hash": "95933e4a74ac27089d3658bda6ce892a",
     "semantic_hash": ""
   },
   "core/services/coinfull_prime/rebalancer.py": {
-    "mtime": 1789613883.400636,
-    "ast_hash": "54bf327330e2956d99cf7cadb53a6825",
+    "mtime": 1792263370.070363,
+    "ast_hash": "3cb5936f83f704eed30883821f60d1a4",
     "semantic_hash": ""
   },
   "core/services/coinfull_prime/service.py": {
-    "mtime": 1789666147.178341,
-    "ast_hash": "e7298da8568514e31d8b2cc85e56cbbb",
+    "mtime": 1792263196.8043625,
+    "ast_hash": "1fe87d4ef3a878caa648b023f80e20bd",
     "semantic_hash": ""
   },
   "run_coinfull_prime.py": {
@@ -3610,28 +3610,28 @@
     "semantic_hash": ""
   },
   "tests/test_coinfull_prime_quant.py": {
-    "mtime": 1789665857.5353398,
-    "ast_hash": "c3543a19e84c17a66e67675e3cdd06a8",
+    "mtime": 1792262856.7893617,
+    "ast_hash": "e6dccd6bb51cef48ffe8fe3fece53b94",
     "semantic_hash": ""
   },
   "tests/test_coinfull_prime_rebalance.py": {
-    "mtime": 1789607430.7444124,
-    "ast_hash": "00872b64b91dcf9374df29300c99488e",
+    "mtime": 1792263385.0272357,
+    "ast_hash": "a93e6e723bf20ba9e37cc62735309bf0",
     "semantic_hash": ""
   },
   "web_ui/backend/routes/coinfull_prime.py": {
-    "mtime": 1789666134.8723407,
-    "ast_hash": "846f608dbff7b990c3ab1a63a0545a25",
+    "mtime": 1792263228.2213628,
+    "ast_hash": "0208de891a605e16a2c0f7e3850aa6e3",
     "semantic_hash": ""
   },
   "web_ui/frontend/src/components/CoinFullPrimePage.tsx": {
-    "mtime": 1789665782.2893398,
-    "ast_hash": "f41c2b2023825faca45902039892f6a8",
+    "mtime": 1792264987.6334603,
+    "ast_hash": "46ffda3d6afd98f1eed0298f02c3ec23",
     "semantic_hash": ""
   },
   "config/coinfull_prime/strategy_config.yaml": {
-    "mtime": 1789665562.951339,
-    "ast_hash": "ff0291c7ab8631db2568c45d59b10d66",
+    "mtime": 1792262510.6133606,
+    "ast_hash": "7152dd86def864d038bd4ba1a903cea1",
     "semantic_hash": ""
   },
   "docs/CoinFull_Prime_Local_Dev_Plan.md": {
@@ -3645,8 +3645,8 @@
     "semantic_hash": ""
   },
   "web_ui/frontend/src/components/CrossSectionRankings.tsx": {
-    "mtime": 1789665820.3003397,
-    "ast_hash": "d090d89143750af9154bae79054fbbdb",
+    "mtime": 1792264752.8964596,
+    "ast_hash": "575fddd6cb68a865d7aec3c7f7773695",
     "semantic_hash": ""
   },
   "graphify-out/memory/query_20260916_082528_\u76ee\u524d\u7684coinfullprime\u6a5f\u5668\u4eba\u4e26\u6c92\u6709\u5b8c\u5584\u7684\u4ea4\u6613\u8a18\u9304\u5728\u524d\u7aef\u5448\u73fe__\u76ee\u524d\u662f\u4f7f\u7528\u4ec0\u9ebc\u65b9\u5f0f\u505a\u7d00\u9304\u7684.md": {
@@ -3745,8 +3745,8 @@
     "semantic_hash": ""
   },
   "docs/CoinFull_Prime_00_README.md": {
-    "mtime": 1789552375.7556689,
-    "ast_hash": "d74f1c7ce7d6ce5e9c659f4b49d8fa9d",
+    "mtime": 1792260556.7573829,
+    "ast_hash": "3284fc9d87a20ddccf4c4568542ec8db",
     "semantic_hash": ""
   },
   "docs/CoinFull_Prime_01_Profit_Optimization_Plan.md": {
@@ -3940,8 +3940,8 @@
     "semantic_hash": ""
   },
   "tests/_grid_guard.py": {
-    "mtime": 1789573623.314334,
-    "ast_hash": "95c539ab815d13801a1d4c543d900c07",
+    "mtime": 1790592438.2516398,
+    "ast_hash": "b97dce3d51e8218b4d97b9ea0e3b0864",
     "semantic_hash": ""
   },
   "tests/test_accounting_path_policy.py": {
@@ -3979,29 +3979,49 @@
     "ast_hash": "796cb70445069bf5269295ea091c3630",
     "semantic_hash": ""
   },
-  "config/dca/dca-binance-long-eth-usdc-usdc-20260922162543.yaml": {
-    "mtime": 1790065543.3478944,
-    "ast_hash": "39d01ea69200aa393ddea4b4a94e8101",
+  "config/dca/dca-binance-long-eth-usdc-usdc-20261017235855.yaml": {
+    "mtime": 1792252735.7411919,
+    "ast_hash": "7a2d8c52e907f4bc6f4df2071eb3b025",
     "semantic_hash": ""
   },
-  "config/dca/dca-binance-long-xrp-usdc-usdc-20260922163606.yaml": {
-    "mtime": 1790066166.2397716,
-    "ast_hash": "e959a103948f78d07673ee0f199a0150",
+  "config/dca/dca-binance-long-sol-usdc-usdc-20261014181856.yaml": {
+    "mtime": 1792254911.7380748,
+    "ast_hash": "79978132f553638c3d7b8ca3d6d16233",
     "semantic_hash": ""
   },
-  "config/dca/dca-binance-long-sol-usdc-usdc-20260923212013.yaml": {
-    "mtime": 1790169613.731582,
-    "ast_hash": "5bc483b94d48bfc11f297e08248e9d55",
+  "config/dca/dca-binance-long-sui-usdc-usdc-20261013183649.yaml": {
+    "mtime": 1791887809.3666337,
+    "ast_hash": "35d59cba472f4ab1c5679bf3adad6f88",
     "semantic_hash": ""
   },
-  "config/dca/dca-binance-long-sui-usdc-usdc-20260922232719.yaml": {
-    "mtime": 1790090839.1861703,
-    "ast_hash": "fc971fcf2aaee0b34b571db0e1e31810",
+  "config/dca/dca-binance-long-uni-usdc-usdc-20261014181942.yaml": {
+    "mtime": 1792254918.3660748,
+    "ast_hash": "4a035c8757043e6bd71c69e6a070f7f9",
     "semantic_hash": ""
   },
-  "config/dca/dca-binance-long-uni-usdc-usdc-20260923012302.yaml": {
-    "mtime": 1790097782.1560822,
-    "ast_hash": "48b813e080c0d820ec8ba6ca41d30a87",
+  "config/dca/dca-binance-long-xrp-usdc-usdc-20261014105331.yaml": {
+    "mtime": 1791946411.7557232,
+    "ast_hash": "694997825e31cc071ce04e1224f0d18c",
+    "semantic_hash": ""
+  },
+  "docs/CoinFull_Prime_75d_Backtest_and_Strategy_Spec.md": {
+    "mtime": 1792257361.751048,
+    "ast_hash": "7063315e2535d0ab8c220de4d585c78c",
+    "semantic_hash": ""
+  },
+  "docs/CoinFull_Prime_Strategy_Audit_and_Optimization_Report.md": {
+    "mtime": 1792259617.73038,
+    "ast_hash": "d3f806df4a341aee9763e9e92343a31e",
+    "semantic_hash": ""
+  },
+  "docs/CoinFull_Prime_v3_Comparative_Backtest_Report.md": {
+    "mtime": 1792260539.799383,
+    "ast_hash": "e86f24b13d3a9f1ebf920cf60af33b11",
+    "semantic_hash": ""
+  },
+  "docs/CoinFull_Prime_v3_Engineering_Spec_and_Optimization_Master.md": {
+    "mtime": 1792261886.2283587,
+    "ast_hash": "e025854a6816be4d19ed9148cc0efa52",
     "semantic_hash": ""
   }
 }

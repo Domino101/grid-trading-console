@@ -185,5 +185,107 @@ class TestCoinFullPrimeQuant(unittest.TestCase):
         self.assertNotIn("BTCUSDT", tradfi_set)
 
 
+    def test_compute_ranks_benchmark_hedge(self):
+        # 驗證 v3.0 Opt C: 50% BTC 基準指數對沖
+        cfg = {
+            "portfolio": {
+                "long_count": 3,
+                "short_count": 1,
+                "total_capital_usdt": 1000.0,
+                "leverage": 1.0
+            },
+            "hedge": {
+                "mode": "benchmark",
+                "symbol": "BTCUSDT",
+                "weight": 0.50
+            }
+        }
+        quant = CoinFullPrimeQuant(cfg)
+        features = [
+            RawFeature(symbol="BTCUSDT", momentum=20.0, flow=3.0, funding=0.01, liquidation=2.0), # 即使評分最高
+            RawFeature(symbol="SOLUSDT", momentum=15.0, flow=2.5, funding=0.01, liquidation=1.8),
+            RawFeature(symbol="AVAXUSDT", momentum=10.0, flow=2.0, funding=0.005, liquidation=1.5),
+            RawFeature(symbol="LINKUSDT", momentum=8.0, flow=1.5, funding=0.0, liquidation=1.2),
+            RawFeature(symbol="DOGEUSDT", momentum=-5.0, flow=0.8, funding=-0.01, liquidation=0.8),
+        ]
+        result = quant.compute_ranks(features)
+        self.assertEqual(result.status, "success")
+        # 1. BTCUSDT 作為對沖標的，不得進入做多清單
+        long_symbols = [x.symbol for x in result.long_list]
+        self.assertNotIn("BTCUSDT", long_symbols)
+        self.assertEqual(len(result.long_list), 3)
+        self.assertEqual(result.long_list[0].symbol, "SOLUSDT")
+        # 多頭每檔名義資金: 1000 * 0.5 / 3 = 166.67
+        self.assertAlmostEqual(result.long_list[0].target_notional, 166.67, places=1)
+
+        # 2. 空頭清單必須唯一為 BTCUSDT，佔 50% 總名義本金 (500 USDT)
+        self.assertEqual(len(result.short_list), 1)
+        self.assertEqual(result.short_list[0].symbol, "BTCUSDT")
+        self.assertEqual(result.short_list[0].side, "short")
+        self.assertAlmostEqual(result.short_list[0].target_weight, 0.50, places=2)
+        self.assertAlmostEqual(result.short_list[0].target_notional, 500.0, places=1)
+
+    def test_compute_ranks_dual_benchmark_hedge(self):
+        # 驗證 v3.0 Opt B: 雙主流 BTC + ETH 基準對沖 (各 25%)
+        cfg = {
+            "portfolio": {
+                "long_count": 2,
+                "short_count": 2,
+                "total_capital_usdt": 1000.0,
+                "leverage": 1.0
+            },
+            "hedge": {
+                "mode": "dual_benchmark",
+                "dual_weights": {
+                    "BTCUSDT": 0.25,
+                    "ETHUSDT": 0.25
+                }
+            }
+        }
+        quant = CoinFullPrimeQuant(cfg)
+        features = [
+            RawFeature(symbol="BTCUSDT", momentum=20.0, flow=3.0, funding=0.01, liquidation=2.0),
+            RawFeature(symbol="ETHUSDT", momentum=18.0, flow=2.8, funding=0.01, liquidation=1.9),
+            RawFeature(symbol="SOLUSDT", momentum=15.0, flow=2.5, funding=0.01, liquidation=1.8),
+            RawFeature(symbol="AVAXUSDT", momentum=10.0, flow=2.0, funding=0.005, liquidation=1.5),
+        ]
+        result = quant.compute_ranks(features)
+        self.assertEqual(len(result.short_list), 2)
+        short_map = {x.symbol: x for x in result.short_list}
+        self.assertIn("BTCUSDT", short_map)
+        self.assertIn("ETHUSDT", short_map)
+        self.assertAlmostEqual(short_map["BTCUSDT"].target_weight, 0.25, places=2)
+        self.assertAlmostEqual(short_map["BTCUSDT"].target_notional, 250.0, places=1)
+        self.assertAlmostEqual(short_map["ETHUSDT"].target_weight, 0.25, places=2)
+        self.assertAlmostEqual(short_map["ETHUSDT"].target_notional, 250.0, places=1)
+
+    def test_compute_ranks_volume_filter(self):
+        # 驗證 24h 成交額門檻初篩
+        cfg = {
+            "portfolio": {"long_count": 2, "short_count": 1, "total_capital_usdt": 1000.0},
+            "universe": {"min_24h_volume_usdt": 50000000.0},
+            "hedge": {"mode": "benchmark", "symbol": "BTCUSDT", "weight": 0.50}
+        }
+        quant = CoinFullPrimeQuant(cfg)
+        quant.quote_volumes = {
+            "BTCUSDT": 1000000000.0,
+            "HIGH_MOM_MICRO_CAP": 5000000.0,  # 成交額僅 500 萬，未達 5000 萬門檻
+            "GOOD_MID_CAP": 80000000.0,       # 達標
+            "GOOD_LARGE_CAP": 200000000.0,    # 達標
+        }
+        features = [
+            RawFeature(symbol="BTCUSDT", momentum=20.0, flow=3.0, funding=0.01, liquidation=2.0),
+            RawFeature(symbol="HIGH_MOM_MICRO_CAP", momentum=50.0, flow=4.0, funding=0.01, liquidation=2.0), # 分數最高但流動性不足
+            RawFeature(symbol="GOOD_MID_CAP", momentum=15.0, flow=2.5, funding=0.01, liquidation=1.8),
+            RawFeature(symbol="GOOD_LARGE_CAP", momentum=10.0, flow=2.0, funding=0.005, liquidation=1.5),
+        ]
+        result = quant.compute_ranks(features)
+        long_symbols = [x.symbol for x in result.long_list]
+        self.assertNotIn("HIGH_MOM_MICRO_CAP", long_symbols)
+        self.assertIn("GOOD_MID_CAP", long_symbols)
+        self.assertIn("GOOD_LARGE_CAP", long_symbols)
+
+
 if __name__ == "__main__":
     unittest.main()
+
