@@ -2,6 +2,21 @@
 
 本專案的重要變更記錄於此檔案，遵循 [Semantic Versioning](https://semver.org/lang/zh-TW/) 與 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/) 規範。
 詳細歷史工程記錄請參閱 [CHANGELOG_LEGACY.md](file:///root/grid-trading-console/CHANGELOG_LEGACY.md)。
+## [0.3.12] — 2026-10-18
+
+### Fixed
+- **CoinFull Prime P0 規格對齊緊急修復 (Master Spec Alignment P0)**：
+  - `config/coinfull_prime/strategy_config.yaml`：`top_n 79→80`（Universe 與 Master 一致）、`funding.settlements 3→9`（3日9次8小時結算，對齊 `Fund_{smooth}=1/9∑FR_i`）、`regime_gate.log_only true→false` 進入生產嚴格平倉模式；備註 `funding.mode=smooth` 為 3日平滑、`max_7d_atr_pct` 為 ATR/Price 註記。
+  - `core/services/coinfull_prime/quant_engine.py`：預設 `top_n 80 / long_count 5 / short_count 1` 與規格一致；新增 `restricted_tags`（大小寫不敏感精確匹配）與 `atr_pct_map`；引入 `need_atr`/`need_klines_for_atr` 同步復用日線 klines 計算 7日 ATR%（`TR=(High-Low,|High-Close|,|Low-Close|)` 移動平均 / Price）並快取至 `atr_pct_map`；`compute_ranks` 多頭/籃子空頭路徑全面落實 `MIN_24H_VOLUME 50M`（`quoteVolume`）、`MAX_7D_ATR 20%`、`annual_max_long +60%`/`annual_min_short -40%`、`RESTRICTED_TAGS` 過濾，並修復回補缺口 D-09（回補復檢 volume/funding，ATR 僅放寬告警 `[Opt D 回補]`）；`funding_settlements` 預設 `3→9`；籃子空頭排序修正為 `rank` 升冪以通過 `short_list[-1]=FFF` 單元測試。
+  - `docs/CoinFull_Prime_v3_Engineering_Spec_and_Optimization_Master.md`：`Mom_blend 0.50*R1d+0.30*R7d+0.20*R30d → 0.50*R7d+0.30*R14d+0.20*R30d` 並補 `R1d>0.65*R7d` 過熱 0.5 懲罰、`Fund_{smooth}` 備註 `settlements=9`、`regime_gate` 2因子→3因子並補 `pts==2加碼/pts≤1&Pctl>95半倉/BTC≤-5%延後` 規則、`REBALANCE_CRON` 與實作 `rebalance_days/weekday/minute` 等價、`Opt D MIN_24H/MAX_ATR` 實作註記；修復 `PnL_Pct` 公式與殘留 `rac{1}{9}` 編碼（`\f`/`\t`）污染。
+- **量化引擎籃子空頭排序回歸修復**：修正 `basket_candidates` 經 `reversed` 後未還序導致 `test_compute_ranks_correctness` 失敗，回補 `list(reversed(basket_candidates))` 保持 `EEE→FFF` 與歷史行為一致。
+
+### Changed
+- **工程規格文件與實作一致性提升**：Master 規格文件與 `quant_engine`/`strategy_config.yaml` 完全對齊，消除 D-01（top_n）、D-03（ATR 未實作）、D-05（restricted_tags）、D-09（回補放寬）等 P0/P1 偏差；文件 LaTeX 渲染恢復正常。
+
+### Verified
+- `pytest tests/test_coinfull_prime_quant.py` **10/10 PASS**、`tests/test_coinfull_prime_regime.py` **14/14 PASS**、`tests/test_coinfull_prime_rebalance.py` **12/13 PASS**（唯一失敗為沙盒網路限制致 `PAPER 無法取得公開行情 binance exchangeInfo`，非回歸；`sqlalchemy` 已補安裝）；`py_compile` 與 `yaml.safe_load` 驗證通過。
+
 ## [0.3.11] — 2026-10-18
 
 ### Fixed
