@@ -200,10 +200,53 @@ class PortfolioRebalancer:
             if abs(diff_notional) < self.min_order_notional:
                 continue
 
+            # 若現有持倉方向與目標方向相反 (例如原本做多，但新目標為基準對沖做空，或反之)
+            # 不能以單筆超過持倉量的委託帶 reduceOnly: True，否則幣安會拒單 (-2022 ReduceOnly Order failed)
+            # 正確做法：拆分成「第 1 階段平舊倉 (reduce_only=True)」與「第 2 階段開新倉 (reduce_only=False)」
+            if is_held and ((curr_qty > 0 and target_qty < 0) or (curr_qty < 0 and target_qty > 0)):
+                # 1) 平舊倉
+                close_side = "sell" if curr_qty > 0 else "buy"
+                close_qty = abs(curr_qty)
+                close_notional = round(close_qty * price, 2)
+                orders.append(
+                    RebalanceOrder(
+                        symbol=sym,
+                        side=close_side,
+                        order_type="market",
+                        amount=close_qty,
+                        notional_usdt=close_notional,
+                        reduce_only=True,
+                        reason="flip_close",
+                        status="pending"
+                    )
+                )
+                closed_symbols.append(sym)
+
+                # 2) 開新倉
+                open_side = "buy" if target_qty > 0 else "sell"
+                open_qty = abs(target_qty)
+                open_notional = round(open_qty * price, 2)
+                orders.append(
+                    RebalanceOrder(
+                        symbol=sym,
+                        side=open_side,
+                        order_type="market",
+                        amount=open_qty,
+                        notional_usdt=open_notional,
+                        reduce_only=False,
+                        reason="flip_open",
+                        status="pending"
+                    )
+                )
+                opened_symbols.append(sym)
+                continue
+
             side = "buy" if diff_qty > 0 else "sell"
             reason = "enter_new" if not is_held else "adjust_weight"
-            # 減倉單標記 reduce-only（實盤執行時帶 reduceOnly 參數、於先平倉階段送出）
-            reducing = (side == "sell" and curr_qty > 0) or (side == "buy" and curr_qty < 0)
+            # 減倉單標記 reduce-only（純同向縮減倉位時安全帶 reduceOnly 參數）
+            reducing = (side == "sell" and curr_qty > 0 and abs(diff_qty) <= abs(curr_qty)) or (
+                side == "buy" and curr_qty < 0 and abs(diff_qty) <= abs(curr_qty)
+            )
 
             orders.append(
                 RebalanceOrder(
@@ -557,6 +600,14 @@ class PortfolioRebalancer:
                     order_side = OrderSide.BUY if ord_spec.side == "buy" else OrderSide.SELL
                     params = {"reduceOnly": True} if ord_spec.reduce_only else {}
 
+                    # 2.5 設置目標合約槓桿 (避免幣安預設 20x 槓桿超出部分小幣 10x 初始槓桿限制而觸發 code -2027)
+                    if not is_paper and hasattr(exchange_adapter, "set_leverage") and not ord_spec.reduce_only:
+                        target_lev = max(1, int(round(effective_leverage)))
+                        try:
+                            await exchange_adapter.set_leverage(ord_spec.symbol, target_lev)
+                        except Exception as lev_err:
+                            logger.warning(f"設置標的 {ord_spec.symbol} 槓桿至 {target_lev}x 警告 (繼續嘗試下單): {lev_err}")
+
                     res = await exchange_adapter.create_order(
                         symbol=ord_spec.symbol,
                         side=order_side,
@@ -640,6 +691,22 @@ class PortfolioRebalancer:
         if entry_orders:
             logger.info(f"執行第 2 階段開倉單 ({len(entry_orders)} 筆)...")
             await asyncio.gather(*[send_order(o) for o in entry_orders])
+
+        # 計算實盤換倉整體狀態
+        failed_count = sum(1 for o in report.orders if o.status == "failed")
+        filled_count = sum(1 for o in report.orders if o.status in ("filled", "simulated"))
+        skipped_count = sum(1 for o in report.orders if o.status == "skipped")
+
+        if failed_count > 0:
+            report.status = "partial" if filled_count > 0 else "failed"
+            errors = [f"{o.symbol}: {o.error}" for o in report.orders if o.error]
+            report.error = "; ".join(errors[:3])
+        elif skipped_count > 0 and filled_count == 0 and len(report.orders) > 0:
+            report.status = "skipped"
+            errors = [f"{o.symbol}: {o.error}" for o in report.orders if o.error]
+            report.error = "; ".join(errors[:3])
+        else:
+            report.status = "completed"
 
         # 寫入 Canonical Ledger 稽核記帳（完整 orders 清單 + 損益/手續費彙總 + 冪等 dedupe_key）
         try:

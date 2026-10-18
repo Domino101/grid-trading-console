@@ -2,6 +2,31 @@
 
 本專案的重要變更記錄於此檔案，遵循 [Semantic Versioning](https://semver.org/lang/zh-TW/) 與 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/) 規範。
 詳細歷史工程記錄請參閱 [CHANGELOG_LEGACY.md](file:///root/grid-trading-console/CHANGELOG_LEGACY.md)。
+## [0.3.11] — 2026-10-18
+
+### Fixed
+- **CoinFull Prime 排程規模與本金互斥同步修正 (Position Sizing Mutually Exclusive Sync)**：
+  - 修復 `CoinFullPrimeService` 在切換為「帳戶餘額百分比 (`balance_pct`)」時，未清除舊有固定本金（`capital`）導致排程狀態計算依據優先權誤鎖於歷史 60U 的重大缺陷。
+  - 後端 `start_scheduler`、`set_scheduler_target` 與 `__init__` 全面實作 `capital` 與 `balance_pct` 互斥邏輯；`get_status()` 動態讀取即時帳戶 USDT 餘額計算總曝險與單幣預期名義額。
+  - 前端 `CoinFullPrimePage.tsx` 自適應動態綁定百分比規模即時計算單幣金額，傳參時顯式歸零互斥項目。
+- **幣安低市值小幣槓桿限制與下單前自動設槓桿機制 (Binance Max Leverage Pre-setting code -2027 Fix)**：
+  - 修復幣安合約對部分低市值小幣（如 `BTWUSDT`、`GTCUSDT`）訂有最高 10x 初始槓桿限制，若用戶合約帳戶預設為全域 20x 槓桿時，幣安會將 `maxNotionalValue` 設為 0 並拒絕掛單（`APIError(code=-2027): Exceeded the maximum allowable position at current leverage.`）。
+  - 在 `PortfolioRebalancer.execute_rebalance()` 實盤送單前，自動調用 `exchange_adapter.set_leverage(symbol, target_leverage)` 將標的槓桿設定為 1x，徹底消除 -2027 報錯。
+- **外部活躍機器人避碰護欄作用域收斂與解鎖 BTC (External Bot Collision Scoping & BTC Hedge Release)**：
+  - 修正 `get_external_bot_symbols` 誤將已歸檔（`archived`）的歷史 DCA 機器人及非幣安交易所（Backpack / Lighter）設定檔納入保護名單，導致主權對沖幣 `BTC` 被誤判為受保護標的而拋棄對沖單的問題。
+  - 限制僅掃描目標交易所（`binance`）且配置檔真實存在於 `config/grid/` 或 `config/dca/` 活躍目錄的現役機器人，保護名單由 20 隻收斂為 9 隻，成功解鎖 BTCUSDT 基準對沖。
+- **反向翻倉委託拆單機制 (Position Reversal Reduce-Only Order Splitting code -2022 Fix)**：
+  - 修復在反向翻倉時（如現有多頭部位但目標為基準對沖做空），單筆委託量超過現有持倉且帶 `reduceOnly: True` 導致幣安拒單（`-2022 ReduceOnly Order failed`）之重大缺陷。
+  - 引擎自動拆分成「第一階段平舊多倉（`reduce_only=True`，釋放保證金）」與「第二階段開新空倉（`reduce_only=False`）」，並確保同向減倉時 `abs(diff_qty) <= abs(curr_qty)` 才標記 `reduce_only`。
+- **Dry-Run 模擬換倉資料庫籃子防護隔離 (Dry-Run Ledger Isolation)**：
+  - 修復 `CoinFullPrimeService.trigger_once()` 在 Dry-Run 模擬運行時仍呼叫 `save_active_basket`，導致模擬運行覆寫並關閉實盤 canonical ledger `bot_baskets` 成分的漏洞，嚴格遵循「Dry-Run 絕不改變帳本狀態」之記帳鐵則。
+- **實盤換倉報告狀態與錯誤動態評估 (Accurate Live Rebalance Report Status & Error Reporting)**：
+  - 修復 `RebalanceReport` 實盤送單異常時狀態盲目標記為 `completed` 的問題，改為動態評估（`completed` / `partial` / `failed` / `skipped`）並記錄錯誤詳情，前端介面提供精確的部分成功與失敗統計提示。
+
+### Added
+- **換倉管線並發互斥鎖 (Rebalance Pipeline Concurrency Mutex & 409 Conflict Handling)**：
+  - 引入 `asyncio.Lock()` 防止手動連續點擊或排程定時與手動換倉重疊執行引發的下單翻倍與保證金枯竭，API 端捕獲衝突即回傳 `409 Conflict`（「換倉管線正在執行中，請稍候再試」）。
+
 ## [0.3.10] — 2026-10-18
 
 ### Added

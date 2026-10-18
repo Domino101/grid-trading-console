@@ -371,7 +371,133 @@ class TestCoinFullPrimeRebalancer(unittest.TestCase):
 
         asyncio.run(run_stop_loss())
 
+    def test_rebalance_sets_leverage_on_adapter(self):
+        """測試實盤換倉開倉單下單前，必須呼叫 exchange_adapter.set_leverage 以防 code -2027"""
+        from unittest.mock import AsyncMock, MagicMock
+        from decimal import Decimal
+
+        mock_adapter = MagicMock()
+        mock_adapter.set_leverage = AsyncMock(return_value={"ret": "ok"})
+        mock_adapter.get_positions = AsyncMock(return_value=[])
+        mock_adapter.get_ticker = AsyncMock(return_value=MagicMock(last_price=10.0))
+        mock_adapter.create_order = AsyncMock(return_value=MagicMock(
+            id="test_ord_1",
+            price=10.0,
+            average=10.0,
+            filled=10.0,
+            fee={"cost": 0.05, "currency": "USDT"}
+        ))
+        mock_adapter._is_paper = False
+        mock_adapter._market_info = {
+            "TESTUSDT": {"id": "TESTUSDT", "linear": True, "precision": {"amount": 2}, "limits": {"amount": {"min": 0.1, "step": 0.01}}}
+        }
+
+        sig = SignalZScores()
+        rank_res = UniverseRankResult(
+            universe_size=1,
+            long_list=[
+                RankedItem(symbol="TESTUSDT", score=2.0, rank=1, signals=sig, side="long", target_notional=100.0)
+            ],
+            short_list=[],
+            all_rankings=[]
+        )
+
+        async def run_rebalance():
+            report = await self.rebalancer.execute_rebalance(
+                rank_result=rank_res,
+                exchange_adapter=mock_adapter,
+                dry_run=False,
+                capital_override=100.0,
+                leverage_override=1.0,
+                account_id="binance_live"
+            )
+            # 必須呼叫 set_leverage 設定為 1x
+            mock_adapter.set_leverage.assert_awaited_with("TESTUSDT", 1)
+            # 必須下單成功
+            self.assertEqual(len(report.orders), 1)
+            self.assertEqual(report.orders[0].status, "filled")
+
+        asyncio.run(run_rebalance())
+
+    def test_calculate_diff_with_position_reversal(self):
+        """測試反向翻倉 (如持有多單但目標為做空) 必須正確拆分為先平後開兩筆訂單，避免帶超出部位的 reduceOnly 委託"""
+        sig = SignalZScores()
+        rank_res = UniverseRankResult(
+            universe_size=1,
+            long_list=[],
+            short_list=[
+                RankedItem(symbol="BTCUSDT", score=-2.0, rank=1, signals=sig, side="short", target_notional=100.0)
+            ],
+            all_rankings=[]
+        )
+        # 當前持有 0.001 顆多單 (價值 50 USDT)
+        current_positions = {"BTCUSDT": 0.001}
+        prices = {"BTCUSDT": 50000.0}
+
+        orders, closed_syms, opened_syms = self.rebalancer.calculate_diff(
+            current_positions=current_positions,
+            prices=prices,
+            rank_result=rank_res
+        )
+
+        # 必須拆為兩筆訂單：
+        # 1. 平舊多倉: side=sell, amount=0.001, reduce_only=True, reason=flip_close
+        # 2. 開新空倉: side=sell, amount=0.002 (100U / 50000), reduce_only=False, reason=flip_open
+        self.assertEqual(len(orders), 2)
+        close_ord = orders[0]
+        self.assertEqual(close_ord.side, "sell")
+        self.assertEqual(close_ord.amount, 0.001)
+        self.assertTrue(close_ord.reduce_only)
+        self.assertEqual(close_ord.reason, "flip_close")
+
+        open_ord = orders[1]
+        self.assertEqual(open_ord.side, "sell")
+        self.assertEqual(open_ord.amount, 0.002)
+        self.assertFalse(open_ord.reduce_only)
+        self.assertEqual(open_ord.reason, "flip_open")
+
+    def test_execute_rebalance_status_evaluation(self):
+        """測試實盤換倉時若部分訂單下單異常，report.status 必須準確標記為 partial 或 failed，不能盲目標記 completed"""
+        from unittest.mock import AsyncMock, MagicMock
+
+        mock_adapter = MagicMock()
+        mock_adapter.set_leverage = AsyncMock(return_value={"ret": "ok"})
+        mock_adapter.get_positions = AsyncMock(return_value=[])
+        mock_adapter.get_ticker = AsyncMock(return_value=MagicMock(last_price=10.0))
+        # 模擬下單拋出異常
+        mock_adapter.create_order = AsyncMock(side_effect=Exception("APIError -2027: Margin insufficient"))
+        mock_adapter._is_paper = False
+        mock_adapter._market_info = {
+            "TESTUSDT": {"id": "TESTUSDT", "linear": True, "precision": {"amount": 2}, "limits": {"amount": {"min": 0.1, "step": 0.01}}}
+        }
+
+        sig = SignalZScores()
+        rank_res = UniverseRankResult(
+            universe_size=1,
+            long_list=[
+                RankedItem(symbol="TESTUSDT", score=2.0, rank=1, signals=sig, side="long", target_notional=100.0)
+            ],
+            short_list=[],
+            all_rankings=[]
+        )
+
+        async def run_rebalance():
+            report = await self.rebalancer.execute_rebalance(
+                rank_result=rank_res,
+                exchange_adapter=mock_adapter,
+                dry_run=False,
+                capital_override=100.0,
+                leverage_override=1.0,
+                account_id="binance_live"
+            )
+            # 訂單失敗時 status 必須為 failed 且 error 必須包含錯誤細節
+            self.assertEqual(report.status, "failed")
+            self.assertIn("Margin insufficient", str(report.error))
+
+        asyncio.run(run_rebalance())
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
