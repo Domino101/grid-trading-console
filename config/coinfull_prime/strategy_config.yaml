@@ -10,13 +10,13 @@ strategy:
   description: "Asymmetric Market Neutral Alpha Strategy (Top 5 Longs + BTC Benchmark Hedge + -12% Intra-week Stop Loss, v3.0)"
   version: "3.0.0"
 
-# 標的池（Universe 79）過濾設定
+# 標的池（Universe 80）過濾設定
 universe:
-  top_n: 79
+  top_n: 80
   quote_asset: "USDT"
   exclude_tradfi: true       # 排除非加密合約 (美股、股票、指數 ETF、大宗商品等 TradFi，維持純加密中性)
   min_24h_volume_usdt: 50000000.0  # Opt D 質量初篩：24h 成交額 >= 5000 萬 USDT (排除極端微盤垃圾幣)
-  max_7d_atr_pct: 0.20             # Opt D 波動過濾：7 日真實振幅 ATR/Price <= 20%
+  max_7d_atr_pct: 0.20             # Opt D 波動過濾：7 日平均真實振幅 ATR/Price <= 20%
   exclude_stables:
     - "USDCUSDT"
     - "FDUSDUSDT"
@@ -47,8 +47,8 @@ momentum:
 
 # 資金費率因子形式與兩階段過濾門檻
 funding:
-  mode: "smooth"           # 最近 3 次 8 小時結算平均 (平滑快照雜訊)
-  settlements: 3
+  mode: "smooth"           # 最近 9 次 8 小時結算平均 (3 日平滑，平抑單點雜訊，對齊 Master Spec 2.1.4)
+  settlements: 9
   annual_max_long_pct: 60.0    # 多頭候選年化資費上限 (+60%)，超過則強制剔除防高息爆雷
   annual_min_short_pct: -40.0  # 空頭候選年化資費下限 (-40%)，低於則強制剔除防高息軋空
 
@@ -100,7 +100,8 @@ schedule:
 # 實作：core/services/coinfull_prime/regime_filter.py
 regime_gate:
   enabled: true
-  log_only: true          # true = 僅計算與記錄、不改變下單行為（上線初期建議先開 2 週）
+  log_only: false         # false = 依 pts 嚴格執行平倉/縮倉 (生產模式，符合 Master Spec pts==0 全平)
+  # 生產環境必須為 false；若需觀察期請在監控層告警而非覆蓋決策
   mode: "flatten"          # flatten(保守版) pts=0→0x 停單 | soft(積極版) pts=0→0.35x
   trend_ma_days: 50        # 元件1 趨勢：BTC 收盤 > N 日 SMA
   breadth_threshold_pct: 30.0   # 元件2 廣度：宇宙站上 50 日 SMA 比例 > 30%

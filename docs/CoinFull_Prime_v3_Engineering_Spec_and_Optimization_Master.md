@@ -59,23 +59,24 @@
 * `SHORT_BASKET_WEIGHT` = `0.50`（空頭總資金佔淨值 50%）。
 * `LONG_COIN_COUNT` = `5`（多頭選 5 檔，每檔佔總淨值 10%）。
 * `SHORT_HEDGE_SYMBOL` = `'BTCUSDT'`（空頭唯一對沖標的，佔總淨值 50%）。
-* `REBALANCE_CRON` = `'0 5 0 * * 4'`（每週四 UTC 00:05:00 執行換倉）。
+* `REBALANCE_CRON` = `'0 5 0 * * 4'`（每週四 UTC 00:05:00 執行換倉，實作 `rebalance_days=7 / execution_weekday=3 / execution_minute_utc=5` 等價）。
 * `FEE_TAKER` = `0.0005`（0.05% 手續費）。
 * `SLIPPAGE_DEFAULT` = `0.0002`（主流 2bp 滑價）。
 
 #### 4. 條列式執行流程（步驟 1 ~ 7）
 1. **觸發檢測**：每週四 UTC 00:05，主排程器喚醒，檢查帳戶淨值 $E_t$。
-2. **宏觀閘門檢查**：
+2. **宏觀閘門檢查**（生產實作擴充為 3 因子，Spec 2 因子為子集）：
    - 計算 BTC 收盤價是否大於其 SMA50（是則 +1 分）。
    - 計算 Top 80 標的中站上各自 SMA50 的比例是否 $> 30\%$（是則 +1 分）。
+   - （擴充）計算全市場資金費率 252 日百分位是否 $> 45$（是則 +1 分，用於 T5 擁擠保護與 1.15x 加碼判斷）。
    - 若總分 `pts == 0`：發出市價全平指令（`Flatten All`），持幣觀望，結束本次調倉。
-   - 若 `pts > 0`：放行進入選幣與對沖構建流程。
+   - 若 `pts > 0`：放行進入選幣與對沖構建流程；額外規則：`pts==2 且 45≤pctile≤80 → 1.15x 加碼`，`pctile>95 且 pts≤1 → 0.5x 減半`，`BTC 日報酬 ≤-5% → 延後 24h`。
 3. **多頭候選池初篩**：
    - 取幣安 USDT 永續合約 24h 成交額前 80 名。
    - 排除穩定幣黑名單與 TradFi / RWA 金融資產（如 PAXG, XAUT, 美股代幣等）。
 4. **多頭因子打分與標準化**：
-   - 計算混合動能：$	ext{Mom}_{	ext{blend}} = 0.50 	imes R_{1d} + 0.30 	imes R_{7d} + 0.20 	imes R_{30d}$。
-   - 計算 3 日平滑費率：$	ext{Fund}_{	ext{smooth}} = rac{1}{9} \sum_{i=1}^9 	ext{FR}_i$。
+   - 計算混合動能（v3.0 優化，已移除易引發追高反噬之 $R_{1d}$）：$\text{Mom}_{\text{blend}} = 0.50 \times R_{7d} + 0.30 \times R_{14d} + 0.20 \times R_{30d}$。原 Spec $0.50 R_{1d}+0.30 R_{7d}+0.20 R_{30d}$ 已證實會放大單日噪音，現改以 7/14/30 日多時距平滑；若 $R_{1d} > 0.65 R_{7d}$ 且 $R_{7d}>0$ 則施以 **0.5 過熱懲罰**（Overheat Penalty）以防夾。
+   - 計算 3 日平滑費率：$\text{Fund}_{\text{smooth}} = \frac{1}{9} \sum_{i=1}^9 \text{FR}_i$（實作以 `funding.settlements=9` 對應 3 日 9 次結算平均，語意一致，若配置為 3 則為 1 日平均）。
    - 對 $	ext{Mom}_{	ext{blend}}$ 與 $-	ext{Fund}_{	ext{smooth}}$ 進行 2.5%~97.5% Winsorize 縮尾，轉換為截面 Z-Score。
    - 綜合得分：$	ext{Score} = 0.60 	imes Z(	ext{Mom}) + 0.40 	imes Z(-	ext{Fund})$。
 5. **多頭名單確定**：排序取前 5 名（Top 5），每檔目標名義資金為 $0.10 	imes E_t$。
@@ -147,8 +148,8 @@
 * **質量因子過濾**：強制要求進入候選池的代幣必須具備足夠的市場廣度與健康波動率。
 
 #### 2. 靜態過濾門檻清單
-* `MIN_24H_VOLUME_USDT` = `50_000_000`（24 小時合約交易額不得低於 5,000 萬美元）。
-* `MAX_DAILY_ATR_PCT` = `0.20`（過去 7 日平均真實振幅 ATR/Price 不得超過 20%，剔除惡意拉抬妖幣）。
+* `MIN_24H_VOLUME_USDT` = `50_000_000`（24 小時合約交易額不得低於 5,000 萬美元，已實作以 `quoteVolume` 過濾，低流動回補放寬並告警）。
+* `MAX_DAILY_ATR_PCT` = `0.20`（過去 7 日平均真實振幅 ATR/Price 不得超過 20%，剔除惡意拉抬妖幣，已實作以日線 High/Low/Close 計算 ATR7/Price）。
 * `RESTRICTED_TAGS` = `['MEME', 'AI_AGENT', 'LOW_LIQ']`（對熱點極端炒作板塊實施人工審核或權重下調）。
 
 ---

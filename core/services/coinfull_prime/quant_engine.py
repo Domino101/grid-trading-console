@@ -62,9 +62,9 @@ class CoinFullPrimeQuant:
         self.exclude_tradfi = bool(self.config.get("universe", {}).get("exclude_tradfi", True))
         self._tradfi_cache: Optional[Set[str]] = None
         self._tradfi_cache_time: float = 0.0
-        self.top_n = self.config.get("universe", {}).get("top_n", 79)
-        self.long_count = self.config.get("portfolio", {}).get("long_count", 8)
-        self.short_count = self.config.get("portfolio", {}).get("short_count", 8)
+        self.top_n = self.config.get("universe", {}).get("top_n", 80)
+        self.long_count = self.config.get("portfolio", {}).get("long_count", 5)
+        self.short_count = self.config.get("portfolio", {}).get("short_count", 1)
         self.total_capital = float(self.config.get("portfolio", {}).get("total_capital_usdt", 1000.0))
         self.leverage = float(self.config.get("portfolio", {}).get("leverage", 1.0))
 
@@ -84,7 +84,7 @@ class CoinFullPrimeQuant:
         # funding.mode: "spot" = 單點快照; "smooth" = 最近 N 次 8 小時結算平均
         funding_cfg = self.config.get("funding", {}) or {}
         self.funding_mode = str(funding_cfg.get("mode", "spot")).lower()
-        self.funding_settlements = int(funding_cfg.get("settlements", 3))
+        self.funding_settlements = int(funding_cfg.get("settlements", 9))
         self.annual_max_long_pct = float(funding_cfg.get("annual_max_long_pct", 0.0))
         self.annual_min_short_pct = float(funding_cfg.get("annual_min_short_pct", 0.0))
 
@@ -99,9 +99,13 @@ class CoinFullPrimeQuant:
         univ_cfg = self.config.get("universe", {}) or {}
         self.min_24h_volume_usdt = float(univ_cfg.get("min_24h_volume_usdt", 0.0))
         self.max_7d_atr_pct = float(univ_cfg.get("max_7d_atr_pct", 0.0))
+        # RESTRICTED_TAGS: 人工黑名單 (MEME/AI_AGENT/LOW_LIQ 等，大小寫不敏感)
+        raw_tags = univ_cfg.get("restricted_tags", []) or univ_cfg.get("restricted_symbols", [])
+        self.restricted_tags: Set[str] = {str(x).upper().strip() for x in raw_tags if str(x).strip()}
 
         self.latest_prices: Dict[str, float] = {}
         self.quote_volumes: Dict[str, float] = {}
+        self.atr_pct_map: Dict[str, float] = {}
 
         if self.momentum_mode not in ("day", "blend"):
             logger.warning(f"momentum.mode 未支援: {self.momentum_mode}，退回 day")
@@ -265,6 +269,8 @@ class CoinFullPrimeQuant:
         need_flow = w_flow > 0
         need_liq = w_liq > 0
         need_klines = self.momentum_mode == "blend"
+        need_atr = float(self.max_7d_atr_pct) > 0
+        need_klines_for_atr = need_klines or need_atr
         need_funding_hist = self.funding_mode == "smooth"
 
         async def fetch_single_symbol(symbol: str) -> RawFeature:
@@ -294,36 +300,49 @@ class CoinFullPrimeQuant:
                         liq_val = 1.0
 
                 # 動能：blend 模式改以日線 K 線計算多時距混合 (v3.0: 支援 7d, 14d, 30d 與防夾懲罰)
+                # 同時計算 7 日 ATR/Price 供 Opt D 波動過濾使用
                 mom_val = mom_map.get(symbol, 0.0)
-                if need_klines:
+                atr_pct_cache = None
+                if need_klines_for_atr:
                     try:
                         url_kl = f"{self.base_url}/fapi/v1/klines?symbol={symbol}&interval=1d&limit=35"
                         async with session.get(url_kl, timeout=aiohttp.ClientTimeout(total=8)) as resp:
                             kl = await resp.json()
-                        closes = [float(k[4]) for k in kl if isinstance(k, list) and len(k) > 6]
-                        # 剔除尚未收盤的進行中 K 線（close_time 在未來）
-                        now_ms = time.time() * 1000
-                        if closes and kl and isinstance(kl[-1], list) and int(kl[-1][6]) > now_ms:
-                            closes = closes[:-1]
-                        if len(closes) >= 31 and closes[-2] > 0 and closes[-8] > 0 and closes[-31] > 0:
-                            r1 = closes[-1] / closes[-2] - 1.0
-                            r7 = closes[-1] / closes[-8] - 1.0
-                            r14 = closes[-1] / closes[-15] - 1.0 if len(closes) >= 15 and closes[-15] > 0 else r7
-                            r30 = closes[-1] / closes[-31] - 1.0
-                            b = self.momentum_blend
-                            raw_mom = (
-                                b.get("r1d", 0.0) * r1 +
-                                b.get("r7d", 0.0) * r7 +
-                                b.get("r14d", 0.0) * r14 +
-                                b.get("r30d", 0.0) * r30
-                            )
-                            # 短線過熱防夾懲罰 (Overheating Penalty)
-                            if self.overheat_penalty and r7 > 0 and r1 > 0.65 * r7:
-                                raw_mom *= 0.5
-                            # 以 % 表示（與 24h priceChangePercent 同量綱）
-                            mom_val = 100.0 * raw_mom
+                        kl_filtered = [k for k in kl if isinstance(k, list) and len(k) > 6 and int(k[6]) <= time.time() * 1000] if kl else []
+                        closes = [float(k[4]) for k in kl_filtered]
+                        highs = [float(k[2]) for k in kl_filtered]
+                        lows = [float(k[3]) for k in kl_filtered]
+                        # 計算 7 日 ATR 百分比 (Opt D)
+                        if need_atr and len(highs) >= 8 and len(lows) >= 8 and len(closes) >= 8:
+                            try:
+                                trs = [max(highs[i] - lows[i], abs(highs[i] - closes[i-1]), abs(lows[i] - closes[i-1])) for i in range(1, len(highs))]
+                                atr7 = sum(trs[-7:]) / 7.0 if len(trs) >= 7 else sum(trs) / len(trs)
+                                cur_price = closes[-1] if closes[-1] > 0 else price_map.get(symbol, 0) or 1.0
+                                atr_pct_cache = atr7 / cur_price if cur_price > 0 else 0.0
+                            except Exception:
+                                atr_pct_cache = None
+                        if need_klines:
+                            if len(closes) >= 31 and closes[-2] > 0 and closes[-8] > 0 and closes[-31] > 0:
+                                r1 = closes[-1] / closes[-2] - 1.0
+                                r7 = closes[-1] / closes[-8] - 1.0
+                                r14 = closes[-1] / closes[-15] - 1.0 if len(closes) >= 15 and closes[-15] > 0 else r7
+                                r30 = closes[-1] / closes[-31] - 1.0
+                                b = self.momentum_blend
+                                raw_mom = (
+                                    b.get("r1d", 0.0) * r1 +
+                                    b.get("r7d", 0.0) * r7 +
+                                    b.get("r14d", 0.0) * r14 +
+                                    b.get("r30d", 0.0) * r30
+                                )
+                                # 短線過熱防夾懲罰 (Overheating Penalty)
+                                if self.overheat_penalty and r7 > 0 and r1 > 0.65 * r7:
+                                    raw_mom *= 0.5
+                                # 以 % 表示（與 24h priceChangePercent 同量綱）
+                                mom_val = 100.0 * raw_mom
                     except Exception as e:
-                        logger.debug(f"{symbol} 日線動能抓取失敗，退回 24h 漲跌幅: {e}")
+                        logger.debug(f"{symbol} 日線動能/ATR 抓取失敗，退回 24h 漲跌幅: {e}")
+                    if atr_pct_cache is not None:
+                        self.atr_pct_map[symbol] = atr_pct_cache
 
                 # 資金費率：smooth 模式改以最近 N 次 8 小時結算平均
                 raw_funding = funding_map.get(symbol, 0.0)
@@ -514,17 +533,25 @@ class CoinFullPrimeQuant:
         elif self.hedge_mode == "dual_benchmark":
             hedge_symbols_to_exclude.update(self.short_dual_weights.keys())
 
-        # 1. 篩選多頭候選 (初篩門檻：成交額與資費過熱)
+        # 1. 篩選多頭候選 (初篩門檻：成交額/資費過熱/波動率/黑名單)
         long_candidates: List[RankedItem] = []
         for item in ranked_items:
             if item.symbol in hedge_symbols_to_exclude:
+                continue
+            # RESTRICTED_TAGS 人工黑名單 (精確匹配)
+            if self.restricted_tags and item.symbol.upper() in self.restricted_tags:
                 continue
             # 質量初篩：24h 成交額門檻
             if self.min_24h_volume_usdt > 0 and getattr(self, "quote_volumes", None):
                 vol = self.quote_volumes.get(item.symbol, 0.0)
                 if vol < self.min_24h_volume_usdt:
                     continue
-            # 資費過熱過濾：年化資費上限
+            # Opt D 波動過濾：7 日 ATR/Price
+            if self.max_7d_atr_pct > 0 and getattr(self, "atr_pct_map", None):
+                atr = self.atr_pct_map.get(item.symbol)
+                if atr is not None and atr > self.max_7d_atr_pct:
+                    continue
+            # 資費過熱過濾：年化資費上限 (+60%)
             if self.annual_max_long_pct > 0 and hasattr(item, "raw_params") and item.raw_params:
                 ann_funding = item.raw_params.funding_rate_pct * 3 * 365
                 if ann_funding > self.annual_max_long_pct:
@@ -534,10 +561,26 @@ class CoinFullPrimeQuant:
                 break
 
         # 若初篩後標的不足 long_count，回退補足排名前列標的（避免空名單）
+        # 修復 D-09：回補同樣需復檢成交額/ATR/費率門檻，僅在仍不足時放寬 ATR 後再補
         if len(long_candidates) < self.long_count:
             for item in ranked_items:
                 if item.symbol in hedge_symbols_to_exclude or item in long_candidates:
                     continue
+                if self.restricted_tags and item.symbol.upper() in self.restricted_tags:
+                    continue
+                if self.min_24h_volume_usdt > 0 and getattr(self, "quote_volumes", None):
+                    vol = self.quote_volumes.get(item.symbol, 0.0)
+                    if vol < self.min_24h_volume_usdt:
+                        continue
+                if self.annual_max_long_pct > 0 and hasattr(item, "raw_params") and item.raw_params:
+                    ann_funding = item.raw_params.funding_rate_pct * 3 * 365
+                    if ann_funding > self.annual_max_long_pct:
+                        continue
+                # 回補階段放寬 ATR (記錄警告)
+                if self.max_7d_atr_pct > 0 and getattr(self, "atr_pct_map", None):
+                    atr = self.atr_pct_map.get(item.symbol)
+                    if atr is not None and atr > self.max_7d_atr_pct:
+                        logger.warning(f"[Opt D 回補] {item.symbol} ATR {atr:.2%} > {self.max_7d_atr_pct:.0%} 已放寬納入以滿足 {self.long_count} 檔需求")
                 long_candidates.append(item)
                 if len(long_candidates) >= self.long_count:
                     break
@@ -621,10 +664,39 @@ class CoinFullPrimeQuant:
                 short_list.append(h_item)
 
         else:
-            # "basket" 模式 (倒序選取得分最低的小幣籃子)
+            # "basket" 模式 (倒序選取得分最低的小幣籃子，保留 Opt D short 端過濾)
             short_weight_each = 1.0 / max(self.short_count, 1)
             short_notional_each = (effective_capital * effective_leverage * 0.5) * short_weight_each
-            for idx, item in enumerate(ranked_items[-self.short_count:]):
+            # 先以分數排序的 Bottom 池進行資費/ATR 初篩
+            basket_candidates = []
+            for item in reversed(ranked_items):
+                if item.symbol in hedge_symbols_to_exclude:
+                    continue
+                if self.restricted_tags and item.symbol.upper() in self.restricted_tags:
+                    continue
+                # 空頭年化資費下限 (-40%)：過深貼水禁止做空
+                if self.annual_min_short_pct != 0 and hasattr(item, "raw_params") and item.raw_params:
+                    ann_funding_short = item.raw_params.funding_rate_pct * 3 * 365
+                    if ann_funding_short < self.annual_min_short_pct:
+                        continue
+                # ATR 過濾同步適用空頭
+                if self.max_7d_atr_pct > 0 and getattr(self, "atr_pct_map", None):
+                    atr = self.atr_pct_map.get(item.symbol)
+                    if atr is not None and atr > self.max_7d_atr_pct:
+                        continue
+                basket_candidates.append(item)
+                if len(basket_candidates) >= self.short_count:
+                    break
+            basket_candidates = list(reversed(basket_candidates))
+            # 若仍不足，回補放寬
+            if len(basket_candidates) < self.short_count:
+                for item in reversed(ranked_items):
+                    if item in basket_candidates or item.symbol in hedge_symbols_to_exclude:
+                        continue
+                    basket_candidates.append(item)
+                    if len(basket_candidates) >= self.short_count:
+                        break
+            for idx, item in enumerate(basket_candidates):
                 item.side = "short"
                 item.target_weight = round(short_weight_each, 4)
                 item.target_notional = round(short_notional_each, 2)
