@@ -54,6 +54,24 @@ Rule:
 - **Automatic Audit Workflow**: Whenever the user requests to "audit", "review", "審查", "稽核" any module or codebase logic:
   1. **Stage 1 (Macro Architecture)**: Execute `graphify query "<target>"` (or `graphify explain` / `graphify path`) first to understand module topology, caller chains, and impact radius.
   2. **Stage 2 (Micro Line-level Inspection)**: Execute `ocr review --audience agent -b "<context>"` (if git diff exists) or `ocr scan --path <dir>` (for static directory audit) to perform line-level precision defect, concurrency, and safety audits.
-  3. Combine both outputs into a structured audit report.
+  3. **Stage 3 (Lead Judgment & 4-Tier Taxonomy)**: Synthesize findings into the 4-tier decision taxonomy (`interrogate` standard):
+     - **Act on (阻斷發布項)**: 影響正確性、資金安全、或記帳不變式的致命缺陷，必須修復才能合併/上線。
+     - **Consider (值得評估項)**: 具備技術合理性，但需權衡當前重構成本與維護效益。
+     - **Noted (列入觀察項)**: 技術上成立但非迫切，屬於低影響或過早優化。
+     - **Dismissed (已駁回項)**: 誤報、無理挑剔或未考慮業務脈絡，附上具體駁回理由。
+  4. **Output Discipline (Unslop Standard)**: 報告輸出嚴格遵守 `unslop` 規範，結論先行，去除 AI 客套話、裝飾性 Emoji 與空泛形容詞，直陳事實與行號。
 
+## Mistake Classes & Structural Enforcement Table (錯誤類別與結構守門對照表)
 
+Rule:
+- **Zero-Tolerance for Repeated Agent Mistakes**: 依照 `correct` 技能規範，所有重複發生的錯誤必須提升至最高可能層級（架構 > 型別/Lint > 測試 > 規則）消滅，並在此表持續登記強制守門機制：
+
+| 錯誤類別 (Mistake Class) | 歷史痛點與症狀 | 最高守門層級 | 具體強制守門機制 (Enforcement Mechanism) |
+|---|---|:---:|---|
+| **MC-1: 反向翻倉 `reduce_only` 越界** | 現有多頭反向翻空為基準對沖時，單筆委託量超過持倉且帶 `reduce_only=True` 引發幣安拒單 `-2022` | 架構 (Level 1) + 測試 (Level 3) | `PortfolioRebalancer.calculate_diff` 自動拆單為 Phase 1 `flip_close`（平舊倉）與 Phase 2 `flip_open`（開新反向倉）；`test_calculate_diff_with_position_reversal` 回歸守門。 |
+| **MC-2: 小幣預設槓桿超標拒單** | 幣安對低流動性小幣限制最高 5x/10x 初始槓桿，帳戶預設 20x 導致可開名義額為 0，報錯 `-2027` | 架構 (Level 1) + 測試 (Level 3) | 實盤送單前由 Rebalancer 主動呼叫 `set_leverage(symbol, target_leverage=1)` 預設安全槓桿；`test_execute_rebalance_leverage_preset` 守門。 |
+| **MC-3: 換倉管線並發下單翻倍** | 使用者連點或定時排程與手動換倉重疊，多協程併發下單導致保證金穿倉 | 架構 (Level 1) + 邊界 (Level 2) | `CoinFullPrimeService` 實作非同步互斥鎖 `asyncio.Lock()`；FastAPI 邊界捕獲衝突並回傳 `409 Conflict` 阻斷。 |
+| **MC-4: Dry-Run 模擬污染正式帳本** | 模擬運行調用 `save_active_basket` 覆寫並關閉實盤 `bot_baskets` | 架構 (Level 1) + 測試 (Level 3) | 嚴格隔離：Dry-Run 模式下短路所有 `StrategyLedger.save_active_basket` 調用；單元測試驗證帳本隔離。 |
+| **MC-5: 避碰過寬誤鎖 BTC 對沖** | 掃描已歸檔或非幣安歷史機器人，誤將主權對沖幣 `BTC` 排除下單 | 架構 (Level 1) | 嚴格收斂掃描作用域：僅掃描目標交易所 (`binance`) 且處於活躍目錄 (`active`) 的現役機器人。 |
+| **MC-6: 繞過統一記帳直連 SQLite** | 策略或 API 層直接 `sqlite3.connect()`，PostgreSQL 生產模式產生幽靈資料源 | 靜態 AST 檢查 (Level 2) | `tests/test_accounting_path_policy.py` 在 CI 靜態掃描所有連線與 import，違法直連直接爆紅。 |
+| **MC-7: 隨意更動網格核心** | 修改其他業務時隨意更動 `core/services/grid/`，導致相依策略崩潰 | CI 守門測試 (Level 3) | `tests/_grid_guard.py::GRID_DIFF_ALLOWLIST` 白名單；未授權更動直接擋下 CI。 |
