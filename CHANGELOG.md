@@ -2,6 +2,52 @@
 
 本專案的重要變更記錄於此檔案，遵循 [Semantic Versioning](https://semver.org/lang/zh-TW/) 與 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/) 規範。
 詳細歷史工程記錄請參閱 [CHANGELOG_LEGACY.md](file:///root/grid-trading-console/CHANGELOG_LEGACY.md)。
+## [0.3.13] — 2026-10-19
+
+### Added
+- **雙軌稽核自動化規範與四級決策分級體系 (Dual-Stage Audit & 4-Tier Taxonomy Standard)**：
+  - 在 `AGENTS.md` 規範雙軌稽核流程：宏觀架構拓撲（`graphify` 呼叫鏈與影響半徑）結合微觀行級審查（`ocr` 精確缺陷與並發安全）。
+  - 引進四級決策分類體系（4-tier decision taxonomy: `interrogate` 標準）：
+    - 🔴 **Act on (阻斷發布項)**：影響正確性、資金安全、或記帳不變式的致命缺陷，必須修復才能合併/上線。
+    - 🟡 **Consider (值得評估項)**：具備技術合理性，但需權衡當前重構成本與維護效益。
+    - 🔵 **Noted (列入觀察項)**：技術上成立但非迫切，屬於低影響或過早優化。
+    - ⚪ **Dismissed (已駁回項)**：誤報、無理挑剔或未考慮業務脈絡，附上具體駁回理由。
+  - 導入輸出紀律規範（`unslop` 標準）：結論先行，去除 AI 客套話、裝飾性 Emoji 與空泛形容詞，直陳事實與行號。
+- **全套工程能力技能庫整合 (Agent Engineering Skills Suite)**：
+  - 新增並整合 9 項核心工程技能與原則手冊於 `.agents/skills/`：
+    - `arena`：隔離工作區多候選方案並發競賽與優化嫁接。
+    - `benchmark-checklist`：回測與延遲效能宣稱之 7 大可執行度量審計。
+    - `blast-radius`：變更影響半徑精確分析與可執行安全驗證。
+    - `correct`：重複錯誤消滅體系（架構 > 型別 > Lint > 測試 > 規則）。
+    - `principle-boundary-discipline`：邊界收斂型別收窄、內部信任與純函式業務邏輯。
+    - `principle-make-operations-idempotent`：崩潰重試冪等收斂原則。
+    - `principle-separate-before-serializing-shared-state`：消除共用狀態與單一寫者不變式。
+    - `typescript-best-practices`：辨別聯合（Discriminated Unions）、名義型別與邊界校驗最佳實踐。
+    - `unslop`：去除 AI 浮誇贅詞與技術空話之精煉規範。
+  - 強化既有技能：`code-quality`、`test-generation`、`version-audit`。
+
+### Fixed
+- **外部活躍機器人避碰護欄配置路徑相容性修復 (External Bot Collision Scoping Config Path Parity)**：
+  - 修復 `CoinFullPrimeService.get_external_bot_symbols()` 依據 active YAML 過濾活躍機器人時，若 DB 中的 `BotRecord` 未指定 `config_path`（如記憶體/測試單元動態登記）或 `bot_id` 為隨機 Hash 時被誤排除之瑕疵。
+  - 增設 `config_path` 動態判斷與 `archived` 目錄過濾，兼顧 MC-5 防誤傷 BTC 主權對沖幣與單元測試契約完整性。
+- **快速交易所適配器 WebSocket 符號正規化相容修復 (BinanceFastAdapter Unified Symbol Parity)**：
+  - 於 `tests/test_binance_fast_adapter.py` 對齊 CCXT 永續合約統一符號格式（`BTC/USDT:USDT` 與 `BTC/USDT`），消除行情分發與持倉查詢斷言偏差。
+
+### Security & Quality
+- **錯誤類別與結構守門對照表 (Mistake Classes & Structural Enforcement Table)**：
+  - 於 `AGENTS.md` 登錄 MC-1 至 MC-7 重複錯誤結構守門機制：
+    - **MC-1**：反向翻倉 `reduce_only` 越界拆單（Phase 1 `flip_close` + Phase 2 `flip_open`）。
+    - **MC-2**：幣安低市值小幣槓桿超標 -2027 預設 1x 槓桿。
+    - **MC-3**：換倉管線並發互斥鎖 `asyncio.Lock()` 與 409 衝突阻斷。
+    - **MC-4**：Dry-Run 模擬運行短路 `save_active_basket` 隔離正式帳本。
+    - **MC-5**：避碰護欄作用域收斂，解鎖 BTC 主權對沖幣。
+    - **MC-6**：靜態 AST 檢查阻斷繞過統一記帳直連 SQLite（`test_accounting_path_policy.py`）。
+    - **MC-7**：網格核心變更 CI 白名單守門（`_grid_guard.py`）。
+
+### Changed
+- **版本號全域對齊**：統一同步版本號至 `v0.3.13`（`VERSION`、前端 `package.json`、後端 FastAPI `main.py` 與 `CHANGELOG.md`）。
+- **文件與知識圖譜更新**：同步更新 `README.md` 核心策略模組與雙軌稽核規範，更新 `graphify` 知識圖譜。
+
 ## [0.3.12] — 2026-10-18
 
 ### Fixed

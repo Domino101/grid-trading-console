@@ -183,8 +183,15 @@ class CoinFullPrimeService(BaseService):
                 bot_ex = (getattr(bot, "exchange", "") or "").lower()
                 if target_exchange and bot_ex and target_exchange not in bot_ex:
                     continue
-                # 若 active YAML 存在，則僅保留配置檔仍在 active 目錄之活躍機器人（避免已移至 archived 的孤立 DB 記錄）
-                if active_yaml_stems and bot.bot_id not in active_yaml_stems:
+                # 若 active YAML 存在且 bot 附帶 config_path，則僅保留配置檔仍在 active 目錄之活躍機器人（避免已移至 archived 的孤立 DB 記錄）
+                bot_cfg = getattr(bot, "config_path", None)
+                if bot_cfg:
+                    cfg_stem = Path(bot_cfg).stem
+                    if "archive" in bot_cfg.lower():
+                        continue
+                    if active_yaml_stems and bot.bot_id not in active_yaml_stems and cfg_stem not in active_yaml_stems:
+                        continue
+                elif active_yaml_stems and bot.bot_id in ("archived",):
                     continue
                 norm = PortfolioRebalancer._normalize_symbol(getattr(bot, "symbol", "") or "")
                 if norm:

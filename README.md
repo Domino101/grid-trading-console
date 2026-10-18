@@ -38,15 +38,15 @@ graph TD
 * **三向對帳與自癒機制**：`ExchangeReconciler` 定期自動比對「本地帳本 $\leftrightarrow$ 交易所持倉 $\leftrightarrow$ 在世掛單」，遇到孤立部位時自動補掛止盈單，單向機器人嚴格過濾反向持倉避免誤領。
 
 ### 3. CoinFull Prime 市場中性多空策略 (CoinFull Prime Market-Neutral Quant, v3.0 Opt C / Opt D)
-* **全市場流動性截面與嚴格過濾**：每週自幣安永續合約提取 24h 成交額 $\ge 50\text{M}$ USDT 之主流幣種（排除穩定幣），並支援一鍵排除美股/ETF/商品等 TradFi 合約，維持純加密貨幣市場中性對沖。
+* **全市場流動性截面與嚴格過濾**：每週自幣安永續合約提取 24h 成交額 $\ge 50\text{M}$ USDT 之主流幣種（80 標的 Universe，排除穩定幣），並支援一鍵排除美股/ETF/商品等 TradFi 合約，維持純加密貨幣市場中性對沖。
 * **多時距雙因子選拔 (Top 5 多頭)**：
-  $$\text{Score} = 0.60 \cdot Z_{\text{動能(0.5\cdot R_{1d}+0.3\cdot R_{7d}+0.2\cdot R_{30d})}} + 0.40 \cdot Z_{\text{資金費率(3 次結算平均, 反向)}}$$
-  過濾年化資金費率 $> 60\%$（單次 $> 0.0548\%$）之高負利差標的，選出 **Top 5 做多標的**（各佔 10% 名義資金，多方合計 50%）。
+  $$\text{Score} = 0.60 \cdot Z_{\text{動能(0.5\cdot R_{7d}+0.3\cdot R_{14d}+0.2\cdot R_{30d})}} + 0.40 \cdot Z_{\text{資金費率(3 日 9 次結算平滑, 反向)}}$$
+  落實 7 日 ATR% $\le 20\%$ 與年化資金費率 $< 60\%$（單次 $< 0.0548\%$）之高負利差標的過濾，選出 **Top 5 做多標的**（各佔 10% 名義資金，多方合計 50%）。
 * **基準指數對沖做空 (BTC 50% 權重對沖腿)**：
   - 空頭改採單主流 `BTCUSDT`（佔 50% 名義資金）對沖全市場系統性 Beta，徹底規避舊版對稱做空小幣時遭遇的「小幣暴拉反抽軋空」風險（雙基準模式支援 BTC 35% + ETH 15%）。
 * **盤中 -12% 硬止損保護 (Intra-week Stop Loss Guard)**：
   - 背景守護迴程每 30 秒巡檢，若持倉標的盤中浮虧 $\le -12\%$，立即觸發市價平倉（`reduce_only`）並寫入 Canonical Ledger，杜絕極端暴跌侵蝕本金。
-* **風險閘門 (Regime Gate)**：換倉前以 `pts = [BTC>50 日均線] + [廣度>30%] + [資金費率 252 日百分位>45]` 判定市場狀態：
+* **風險閘門 (Regime Gate)**：換倉前以 3 因子判定市場狀態：`pts = [BTC>50 日均線] + [廣度>30%] + [資金費率 252 日百分位>45]`：
   * `pts = 0`（風險關閉）→ **平倉並停止下單**（T1，實測 OOS Sharpe 0.84 → 1.94 的最大單一改善項）；
   * `pts = 2` 且資金費率百分位 45–80 → 可加碼至 1.15×（上限 1.2×）；
   * BTC 收盤日 ≤ −5%（崩跌日）→ 換倉延後 24 小時（T2，最多 2 次）；
@@ -66,7 +66,30 @@ graph TD
 * **網格資金感知回測**：逐倉保證金/清算價格模擬，輸出總報酬率、買入持有對照 (Alpha)、最大回撤、已完成循環數與權益曲線。
 * **極端情境壓力測試**：支援 $\pm 15\% / 30\% / 50\%$ 單向極端行情壓力測試，精確試算防爆倉所需追加保證金。
 * **DCA 實盤同源回測**：直接複用實盤 `DcaCoordinator` 與 `DcaOrderExecutor` 進行歷史 Tick / K 線回放，杜絕「回測一套、實盤一套」的擬合偏差。
-* **多空截面實時行情觀測**：獨立全屏觀測分頁，實時查看 79 幣截面多空強度與指標評級。
+* **多空截面實時行情觀測**：獨立全屏觀測分頁，實時查看 80 幣截面多空強度與指標評級。
+
+---
+
+## 高可靠工程守門與雙軌稽核規範
+
+本專案將資金安全與記帳一致性置於最高優先級，在 `AGENTS.md` 與 `.agents/` 建立了嚴格的工程守門機制與自動化稽核體系：
+
+### 1. 錯誤類別結構守門 (Mistake Classes MC-1 ~ MC-7)
+所有重複性缺陷皆提升至架構層與 CI 自動化測試層強制消滅：
+* **MC-1 反向翻倉越界防護**：`PortfolioRebalancer` 自動拆單為 Phase 1 `flip_close`（平舊倉，帶 `reduce_only` 釋放保證金）與 Phase 2 `flip_open`（開新反向倉），杜絕幣安 `-2022` 拒單。
+* **MC-2 小幣槓桿自動預設**：下單前主動調用 `set_leverage(symbol, target_leverage=1)` 預設安全槓桿，杜絕低市值標的 `-2027` 拒單。
+* **MC-3 換倉管線互斥鎖**：`CoinFullPrimeService` 採用 `asyncio.Lock()`，並發請求即時回傳 `409 Conflict` 阻斷，防止保證金穿倉。
+* **MC-4 Dry-Run 模擬嚴格隔離**：模擬運行短路所有帳本寫入操作，嚴格遵循「Dry-Run 絕不改變帳本狀態」鐵則。
+* **MC-5 避碰護欄精確作用域**：僅掃描活躍目錄中現役目標交易所機器人，避免誤將 BTC 對沖幣排除。
+* **MC-6 統一記帳單一路徑政策**：強制所有策略透過 `StrategyLedger` 存取 Canonical Ledger，CI 靜態 AST 檢查掃描直連違規（`test_accounting_path_policy.py`）。
+* **MC-7 網格核心 CI 守門測試**：`_grid_guard.py` 白名單鎖定網格核心程式碼，未授權變更直接中斷 CI。
+
+### 2. 雙軌稽核與四級決策分級體系
+代碼審查時採雙軌稽核標準：
+* **Stage 1 (宏觀拓撲)**：透過 `graphify` 分析模組拓撲、呼叫鏈與影響半徑。
+* **Stage 2 (微觀行級審查)**：透過 `ocr` 進行行級缺陷、並發與資金安全審查。
+* **Stage 3 (四級決策分類)**：以 `Act on`（阻斷發布項）、`Consider`（值得評估項）、`Noted`（列入觀察項）、`Dismissed`（已駁回項）定案。
+* **Stage 4 (精煉輸出紀律)**：遵循 `unslop` 規範，結論先行，去除空泛修飾，直陳事實與行號。
 
 ---
 
@@ -196,6 +219,7 @@ sudo systemctl enable --now crypto-webui
 
 ```text
 grid-trading-console/
+├── .agents/                            # 工程能力技能庫、開發原則手冊與審查規則
 ├── core/                               # 核心業務與量化引擎
 │   ├── adapters/                       # 多交易所適配層 (Binance, OKX, Hyperliquid, Lighter, Backpack, Paper)
 │   ├── infrastructure/                 # 基礎設施 (Canonical Ledger, SQLite, Redis Support)

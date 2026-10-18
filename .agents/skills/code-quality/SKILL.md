@@ -13,7 +13,8 @@ description: "Mandatory code quality checks for grid-trading-console. Run after 
 
 ## Pre-Commit Checklist
 - [ ] Run the repo test entrypoint (`./scripts/ci.sh`, or `python3 -m unittest` / `python3 -m pytest` for a targeted subset) to ensure the test suite passes
-- [ ] Run `ocr review --audience agent` (or `ocr delegate preview`) to perform AI line-level defect & security inspection
+- [ ] Run `ocr review --audience agent` (or `ocr delegate preview`) to perform line-level defect & security inspection, classifying findings into **Act on / Consider / Noted / Dismissed**
+- [ ] For changes touching trading core, risk checks, or ledger state, run **`blast-radius`** to prove safety with executable runtime checks (Certainty Level 4+)
 - [ ] No `print()` statements in production core services (use `logging`)
 - [ ] No hardcoded credentials or API keys in code or config (use `.env`)
 - [ ] Type hints and docstrings present on public module methods

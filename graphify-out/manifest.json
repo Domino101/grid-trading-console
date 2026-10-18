@@ -1065,8 +1065,8 @@
     "semantic_hash": ""
   },
   "web_ui/backend/main.py": {
-    "mtime": 1789564873.6705537,
-    "ast_hash": "dfe30382726867159ec24b82ee3bfff3",
+    "mtime": 1792340865.3708582,
+    "ast_hash": "5891c041a16641d60f1eb3e81496ac48",
     "semantic_hash": ""
   },
   "web_ui/backend/models.py": {
@@ -1120,8 +1120,8 @@
     "semantic_hash": "aad27ae666a14635e4faf66246deb4dd"
   },
   "web_ui/frontend/package.json": {
-    "mtime": 1792265676.9984624,
-    "ast_hash": "91d7a30588c84f64ad6bec537f805dfb",
+    "mtime": 1792340855.809858,
+    "ast_hash": "0518b0b2379cd771eb600f70eaecde6b",
     "semantic_hash": ""
   },
   "web_ui/frontend/src/App.tsx": {
@@ -1290,9 +1290,9 @@
     "semantic_hash": "a861e529006a533f7bfb8e2607adbf82"
   },
   ".agents/skills/code-quality/SKILL.md": {
-    "mtime": 1788255868.52812,
-    "ast_hash": "3b8e2596186947497231202184a9449c",
-    "semantic_hash": "3b8e2596186947497231202184a9449c"
+    "mtime": 1792304996.3981485,
+    "ast_hash": "81c59fed1d5d0352121a2b83a8920d08",
+    "semantic_hash": ""
   },
   ".agents/skills/config-tuning-guide/SKILL.md": {
     "mtime": 1786699556.3042166,
@@ -1470,9 +1470,9 @@
     "semantic_hash": "1409d67db4239a39961c43c7cf807d60"
   },
   ".agents/skills/test-generation/SKILL.md": {
-    "mtime": 1788255868.5301201,
-    "ast_hash": "f07c562b188a8305c035848e19cf3a7d",
-    "semantic_hash": "f07c562b188a8305c035848e19cf3a7d"
+    "mtime": 1792304870.7371483,
+    "ast_hash": "a714b7933f6e80c78953f8f5d481ac21",
+    "semantic_hash": ""
   },
   ".agents/skills/traffic-audit/SKILL.md": {
     "mtime": 1786699631.961217,
@@ -1485,9 +1485,9 @@
     "semantic_hash": "3966b1cffe01f57fbb2d6a0641d5320e"
   },
   ".agents/skills/version-audit/SKILL.md": {
-    "mtime": 1786699637.780217,
-    "ast_hash": "b70c31ef60b109e5f8135b6d5d9cfd48",
-    "semantic_hash": "b70c31ef60b109e5f8135b6d5d9cfd48"
+    "mtime": 1792304848.1301482,
+    "ast_hash": "411cf4bd383f4819c8a3d84d278049af",
+    "semantic_hash": ""
   },
   ".agents/skills/websocket-debug/SKILL.md": {
     "mtime": 1786699643.2942169,
@@ -1570,13 +1570,13 @@
     "semantic_hash": "c4fbd009bcb7eadb17101e96cab93d2c"
   },
   "AGENTS.md": {
-    "mtime": 1789573623.299334,
-    "ast_hash": "39b9efa56c87edbc43324056863f15eb",
+    "mtime": 1792305307.5931494,
+    "ast_hash": "81c137f737605c047df6e8f41807e08f",
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1792265736.4364626,
-    "ast_hash": "df0242b546cce127f7ece4a6b798235e",
+    "mtime": 1792340965.6408584,
+    "ast_hash": "686528bdfb0523eea6f0209fd631eb1d",
     "semantic_hash": ""
   },
   "config/arbitrage/monitor.yaml": {
@@ -2200,8 +2200,8 @@
     "semantic_hash": "f740091170aea6b356ed96fe7e6ab3f2"
   },
   "CHANGELOG.md": {
-    "mtime": 1792265704.6334627,
-    "ast_hash": "bb328e4a8e3a2a516c6a778c0a72f46a",
+    "mtime": 1792340889.325858,
+    "ast_hash": "ea0d523d00f59edb3f3dc3a5efff24b0",
     "semantic_hash": ""
   },
   "docs/archive/README_fake_download_page.md": {
@@ -3450,8 +3450,8 @@
     "semantic_hash": ""
   },
   "tests/test_binance_fast_adapter.py": {
-    "mtime": 1788633012.2024791,
-    "ast_hash": "e56cd93000fe007e589748b52b033574",
+    "mtime": 1792340745.1008577,
+    "ast_hash": "0599b84b378025ba8c1419d2a4a78ff4",
     "semantic_hash": ""
   },
   "tests/test_secret_vault.py": {
@@ -3590,8 +3590,8 @@
     "semantic_hash": ""
   },
   "core/services/coinfull_prime/quant_engine.py": {
-    "mtime": 1792262826.4373615,
-    "ast_hash": "95933e4a74ac27089d3658bda6ce892a",
+    "mtime": 1792303657.9405813,
+    "ast_hash": "32b9ee1727e9866fc9ae68caeec33cfc",
     "semantic_hash": ""
   },
   "core/services/coinfull_prime/rebalancer.py": {
@@ -3600,8 +3600,8 @@
     "semantic_hash": ""
   },
   "core/services/coinfull_prime/service.py": {
-    "mtime": 1792300383.798608,
-    "ast_hash": "bf7b583ec43991edf0c6a41cf1897627",
+    "mtime": 1792340660.1548574,
+    "ast_hash": "3a8caac20eeac890a4897f9d661fb61f",
     "semantic_hash": ""
   },
   "run_coinfull_prime.py": {
@@ -3630,8 +3630,8 @@
     "semantic_hash": ""
   },
   "config/coinfull_prime/strategy_config.yaml": {
-    "mtime": 1792262510.6133606,
-    "ast_hash": "7152dd86def864d038bd4ba1a903cea1",
+    "mtime": 1792303657.9395812,
+    "ast_hash": "bc6aadb4fe024ea877f3e05e7ccfd12d",
     "semantic_hash": ""
   },
   "docs/CoinFull_Prime_Local_Dev_Plan.md": {
@@ -4020,8 +4020,63 @@
     "semantic_hash": ""
   },
   "docs/CoinFull_Prime_v3_Engineering_Spec_and_Optimization_Master.md": {
-    "mtime": 1792261886.2283587,
-    "ast_hash": "e025854a6816be4d19ed9148cc0efa52",
+    "mtime": 1792303657.9405813,
+    "ast_hash": "609cd721b29dc8af50095bc386d9efc1",
+    "semantic_hash": ""
+  },
+  "docs/CoinFull_Prime_v3_Audit_Report_Generated_20261018.md": {
+    "mtime": 1792303657.9405813,
+    "ast_hash": "8505f1a1ba617cc808c0a4dfec309833",
+    "semantic_hash": ""
+  },
+  ".agents/skills/arena/SKILL.md": {
+    "mtime": 1792304911.5021484,
+    "ast_hash": "60fb42c6ad92dee69e1b475ee9a91453",
+    "semantic_hash": ""
+  },
+  ".agents/skills/benchmark-checklist/SKILL.md": {
+    "mtime": 1792304885.5129573,
+    "ast_hash": "0399797af302ecb3e0cd65b64c466ff5",
+    "semantic_hash": ""
+  },
+  ".agents/skills/blast-radius/SKILL.md": {
+    "mtime": 1792304839.6290426,
+    "ast_hash": "f16af8db3a10e5f34d0384970b42921f",
+    "semantic_hash": ""
+  },
+  ".agents/skills/correct/SKILL.md": {
+    "mtime": 1792304900.3161483,
+    "ast_hash": "64424cbfda4613d5c5c9172eb15ae713",
+    "semantic_hash": ""
+  },
+  ".agents/skills/principle-boundary-discipline/SKILL.md": {
+    "mtime": 1792304940.5141485,
+    "ast_hash": "cee2e7a83e8ffec759b9191ef3cc8910",
+    "semantic_hash": ""
+  },
+  ".agents/skills/principle-make-operations-idempotent/SKILL.md": {
+    "mtime": 1792304931.7011483,
+    "ast_hash": "c307809d6e3d2f20be18ffe714606905",
+    "semantic_hash": ""
+  },
+  ".agents/skills/principle-separate-before-serializing-shared-state/SKILL.md": {
+    "mtime": 1792304950.3101668,
+    "ast_hash": "502481dbf2a22b89d8773d6a37d5b5ef",
+    "semantic_hash": ""
+  },
+  ".agents/skills/typescript-best-practices/SKILL.md": {
+    "mtime": 1792304960.8151484,
+    "ast_hash": "cc4e76d56957970430ea3656dbda1a9c",
+    "semantic_hash": ""
+  },
+  ".agents/skills/unslop/SKILL.md": {
+    "mtime": 1792304921.1696746,
+    "ast_hash": "89be81e979767f44c03e374a0d68712b",
+    "semantic_hash": ""
+  },
+  "config/grid/binance-neutral-perp-br-usdt-usdt-0_28593-0_84.yaml": {
+    "mtime": 1792338783.2016606,
+    "ast_hash": "22530dfe444f977484d6b6f3e4bb733f",
     "semantic_hash": ""
   }
 }

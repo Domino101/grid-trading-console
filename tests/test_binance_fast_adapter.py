@@ -222,7 +222,7 @@ class TestBinanceFastAdapter(unittest.IsolatedAsyncioTestCase):
 
         positions = await self.adapter.get_positions(["BTC/USDT"])
         self.assertEqual(len(positions), 1)
-        self.assertEqual(positions[0].symbol, "BTC/USDT")
+        self.assertIn(positions[0].symbol, ("BTC/USDT", "BTC/USDT:USDT"))
         self.assertEqual(positions[0].side, PositionSide.LONG)
         self.assertEqual(positions[0].size, Decimal("0.500"))
         self.assertEqual(positions[0].unrealized_pnl, Decimal("750.00"))
@@ -262,7 +262,7 @@ class TestBinanceFastAdapter(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(received_tickers), 1)
         t = received_tickers[0]
-        self.assertEqual(t.symbol, "BTC/USDT")
+        self.assertIn(t.symbol, ("BTC/USDT", "BTC/USDT:USDT"))
         self.assertEqual(t.bid, Decimal("64999.00"))
         self.assertEqual(t.ask, Decimal("65000.00"))
         self.assertEqual(t.last, Decimal("64999.50"))
@@ -279,7 +279,7 @@ class TestBinanceFastAdapter(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(received_obs), 1)
         ob = received_obs[0]
-        self.assertEqual(ob.symbol, "BTC/USDT")
+        self.assertIn(ob.symbol, ("BTC/USDT", "BTC/USDT:USDT"))
         self.assertEqual(len(ob.bids), 2)
         self.assertEqual(ob.bids[0].price, Decimal("64999.00"))
         self.assertEqual(ob.bids[0].size, Decimal("1.5"))

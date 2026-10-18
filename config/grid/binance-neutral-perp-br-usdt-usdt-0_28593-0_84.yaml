@@ -1,0 +1,27 @@
+grid_system:
+  exchange: binance
+  symbol: BR/USDT:USDT
+  grid_type: neutral
+  price_range:
+    lower_price: 0.28593
+    upper_price: 0.84
+  grid_interval: 0.00218
+  order_amount: 14.4
+  quantity_precision: 1
+  price_decimals: 5
+  leverage: 25
+  margin_mode: cross
+  account_mode: live
+  limit_only: true
+  active_window_each_side: 2
+  active_window_refresh_interval: 60
+  order_health_check_enabled: true
+  order_health_check_interval: 3000
+  health_check_adjust_position_enabled: false
+  rest_position_query_interval: 120
+  fee_rate: 0.0
+  reverse_order_grid_distance: 1
+  ws_only_mode: true
+  rest_backup_enabled: false
+metadata:
+  bot_id: ea4dc3609cb0432190cd2d791bd2fc55
