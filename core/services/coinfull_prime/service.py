@@ -120,6 +120,12 @@ class CoinFullPrimeService(BaseService):
         self.scheduler_capital: Optional[float] = saved_state.get("capital")
         self.scheduler_leverage: Optional[float] = saved_state.get("leverage")
         self.scheduler_balance_pct: Optional[float] = saved_state.get("balance_pct")
+        if self.scheduler_balance_pct is not None and float(self.scheduler_balance_pct) > 0:
+            self.scheduler_capital = None
+        elif self.scheduler_capital is not None and float(self.scheduler_capital) > 0:
+            self.scheduler_balance_pct = None
+        self._last_account_balances: Dict[str, float] = {}
+        self._rebalance_lock = asyncio.Lock()
 
     def get_external_bot_symbols(self, account_mode: Optional[str] = None) -> Set[str]:
         """
@@ -130,11 +136,40 @@ class CoinFullPrimeService(BaseService):
         """
         protected: Set[str] = set()
 
+        target_acc = (account_mode or self.selected_account or "").lower()
+        target_exchange: str = "okx" if "okx" in target_acc else "binance"
+
+        base_dir = Path(__file__).resolve().parent.parent.parent.parent
+
+        # 收集當前實際存在於 config/grid 與 config/dca 的活躍 YAML 檔名與標的
+        active_yaml_stems = set()
+        for folder_rel in ["config/grid", "config/dca"]:
+            folder = base_dir / folder_rel
+            if folder.exists():
+                for yml in folder.glob("*.yaml"):
+                    if yml.name in ("defaults.yaml", "example-dca-paper-eth.yaml", "README.md"):
+                        continue
+                    active_yaml_stems.add(yml.stem)
+                    try:
+                        with open(yml, "r", encoding="utf-8") as f:
+                            cfg = yaml.safe_load(f) or {}
+                            ex = str(
+                                cfg.get("exchange")
+                                or cfg.get("market", {}).get("exchange")
+                                or cfg.get("grid_system", {}).get("exchange")
+                                or ""
+                            ).lower()
+                            if target_exchange and ex and target_exchange not in ex:
+                                continue
+                            sym = cfg.get("symbol") or cfg.get("market", {}).get("symbol") or cfg.get("grid_system", {}).get("symbol")
+                            if sym:
+                                norm = PortfolioRebalancer._normalize_symbol(sym)
+                                if norm:
+                                    protected.add(norm)
+                    except Exception:
+                        pass
+
         # 1. 查詢 canonical ledger (bots 表)
-        #    P4-1：改走 StrategyLedger（→ LedgerRepository → create_ledger_store），
-        #    過去以 raw sqlite3 讀取硬編碼相對路徑 data/web_ui_runtime.sqlite3，
-        #    在 PostgreSQL 真相源模式下會讀到不存在/過期的本機 SQLite，
-        #    使「外部機器人避碰名單」靜默變空 → 可能與網格/DCA 搶同一標的保證金。
         try:
             from core.infrastructure.database.strategy_ledger import StrategyLedger
 
@@ -145,28 +180,17 @@ class CoinFullPrimeService(BaseService):
                 status = (getattr(bot, "status", "") or "").lower()
                 if getattr(bot, "archived_at", None) or status in ("stopped", "archived", "failed"):
                     continue
+                bot_ex = (getattr(bot, "exchange", "") or "").lower()
+                if target_exchange and bot_ex and target_exchange not in bot_ex:
+                    continue
+                # 若 active YAML 存在，則僅保留配置檔仍在 active 目錄之活躍機器人（避免已移至 archived 的孤立 DB 記錄）
+                if active_yaml_stems and bot.bot_id not in active_yaml_stems:
+                    continue
                 norm = PortfolioRebalancer._normalize_symbol(getattr(bot, "symbol", "") or "")
                 if norm:
                     protected.add(norm)
         except Exception as ex:
             logger.warning(f"讀取 canonical ledger 外部機器人標的失敗: {ex}")
-
-        # 2. 掃描本地配置檔 config/grid 與 config/dca
-        base_dir = Path(__file__).resolve().parent.parent.parent.parent
-        for folder_rel in ["config/grid", "config/dca"]:
-            folder = base_dir / folder_rel
-            if folder.exists():
-                for yml in folder.glob("*.yaml"):
-                    try:
-                        with open(yml, "r", encoding="utf-8") as f:
-                            cfg = yaml.safe_load(f) or {}
-                            sym = cfg.get("symbol") or cfg.get("market", {}).get("symbol")
-                            if sym:
-                                norm = PortfolioRebalancer._normalize_symbol(sym)
-                                if norm:
-                                    protected.add(norm)
-                    except Exception:
-                        pass
 
         return protected
 
@@ -497,6 +521,7 @@ class CoinFullPrimeService(BaseService):
                         curr = str(getattr(b, "currency", "") or getattr(b, "asset", "")).upper()
                         if curr == "USDT":
                             testnet_bal = round(float(b.free or b.total or 0.0), 2)
+                            self._last_account_balances["binance_testnet"] = testnet_bal
                             break
             except Exception as e:
                 testnet_error = str(e)
@@ -538,6 +563,7 @@ class CoinFullPrimeService(BaseService):
                         curr = str(getattr(b, "currency", "") or getattr(b, "asset", "")).upper()
                         if curr == "USDT":
                             live_bal = round(float(b.free or b.total or 0.0), 2)
+                            self._last_account_balances["binance_live"] = live_bal
                             break
             except Exception as e:
                 live_error = str(e)
@@ -668,6 +694,31 @@ class CoinFullPrimeService(BaseService):
         if not self.quant_engine or not self.rebalancer or not self.regime_filter:
             await self.initialize()
 
+        if self._rebalance_lock.locked():
+            logger.warning("⚠️ CoinFull Prime 換倉管線正在執行中，拒絕並發重複調用")
+            raise RuntimeError("CoinFull Prime 換倉管線正在執行中，請稍候再試")
+
+        async with self._rebalance_lock:
+            return await self._trigger_once_locked(
+                dry_run=dry_run,
+                account_id=account_id,
+                capital=capital,
+                leverage=leverage,
+                balance_pct=balance_pct,
+                ignore_crash_defer=ignore_crash_defer,
+                exclude_tradfi=exclude_tradfi
+            )
+
+    async def _trigger_once_locked(
+        self,
+        dry_run: Optional[bool] = None,
+        account_id: str = "paper",
+        capital: Optional[float] = None,
+        leverage: Optional[float] = None,
+        balance_pct: Optional[float] = None,
+        ignore_crash_defer: bool = False,
+        exclude_tradfi: Optional[bool] = None
+    ) -> Tuple[UniverseRankResult, RebalanceReport]:
         target_acc = account_id or self.selected_account or "paper"
         # P4-1：本批換倉的穩定識別碼 → bot_events 的 dedupe_key（同批重跑冪等）
         batch_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
@@ -688,6 +739,7 @@ class CoinFullPrimeService(BaseService):
                         curr = str(getattr(b, "currency", "") or getattr(b, "asset", "")).upper()
                         if curr == "USDT":
                             account_usdt = float(b.free or b.total or 0.0)
+                            self._last_account_balances[target_acc] = account_usdt
                             break
                 except Exception as ex:
                     logger.warning(f"動態讀取帳戶餘額失敗: {ex}，退回預設本金")
@@ -709,7 +761,7 @@ class CoinFullPrimeService(BaseService):
                 logger.info(f"🎯 依交易所環境 ({target_acc}) 提取到 {len(allowed_symbols)} 個有效合約交易對")
 
         # 3.5 獲取外部機器人保護名單與專屬持倉籃子 (三層防護護欄)
-        protected_symbols = self.get_external_bot_symbols(account_mode="live" if "live" in target_acc else "testnet")
+        protected_symbols = self.get_external_bot_symbols(account_mode=target_acc)
         managed_symbols = self.load_active_basket(target_acc)
         logger.info(
             f"🛡️ 防護護欄啟動 ({target_acc}): 外部受保護機器人標的共 {len(protected_symbols)} 個，"
@@ -849,8 +901,8 @@ class CoinFullPrimeService(BaseService):
         self.last_run_timestamp = datetime.now(timezone.utc).isoformat()
         self.selected_account = target_acc
 
-        # 8. 更新並持久化專屬持倉籃子 (僅在實際換倉時登記新籃子)
-        if rank_result and rank_result.status == "success" and rank_result.long_list:
+        # 8. 更新並持久化專屬持倉籃子 (僅在實際實盤換倉時登記新籃子，Dry-Run 絕不覆蓋帳本狀態)
+        if not is_dry_run and rank_result and rank_result.status == "success" and rank_result.long_list:
             ranked_items = list(rank_result.long_list) + list(rank_result.short_list)
             new_basket_symbols = [x.symbol for x in ranked_items]
             basket_sides = {
@@ -860,10 +912,11 @@ class CoinFullPrimeService(BaseService):
             self.save_active_basket(target_acc, new_basket_symbols, sides=basket_sides)
             self._stopping_symbols.clear()
 
-        # 9. 成功執行一次換倉 → 重置 T2 延後計數；並落地每日快照（權益/PnL 可追蹤）
-        self._defer_count = 0
-        self._pending_defer_until = None
-        self.save_scheduler_state()
+        # 9. 成功執行一次換倉 → 若非失敗則重置 T2 延後計數；並落地每日快照（權益/PnL 可追蹤）
+        if getattr(rebalance_report, "status", "") not in ("failed",):
+            self._defer_count = 0
+            self._pending_defer_until = None
+            self.save_scheduler_state()
         self._persist_run_snapshot(target_acc, decision, rebalance_report)
 
         logger.info(f"CoinFull Prime 管線執行完成 (帳號={target_acc}, 本金={rebalance_report.total_capital_usdt}, 槓桿={rebalance_report.leverage}x, DryRun={is_dry_run}, 閘門 pts={decision.pts}/scale={decision.scale}x)")
@@ -1498,12 +1551,18 @@ class CoinFullPrimeService(BaseService):
             self.scheduler_dry_run = False
         elif account_id == "binance_live":
             self.scheduler_dry_run = True
-        if capital is not None:
-            self.scheduler_capital = capital
+        if balance_pct is not None and float(balance_pct) > 0:
+            self.scheduler_balance_pct = float(balance_pct)
+            self.scheduler_capital = None
+        elif capital is not None and float(capital) > 0:
+            self.scheduler_capital = float(capital)
+            self.scheduler_balance_pct = None
+        elif capital == 0:
+            self.scheduler_capital = None
+        elif balance_pct == 0:
+            self.scheduler_balance_pct = None
         if leverage is not None:
             self.scheduler_leverage = leverage
-        if balance_pct is not None:
-            self.scheduler_balance_pct = balance_pct
         if exclude_tradfi is not None:
             self.exclude_tradfi = bool(exclude_tradfi)
             if self.quant_engine:
@@ -1539,12 +1598,18 @@ class CoinFullPrimeService(BaseService):
             self.scheduler_dry_run = False
         elif account_id == "binance_live":
             self.scheduler_dry_run = True
-        if capital is not None:
-            self.scheduler_capital = capital
+        if balance_pct is not None and float(balance_pct) > 0:
+            self.scheduler_balance_pct = float(balance_pct)
+            self.scheduler_capital = None
+        elif capital is not None and float(capital) > 0:
+            self.scheduler_capital = float(capital)
+            self.scheduler_balance_pct = None
+        elif capital == 0:
+            self.scheduler_capital = None
+        elif balance_pct == 0:
+            self.scheduler_balance_pct = None
         if leverage is not None:
             self.scheduler_leverage = leverage
-        if balance_pct is not None:
-            self.scheduler_balance_pct = balance_pct
         if exclude_tradfi is not None:
             self.exclude_tradfi = bool(exclude_tradfi)
             if self.quant_engine:
@@ -1605,7 +1670,29 @@ class CoinFullPrimeService(BaseService):
         long_total = None
         short_total = None
 
-        if sched_cap is not None and float(sched_cap) > 0:
+        if sched_bp is not None and float(sched_bp) > 0:
+            account_usdt = 10000.0  # paper 預設
+            if target_acc != "paper":
+                if hasattr(self, "_last_account_balances") and target_acc in self._last_account_balances:
+                    account_usdt = float(self._last_account_balances[target_acc])
+                elif target_acc in self._adapters:
+                    try:
+                        ad = self._adapters[target_acc]
+                        cached = getattr(getattr(ad, "_rest", None), "_balances_cache", None)
+                        if cached:
+                            for b in cached:
+                                curr = str(getattr(b, "currency", "") or getattr(b, "asset", "")).upper()
+                                if curr == "USDT":
+                                    account_usdt = float(b.free or b.total or 0.0)
+                                    break
+                    except Exception:
+                        pass
+            sched_eff_cap = round(account_usdt * (float(sched_bp) / 100.0), 2)
+            estimated_gross = round(sched_eff_cap * sched_lev, 2)
+            long_total = round(estimated_gross * 0.5, 2)
+            short_total = round(estimated_gross * 0.5, 2)
+            estimated_per_symbol = round(long_total / k_count, 2)
+        elif sched_cap is not None and float(sched_cap) > 0:
             estimated_gross = round(float(sched_cap) * sched_lev, 2)
             long_total = round(estimated_gross * 0.5, 2)
             short_total = round(estimated_gross * 0.5, 2)

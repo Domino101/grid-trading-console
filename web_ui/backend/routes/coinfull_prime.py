@@ -139,7 +139,8 @@ async def trigger_manual_rebalance(
         }
     except Exception as e:
         logger.error(f"手動換倉執行失敗: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        status_code = 409 if "正在執行中" in str(e) else 500
+        raise HTTPException(status_code=status_code, detail=str(e))
 
 
 @router.post("/scheduler/target")

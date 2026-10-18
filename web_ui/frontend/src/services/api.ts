@@ -1493,9 +1493,9 @@ export const api = {
         const params = new URLSearchParams();
         if (options?.accountId) params.set('account_id', options.accountId);
         if (options?.dryRun !== undefined) params.set('dry_run', String(options.dryRun));
-        if (options?.capital !== undefined && options.capital > 0) params.set('capital', String(options.capital));
+        if (options?.capital !== undefined && options.capital >= 0) params.set('capital', String(options.capital));
         if (options?.leverage !== undefined && options.leverage > 0) params.set('leverage', String(options.leverage));
-        if (options?.balancePct !== undefined && options.balancePct > 0) params.set('balance_pct', String(options.balancePct));
+        if (options?.balancePct !== undefined && options.balancePct >= 0) params.set('balance_pct', String(options.balancePct));
         if (options?.excludeTradfi !== undefined) params.set('exclude_tradfi', String(options.excludeTradfi));
         return requestJson(`/v1/coinfull-prime/scheduler/${action}?${params.toString()}`, {
             method: 'POST',
@@ -1510,9 +1510,9 @@ export const api = {
     ): Promise<Record<string, unknown>> {
         const params = new URLSearchParams({ account_id: options.accountId });
         if (options.dryRun !== undefined) params.set('dry_run', String(options.dryRun));
-        if (options.capital !== undefined && options.capital > 0) params.set('capital', String(options.capital));
+        if (options.capital !== undefined && options.capital >= 0) params.set('capital', String(options.capital));
         if (options.leverage !== undefined && options.leverage > 0) params.set('leverage', String(options.leverage));
-        if (options.balancePct !== undefined && options.balancePct > 0) params.set('balance_pct', String(options.balancePct));
+        if (options.balancePct !== undefined && options.balancePct >= 0) params.set('balance_pct', String(options.balancePct));
         if (options.excludeTradfi !== undefined) params.set('exclude_tradfi', String(options.excludeTradfi));
         return requestJson(`/v1/coinfull-prime/scheduler/target?${params.toString()}`, {
             method: 'POST',

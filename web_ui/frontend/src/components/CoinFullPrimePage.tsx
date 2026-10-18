@@ -417,9 +417,9 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
       await api.updateCoinFullPrimeSchedulerTarget({
         accountId: selectedAccount,
         dryRun: dryRunMode,
-        capital: sizingMode === 'fixed' ? effectiveCapital : undefined,
+        capital: sizingMode === 'fixed' ? effectiveCapital : 0,
         leverage: leverageInput,
-        balancePct: sizingMode === 'percent' ? balancePctInput : undefined,
+        balancePct: sizingMode === 'percent' ? balancePctInput : 0,
         excludeTradfi
       });
       setLastActionMsg(`✅ 已成功將背景定時換倉排程同步至【${currentAccount.name}】(${dryRunMode ? '🛡️ 安全試算保護' : '🚀 實盤真實發單'}) · 排除TradFi: ${excludeTradfi ? '是' : '否'}`);
@@ -476,9 +476,25 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
       const isDry = Boolean(res.dry_run);
       const closed = Array.isArray(res.closed_symbols) ? res.closed_symbols.length : 0;
       const opened = Array.isArray(res.opened_symbols) ? res.opened_symbols.length : 0;
-      setLastActionMsg(
-        `✅ 換倉完成！共生成 ${ordersCount} 筆訂單 (平掉舊倉: ${closed} 隻, 開立新倉: ${opened} 隻) | 環境: ${currentAccount.name}, 本金: $${effectiveCapital.toLocaleString()} USDT, 槓桿: ${leverageInput}x, 模式: ${isDry ? 'Dry-Run 模擬' : '已實際下單'}, 排除TradFi: ${excludeTradfi ? '是' : '否'}`
-      );
+      const report = res.report as Record<string, unknown> | undefined;
+      const reportStatus = report?.status as string | undefined;
+      const reportError = report?.error as string | undefined;
+
+      if (reportStatus === 'partial') {
+        const orders = (report?.orders as Array<{ status: string; symbol: string; error?: string }>) || [];
+        const filled = orders.filter(o => o.status === 'filled' || o.status === 'simulated').length;
+        const failed = orders.filter(o => o.status === 'failed').length;
+        const skipped = orders.filter(o => o.status === 'skipped').length;
+        setLastActionMsg(
+          `⚠️ 換倉部分成功：已完成 ${filled} 筆，失敗 ${failed} 筆，跳過 ${skipped} 筆 (${reportError || '部分未完全撮合'}) | 環境: ${currentAccount.name}`
+        );
+      } else if (reportStatus === 'failed') {
+        setError(`❌ 換倉失敗：${reportError || '下單發生異常'}`);
+      } else {
+        setLastActionMsg(
+          `✅ 換倉完成！共生成 ${ordersCount} 筆訂單 (平掉舊倉: ${closed} 隻, 開立新倉: ${opened} 隻) | 環境: ${currentAccount.name}, 本金: $${effectiveCapital.toLocaleString()} USDT, 槓桿: ${leverageInput}x, 模式: ${isDry ? 'Dry-Run 模擬' : '已實際下單'}, 排除TradFi: ${excludeTradfi ? '是' : '否'}`
+        );
+      }
       void loadData(false);
       void loadPositions(selectedAccount);
       void loadHistory();
@@ -504,9 +520,9 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
       const options = action === 'start' ? {
         accountId: selectedAccount,
         dryRun: dryRunMode,
-        capital: sizingMode === 'fixed' ? effectiveCapital : undefined,
+        capital: sizingMode === 'fixed' ? effectiveCapital : 0,
         leverage: leverageInput,
-        balancePct: sizingMode === 'percent' ? balancePctInput : undefined,
+        balancePct: sizingMode === 'percent' ? balancePctInput : 0,
         excludeTradfi
       } : undefined;
 
@@ -1137,13 +1153,17 @@ export const CoinFullPrimePage: React.FC<CoinFullPrimePageProps> = ({ onUnauthor
                 ? `餘額 ${schedBp}% (約 $${schedEffCap.toLocaleString()} USDT)`
                 : (schedCap !== null && schedCap > 0 ? `固定 $${schedCap.toLocaleString()} USDT` : '預設 $1,000 USDT');
 
-              const schedGross = typeof schedCfg?.estimated_gross_exposure === 'number'
-                ? schedCfg.estimated_gross_exposure
-                : Math.round(schedEffCap * schedLev * 100) / 100;
+              const schedGross = (schedBp !== null && schedBp > 0)
+                ? Math.round(schedEffCap * schedLev * 100) / 100
+                : (typeof schedCfg?.estimated_gross_exposure === 'number'
+                  ? schedCfg.estimated_gross_exposure
+                  : Math.round(schedEffCap * schedLev * 100) / 100);
 
-              const schedPerSym = typeof schedCfg?.estimated_per_symbol_notional === 'number'
-                ? schedCfg.estimated_per_symbol_notional
-                : Math.round(((schedGross * 0.5) / schedK) * 100) / 100;
+              const schedPerSym = (schedBp !== null && schedBp > 0)
+                ? Math.round(((schedGross * 0.5) / schedK) * 100) / 100
+                : (typeof schedCfg?.estimated_per_symbol_notional === 'number'
+                  ? schedCfg.estimated_per_symbol_notional
+                  : Math.round(((schedGross * 0.5) / schedK) * 100) / 100);
 
               const schedHalf = Math.round(schedGross * 0.5 * 100) / 100;
 
