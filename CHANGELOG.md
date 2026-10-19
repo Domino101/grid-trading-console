@@ -2,6 +2,14 @@
 
 本專案的重要變更記錄於此檔案，遵循 [Semantic Versioning](https://semver.org/lang/zh-TW/) 與 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/) 規範。
 詳細歷史工程記錄請參閱 [CHANGELOG_LEGACY.md](file:///root/grid-trading-console/CHANGELOG_LEGACY.md)。
+## [Unreleased]
+
+### Fixed
+- **網格幽靈訂單自動清理與零掛單自愈恢復 (Grid Ghost Orders Purge & Zero-Order Self-Healing)**：
+  - 修復 `GridEngineImpl._sync_orders_from_exchange` 與活躍窗口，在每次成功取得交易所掛單時主動比對並清理本地不存在的幽靈掛單，支援 15 秒在途單保護與 ID/client_id 交叉比對。
+  - 修復 `OrderHealthChecker` 在交易所零掛單時跳過不自愈的缺陷，主動強制清除本機幽靈快取並呼叫 `_refresh_active_window_once` 重建活躍窗口。
+  - 於 `tests/_grid_guard.py` 授權清單登記，並新增 `tests/test_grid_ghost_orders_recovery.py` 回歸測試。
+
 ## [0.3.13] — 2026-10-19
 
 ### Added

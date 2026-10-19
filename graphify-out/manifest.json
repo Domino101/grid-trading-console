@@ -415,8 +415,8 @@
     "semantic_hash": "0141c14ea2e69575c703912c8d532c66"
   },
   "core/services/grid/implementations/grid_engine_impl.py": {
-    "mtime": 1790592470.19764,
-    "ast_hash": "d073ae7d75d1d8d44332094019a73bdc",
+    "mtime": 1792388511.432349,
+    "ast_hash": "a14822bad2a43dee86f29625dd34968a",
     "semantic_hash": ""
   },
   "core/services/grid/implementations/grid_strategy_impl.py": {
@@ -425,9 +425,9 @@
     "semantic_hash": "08fe7acd5cffed95dea9bb96feee3a69"
   },
   "core/services/grid/implementations/order_health_checker.py": {
-    "mtime": 1786618842.482677,
-    "ast_hash": "a8c63bd91f2ae664789d25a035666e27",
-    "semantic_hash": "a8c63bd91f2ae664789d25a035666e27"
+    "mtime": 1792388591.9933493,
+    "ast_hash": "ab4492ec969e178ece617b67aee9c398",
+    "semantic_hash": ""
   },
   "core/services/grid/implementations/order_monitor.py": {
     "mtime": 1786618842.482677,
@@ -2200,8 +2200,8 @@
     "semantic_hash": "f740091170aea6b356ed96fe7e6ab3f2"
   },
   "CHANGELOG.md": {
-    "mtime": 1792340889.325858,
-    "ast_hash": "ea0d523d00f59edb3f3dc3a5efff24b0",
+    "mtime": 1792428474.560119,
+    "ast_hash": "a400a7b653aec8c31174a7aa6c60ed6e",
     "semantic_hash": ""
   },
   "docs/archive/README_fake_download_page.md": {
@@ -3940,8 +3940,8 @@
     "semantic_hash": ""
   },
   "tests/_grid_guard.py": {
-    "mtime": 1790592438.2516398,
-    "ast_hash": "b97dce3d51e8218b4d97b9ea0e3b0864",
+    "mtime": 1792428462.5241187,
+    "ast_hash": "fb93a747286b40350fe366e1c81997e0",
     "semantic_hash": ""
   },
   "tests/test_accounting_path_policy.py": {
@@ -4077,6 +4077,11 @@
   "config/grid/binance-neutral-perp-br-usdt-usdt-0_28593-0_84.yaml": {
     "mtime": 1792338783.2016606,
     "ast_hash": "22530dfe444f977484d6b6f3e4bb733f",
+    "semantic_hash": ""
+  },
+  "tests/test_grid_ghost_orders_recovery.py": {
+    "mtime": 1792388617.6283493,
+    "ast_hash": "aed34a246e2703de7a4e5eb9cc9a556e",
     "semantic_hash": ""
   }
 }
