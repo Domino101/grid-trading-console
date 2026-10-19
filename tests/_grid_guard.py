@@ -33,7 +33,10 @@ GRID_DIFF_ALLOWLIST: dict[str, str] = {
         "P4-1 統一記帳：ledger 寫入改走 StrategyLedger 門面，交易邏輯零變更"
     ),
     "core/services/grid/implementations/grid_engine_impl.py": (
-        "防禦修補：批量下單無效回傳處理與中性網格初始訂單判斷修復"
+        "防禦修補：批量下單無效回傳處理、中性網格初始訂單判斷修復與幽靈訂單自動清理"
+    ),
+    "core/services/grid/implementations/order_health_checker.py": (
+        "自愈修復：修復健康檢查在交易所零掛單時跳過不自愈的缺陷"
     ),
 }
 

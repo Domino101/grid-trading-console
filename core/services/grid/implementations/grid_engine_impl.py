@@ -523,6 +523,7 @@ class GridEngineImpl(IGridEngine):
                     f"(Grid {order.grid_id}, {order.side.value} {order.amount}@{order.price})"
                 )
 
+            order._placed_time = time.time()
             self._pending_orders[order.order_id] = order
 
             if order.client_id:
@@ -953,6 +954,7 @@ class GridEngineImpl(IGridEngine):
                         order.client_id = real_client_id
                         self._pending_orders_by_client_id[order.client_id] = order
 
+                    order._placed_time = time.time()
                     target_key = order.order_id or order.client_id
                     self._pending_orders[target_key] = order
 
@@ -1290,11 +1292,15 @@ class GridEngineImpl(IGridEngine):
             return
 
     def _remove_order_from_pending(self, order_id: str) -> int:
-        if order_id not in self._pending_orders:
+        order_obj = self._pending_orders.get(order_id) or self._pending_orders_by_client_id.get(order_id)
+        if not order_obj:
+            if order_id in self._pending_orders:
+                del self._pending_orders[order_id]
+                return 1
             if order_id in self._pending_orders_by_client_id:
                 del self._pending_orders_by_client_id[order_id]
+                return 1
             return 0
-        order_obj = self._pending_orders[order_id]
         order_obj_id = id(order_obj)
         keys_to_remove = [
             key for key, order in self._pending_orders.items()
@@ -1302,13 +1308,17 @@ class GridEngineImpl(IGridEngine):
         ]
         for key in keys_to_remove:
             del self._pending_orders[key]
-        if getattr(order_obj, 'client_id', None) and order_obj.client_id in self._pending_orders_by_client_id:
-            del self._pending_orders_by_client_id[order_obj.client_id]
-        return len(keys_to_remove)
+        client_keys_to_remove = [
+            key for key, order in self._pending_orders_by_client_id.items()
+            if id(order) == order_obj_id
+        ]
+        for key in client_keys_to_remove:
+            del self._pending_orders_by_client_id[key]
+        return max(len(keys_to_remove), len(client_keys_to_remove), 1)
 
     async def cancel_order(self, order_id: str) -> bool:
         try:
-            if not order_id or order_id == "pending" or order_id.startswith("grid_"):
+            if not order_id or order_id == "pending":
                 self.logger.warning(f"⚠️ 跳过取消无效订单ID: {order_id}")
                 return False
             self._expected_cancellations.add(order_id)
@@ -1316,18 +1326,20 @@ class GridEngineImpl(IGridEngine):
                 await self.exchange.cancel_order(order_id, self.config.symbol)
             except Exception as e:
                 error_str = str(e)
-                if "Unknown order sent" in error_str or "-2011" in error_str:
+                if "Unknown order sent" in error_str or "-2011" in error_str or "Order does not exist" in error_str:
                     self.logger.warning(f"⚠️ 订单 {order_id} 已不存在 (Binance -2011)，视为取消成功")
                 else:
+                    self._remove_order_from_pending(order_id)
                     raise e
-            if order_id in self._pending_orders:
-                order = self._pending_orders[order_id]
-                order.mark_cancelled()
-                self._remove_order_from_pending(order_id)
+            order_obj = self._pending_orders.get(order_id) or self._pending_orders_by_client_id.get(order_id)
+            if order_obj:
+                order_obj.mark_cancelled()
+            self._remove_order_from_pending(order_id)
             self.logger.info(f"✅ 主动取消订单成功: {order_id}")
             return True
         except Exception as e:
             self.logger.error(f"取消订单失败 {order_id}: {e}")
+            self._remove_order_from_pending(order_id)
             return False
 
     async def cancel_all_orders(self) -> int:
@@ -2419,6 +2431,9 @@ class GridEngineImpl(IGridEngine):
             try:
                 raw_open = list(await self.exchange.get_open_orders(self.config.symbol))
                 self.logger.debug(f"🔍 活躍窗口: 交易所掛單 {len(raw_open)} 筆")
+                # 每次成功取得交易所掛單時，主動校驗並清理本地不存在的幽靈掛單
+                await self._sync_orders_from_exchange(raw_open)
+                pending_orders_local = self.get_pending_orders()
             except Exception as e:
                 self.logger.warning(f"⚠️ 活躍窗口無法取得交易所掛單，降級使用本地 pending: {e}")
                 raw_open = pending_orders_local
@@ -2439,15 +2454,17 @@ class GridEngineImpl(IGridEngine):
         # ==== FIX-B: 調整時序「先補缺失，再取消多餘」====
         # Step 1: 找出缺失的目標格（目標格在 target_orders 中，但在 open_by_grid 中沒有相同 side 的掛單）
         place_orders: List = []
+        now_ts = time.time()
         for g, (target_side, target_price) in target_orders.items():
             existing_orders = open_by_grid.get(g, [])
             has_matching_open = any(
-                (getattr(o.side, 'value', str(o.side)) == getattr(target_side, 'value', str(target_side)))
+                (getattr(o.side, 'value', str(o.side)).lower() == getattr(target_side, 'value', str(target_side)).lower())
                 for o in existing_orders
             )
             has_matching_local = any(
-                o.grid_id == g and (getattr(o.side, 'value', str(o.side)) == getattr(target_side, 'value', str(target_side)))
+                o.grid_id == g and (getattr(o.side, 'value', str(o.side)).lower() == getattr(target_side, 'value', str(target_side)).lower())
                 and o.status == GridOrderStatus.PENDING
+                and (now_ts - getattr(o, '_placed_time', (o.created_at.timestamp() if hasattr(o.created_at, 'timestamp') else 0)) < 15)
                 for o in pending_orders_local
             )
             if not has_matching_open and not has_matching_local:
@@ -2698,19 +2715,42 @@ class GridEngineImpl(IGridEngine):
             from datetime import datetime
 
             exchange_order_ids = {
-                order.id for order in exchange_orders if order.id}
+                str(order.id) for order in exchange_orders if getattr(order, 'id', None)
+            }
+            exchange_client_ids = {
+                str(order.client_id) for order in exchange_orders if getattr(order, 'client_id', None)
+            }
 
             removed_count = 0
             removed_client_ids = 0
+            now_ts = time.time()
 
-            for order_id in list(self._pending_orders.keys()):
-                if order_id not in exchange_order_ids:
-                    del self._pending_orders[order_id]
+            for order_id, order_obj in list(self._pending_orders.items()):
+                # 在途單保護：下單未滿 15 秒暫不刪除
+                placed_time = getattr(order_obj, '_placed_time', (order_obj.created_at.timestamp() if hasattr(order_obj.created_at, 'timestamp') else 0))
+                if (now_ts - placed_time) < 15:
+                    continue
+                oid = str(getattr(order_obj, 'order_id', order_id))
+                cid = str(getattr(order_obj, 'client_id', '') or '')
+                eid = str(getattr(order_obj, 'exchange_order_id', '') or '')
+                if (order_id not in exchange_order_ids and order_id not in exchange_client_ids and
+                    oid not in exchange_order_ids and oid not in exchange_client_ids and
+                    cid not in exchange_order_ids and cid not in exchange_client_ids and
+                    eid not in exchange_order_ids and eid not in exchange_client_ids):
+                    self._remove_order_from_pending(order_id)
                     removed_count += 1
 
-            for client_id in list(self._pending_orders_by_client_id.keys()):
-                cached_order = self._pending_orders_by_client_id[client_id]
-                if cached_order.order_id and cached_order.order_id not in exchange_order_ids:
+            for client_id, cached_order in list(self._pending_orders_by_client_id.items()):
+                placed_time = getattr(cached_order, '_placed_time', (cached_order.created_at.timestamp() if hasattr(cached_order.created_at, 'timestamp') else 0))
+                if (now_ts - placed_time) < 15:
+                    continue
+                oid = str(getattr(cached_order, 'order_id', ''))
+                cid = str(getattr(cached_order, 'client_id', client_id) or client_id)
+                eid = str(getattr(cached_order, 'exchange_order_id', '') or '')
+                if (client_id not in exchange_client_ids and
+                    oid not in exchange_order_ids and
+                    cid not in exchange_client_ids and
+                    eid not in exchange_order_ids):
                     del self._pending_orders_by_client_id[client_id]
                     removed_client_ids += 1
 

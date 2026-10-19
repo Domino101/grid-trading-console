@@ -814,7 +814,15 @@ class OrderHealthChecker:
             first_order_count = len(orders)
 
             if not orders:
-                self.logger.warning("⚠️ 未获取到任何挂单，跳过健康检查")
+                self.logger.warning("⚠️ 交易所當前開放掛單數為 0，強制清除本機幽靈快取並嘗試重建活躍窗口...")
+                try:
+                    if hasattr(self.engine, '_sync_orders_from_exchange'):
+                        await self.engine._sync_orders_from_exchange([])
+                    window_each_side = int(getattr(self.config, 'active_window_each_side', 0) or 0)
+                    if window_each_side > 0 and hasattr(self.engine, '_refresh_active_window_once'):
+                        await self.engine._refresh_active_window_once(window_each_side)
+                except Exception as e:
+                    self.logger.error(f"❌ 零掛單自愈恢復失敗: {e}")
                 return
 
             # 统计订单类型
