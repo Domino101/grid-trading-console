@@ -3,7 +3,7 @@
 > **事故日期**：2026-05-03
 > **影響交易對**：`binance/SOL/USDC:USDC`
 > **症狀關鍵字**：`-2015 Invalid API-key`、`-1003 Way too many requests`、`418 I'm a teapot`、`IP banned until`
-> **出口 IP**：`36.224.21.191`（中華電信 HiNet 動態 IP，台灣）
+> **出口 IP**：`<REDACTED_PUBLIC_IP>`（中華電信 HiNet 動態 IP，台灣）
 > **報告角色**：Diagnosis & Assessment Skill（零寫入權限）
 > **資料來源**：`logs/core.services.grid.implementations.grid_engine_impl.log`（26802 行，截至 13:09）
 
@@ -67,7 +67,7 @@
 ## 4. 後續行動指南 (Actionable Remediation Plan)
 
 ### 4.1 立即動作（人類操作，10 分鐘內）
-1. **登入 Binance API 管理頁面**：將當前出口 IP `36.224.21.191` 加入該 API Key 的白名單；或暫時關閉 IP 限制（不建議長期使用）。
+1. **登入 Binance API 管理頁面**：將當前出口 IP `<REDACTED_PUBLIC_IP>` 加入該 API Key 的白名單；或暫時關閉 IP 限制（不建議長期使用）。
 2. **暫停網格引擎**：避免持續轟炸已被 BAN 的 IP，加速冷卻。最後一筆 BAN 解封時間戳 `1777792854425` ≈ `2026-05-03 13:20:54 UTC`。
 3. **驗證**：
    * `curl -X GET "https://fapi.binance.com/fapi/v1/ping"` 確認 IP 已可通行。

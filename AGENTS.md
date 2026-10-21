@@ -24,6 +24,18 @@ Rules:
 - 新功能「策略回測」：`/api/v1/grid-backtest/{run,stress,sweep}`（網格資金感知模擬）+ 既有 `/api/v1/dca/backtest`（DCA 單向/雙向 + 指標）；左側「網格回測」分頁統一收斂。
 - 測試規範：Python 走 `unittest`（`./scripts/ci.sh` 或 `python3 -m unittest ...`；pytest 亦可），前端 `npm test` + `npm run lint` + `npm run build`。
 
+## Public Repository Hygiene (公開 repo 衛生守則，2026-10-21)
+
+本 repo 已準備公開。完整審查與每項決策的原因見 `docs/PUBLIC_RELEASE_AUDIT_20261021.md`，以下為不可違反的摘要：
+
+- **憑證**：`config/exchanges/` 只追蹤 `*.example.yaml`；真實檔 `<exchange>_config.yaml`、`.env`、`.env.*`、`.grid_api_token`、`.secrets/` 皆被 `.gitignore`，**不得**改名回來或 `git add -f`。`.env.example` 的任何 `*_KEY/*_SECRET/*_TOKEN` 必須是明顯佔位符。
+- **二進位**：`*.zip/*.exe/*.dll/*.bat/*.cmd` 等被 `.gitignore` 封鎖。原因：本專案源自被植入木馬的上游 fork（`HamaX83/crypto-trading-open`），`core/` 內曾藏兩個 LuaJIT loader 惡意 zip（已剔除）。從上游同步任何內容前先掃描。
+- **生成物**：`graphify-out/2026-*/`、`graphify-out/cache/`、`config/grid/archived/`、`data/`、`logs/` 不進版本控制；只有 `graphify-out/graph.json|graph.html|GRAPH_REPORT.md|manifest.json` 是刻意追蹤的知識圖譜主體。
+- **守門**：`scripts/public_repo_guard.sh`（G1–G6）已接入 `scripts/ci.sh`。守門失敗時**修正違規，不是放寬規則**；確屬誤判才在腳本白名單內補註原因。
+- **個資**：新文件不得出現真實對外 IP、`/root/<user>` 實路徑、帳戶餘額；改用 `<REDACTED_*>` / `<PROJECT_ROOT>`。
+- **授權**：目前無 LICENSE（保留所有權利），且上游亦無授權條款；加 LICENSE 前先讀審查報告 F-06。
+- **歷史**：若需再次清除歷史中的敏感內容，沿用 `scripts/purge_history.sh` 的流程（全新 bare clone → filter-repo → 驗證 → force-push → 所有 clone `reset --hard`）。
+
 ## Unified Accounting Path Policy (統一記帳路徑政策，0.3.6 / P4-1)
 
 Rule:

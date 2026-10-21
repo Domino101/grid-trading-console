@@ -4,6 +4,16 @@
 詳細歷史工程記錄請參閱 [CHANGELOG_LEGACY.md](file:///root/grid-trading-console/CHANGELOG_LEGACY.md)。
 ## [Unreleased]
 
+### Security
+- **公開前安全審查與淨化 (Public Release Audit, 2026-10-21)**：完整報告見 `docs/PUBLIC_RELEASE_AUDIT_20261021.md`。
+  - 剔除自上游木馬 fork 帶入、藏於 `core/` 的兩個 LuaJIT loader 惡意壓縮檔（`crypto_open_trading_v2.8.zip`、`crypto-trading-open_3.0.zip`）。
+  - `.env.example` 的 `GRID_API_TOKEN` 改為佔位符（原值須視為外洩並輪換）；舊文件中的維運者真實 IP 改為 `<REDACTED_PUBLIC_IP>`。
+  - `config/exchanges/<x>_config.yaml` 改名為 `*_config.example.yaml`，真實檔名加入 `.gitignore`，新增 `config/exchanges/README.md`。
+  - 取消追蹤已列 `.gitignore` 的 `config/grid/archived/`、`graphify-out/2026-*/`、`graphify-out/cache/`（約 110 MB 生成物）。
+  - `.gitignore` 封鎖壓縮檔/執行檔與 `.env.*`、`.secrets/`；新增 `scripts/public_repo_guard.sh`（G1–G6 守門）並接入 `scripts/ci.sh`。
+  - 新增 `scripts/purge_history.sh`（`git filter-repo` 歷史淨化 + 驗證 + 正式機同步指引），供擁有者在公開前執行。
+  - `AGENTS.md` 新增「Public Repository Hygiene」守則；README 新增 `config/exchanges` 使用方式與「授權與來源」段落。
+
 ### Fixed
 - **網格幽靈訂單自動清理與零掛單自愈恢復 (Grid Ghost Orders Purge & Zero-Order Self-Healing)**：
   - 修復 `GridEngineImpl._sync_orders_from_exchange` 與活躍窗口，在每次成功取得交易所掛單時主動比對並清理本地不存在的幽靈掛單，支援 15 秒在途單保護與 ID/client_id 交叉比對。
