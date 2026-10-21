@@ -71,6 +71,10 @@ TEST_MODULES=(
 
 PYTHON="${PYTHON_BIN:-$(command -v python3 || command -v python)}"
 
+# Public-repo hygiene gate (secrets / binaries / tracked-but-ignored files).
+# Rationale: docs/PUBLIC_RELEASE_AUDIT_20261021.md
+bash "$ROOT/scripts/public_repo_guard.sh"
+
 "$PYTHON" -m unittest "${TEST_MODULES[@]}"
 
 if command -v pytest >/dev/null 2>&1; then

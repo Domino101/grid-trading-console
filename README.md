@@ -164,6 +164,16 @@ PAPER_STARTING_EQUITY=10000
 PAPER_FEE_RATE=0.0002
 ```
 
+交易所層級的進階設定（Lighter `account_index`、Hyperliquid 錢包、EdgeX、Backpack、O1Exchange 等）走 `config/exchanges/`：
+該目錄**只追蹤 `*.example.yaml` 範本**，真實金鑰檔已被 `.gitignore`，請在每台主機自行複製並填寫（詳見 `config/exchanges/README.md`）：
+
+```bash
+cp config/exchanges/binance_config.example.yaml config/exchanges/binance_config.yaml
+# 其他交易所同理；檔案不存在時程式會自動改用環境變數，不會當機
+```
+
+> 🔒 公開 repo 衛生規範（憑證、二進位、生成物、個資）與其背後原因，見 `docs/PUBLIC_RELEASE_AUDIT_20261021.md`；CI 會以 `scripts/public_repo_guard.sh` 自動把關。
+
 ### 4. 啟動本機開發服務
 
 啟動調度引擎與 Web 控制台：
@@ -266,3 +276,10 @@ npm run build
 1. **投資風險**：加密貨幣與衍生品合約交易具備高波動性與高槓桿風險，可能導致本金部分或全部損失。
 2. **非投資建議**：本專案所有程式碼、量化模型、策略回測與市場指標僅供技術研究與程式開發參考，不構成任何形式之投資建議。
 3. **安全審計**：上線實盤前，請務必先在 `PAPER` 模擬盤或 `TESTNET` 測試網進行充分壓力測試，並謹慎保管您的 API 金鑰。
+4. **`config/grid/`、`config/dca/` 內的 YAML 是維護者曾實際使用的策略參數**（含高槓桿設定），僅作為格式範例，不代表任何建議配置。
+
+## 授權與來源
+
+- 本 repo **目前未附 LICENSE**，依著作權法預設保留所有權利；歡迎瀏覽與學習，如需使用、修改或再散布請先聯繫維護者。
+- 交易所適配器與部分執行腳本源自 [cryptocj520/crypto-trading-open](https://github.com/cryptocj520/crypto-trading-open)（該專案亦未附授權條款）；Web 總控台、DCA、CoinFull Prime、回測系統與資料層為本專案新增。
+- ⚠️ 本專案**不提供**任何 zip / exe 形式的「下載版」。網路上以本專案或 `crypto-trading-open` 名義散佈的壓縮檔（例如 `crypto_open_trading_v2.8.zip`）為第三方植入的惡意程式，請勿執行；詳見 `docs/PUBLIC_RELEASE_AUDIT_20261021.md` F-01。

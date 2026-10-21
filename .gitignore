@@ -168,4 +168,36 @@ graphify-out/.vocab.txt
 graphify-out/memory/
 graphify-out/reflections/
 
+# ----------------------------------------------------------------------------
+# Public-repo hygiene (see docs/PUBLIC_RELEASE_AUDIT_20261021.md for rationale)
+# ----------------------------------------------------------------------------
+# Real exchange credentials live in config/exchanges/<exchange>_config.yaml on
+# each host. Only the *.example.yaml templates are tracked.
+config/exchanges/*_config.yaml
+!config/exchanges/*.example.yaml
+# Any env file other than the template
+.env.*
+!.env.example
+# Legacy secrets directory referenced by scripts/deployment/start_system.sh
+.secrets/
+# Agent hook log (written by .agents/hooks/pre-commit.sh)
+.agents/hooks/hook.log
+# Never track binary payloads / archives in the source tree. The upstream fork
+# shipped trojanized zips (luajit loader) under core/; they were purged.
+*.zip
+*.7z
+*.rar
+*.tar
+*.tar.gz
+*.tgz
+*.exe
+*.dll
+*.msi
+*.scr
+*.bat
+*.cmd
+# Frontend build output / dependencies (also covered by web_ui/frontend/.gitignore)
+node_modules/
+web_ui/frontend/dist/
+
 
