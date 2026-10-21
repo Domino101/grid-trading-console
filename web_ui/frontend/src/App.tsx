@@ -137,16 +137,6 @@ const App: React.FC = () => {
 
   return (
     <div className="app-shell">
-      {/* Mobile Drawer Trigger */}
-      <button
-        className="btn btn-outline drawer-toggle"
-        type="button"
-        onClick={() => setDrawerOpen(true)}
-        aria-label="開啟選單"
-      >
-        <Menu size={18} />
-      </button>
-
       {/* Backdrop for Mobile Drawer */}
       {drawerOpen && (
         <button
@@ -156,6 +146,18 @@ const App: React.FC = () => {
           onClick={() => setDrawerOpen(false)}
         />
       )}
+
+      <div className="mobile-topbar">
+        <button
+          className="btn btn-outline drawer-toggle"
+          type="button"
+          onClick={() => setDrawerOpen(true)}
+          aria-label="開啟選單"
+        >
+          <Menu size={18} />
+        </button>
+        <span className="mobile-topbar-title">Grid Trading Console</span>
+      </div>
 
       {/* Sidebar */}
       <aside className={`app-sidebar ${drawerOpen ? 'is-open' : ''}`}>
@@ -388,4 +390,3 @@ const App: React.FC = () => {
 };
 
 export default App;
-
