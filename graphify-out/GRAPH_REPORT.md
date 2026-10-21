@@ -1,16 +1,16 @@
 # Graph Report - grid-trading-console  (2026-10-21)
 
 ## Corpus Check
-- 748 files · ~739,441 words
+- 752 files · ~711,373 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 12780 nodes · 24937 edges · 623 communities (558 shown, 65 thin omitted)
-- Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 1383 edges (avg confidence: 0.55)
+- 12810 nodes · 24988 edges · 614 communities (547 shown, 67 thin omitted)
+- Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 1384 edges (avg confidence: 0.55)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `fa90734f`
+- Built from commit: `1e62007f`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -21,7 +21,7 @@
 - AuditLogger
 - decrypt_secret
 - CoinFullPrimeQuant
-- market.py
+- WebUiHttpContractTests
 - useCoinFullPrime.ts
 - TestIdentityAudit
 - EdgeXRest
@@ -32,10 +32,10 @@
 - EdgeXAdapter
 - test_universe79_lib.py
 - DcaForm.tsx
-- DcaOrder
-- TickerData
-- GridEngineImpl
+- DcaOrderExecutor
 - OrderData
+- GridEngineImpl
+- PaperExchangeAdapter
 - test_grid_reconcile.py
 - BackpackRest
 - LighterAdapter
@@ -46,14 +46,14 @@
 - BinanceRest
 - LighterMarketVolumeMakerService
 - PortfolioRebalancer
-- DcaOrderExecutor
-- redis_support.py
+- GridState
+- run_multiple_grids.py
 - VolumeMakerServiceImpl
 - BackpackBase
-- BinanceAdapter
+- TickerData
 - LighterRest
 - HyperliquidRest
-- test_dca_coordinator.py
+- DcaOrder
 - Dashboard.tsx
 - OKXAdapter
 - DcaConfig
@@ -68,14 +68,14 @@
 - main.py
 - OrderHealthChecker
 - PriceAlertServiceImpl
-- config_loader.py
+- PositionTrackerImpl
 - App.tsx
 - ExchangeInterface
 - GridCommandRepository
-- ExchangeAdapterDemo
+- ExchangeConfig
 - LedgerConsistencyAuditor
 - 网格配置生成器 - Grid Configuration Generator
-- IPositionTracker
+- IGridEngine
 - OhlcvCache
 - Skill Creator
 - 🚀 專業交易控制台全功能開發計畫 v2.0
@@ -85,7 +85,7 @@
 - setup_logging.py
 - RuntimeSnapshotRepository
 - 資料層韌性強化開發計畫（Phase 1–3）
-- ._run_direct_ws_subscription
+- coinfull_prime.py
 - 网格配置生成器 - 实现总结
 - EdgeXBase
 - ReplayDriver
@@ -98,7 +98,7 @@
 - O1ExchangeRest
 - 交易系統架構演進與技術棧重構執行手冊 (AI-Agent Ready Architecture Evolution Roadmap)
 - 網格交易總控台大改版稽核報告與修改計畫
-- Any
+- ExchangeAdapter
 - LedgerAuditTestCase
 - OKXWebSocket
 - grid_recommendation.py
@@ -107,7 +107,7 @@
 - 网格波动率扫描器诊断报告
 - Prerequisites
 - OKXRest
-- simulator.py
+- core/services/grid/backtest/__init__.py
 - OrderRequest
 - O1ExchangeAdapter
 - backfill_coinfull_prime_side_files
@@ -117,17 +117,17 @@
 - 直接数据流终端监控系统使用指南
 - run_loop.py
 - ConfigurationServiceImpl
-- identity.py
+- DcaYAMLGenerator
 - 🔄 Account Index 进制转换工具
 - BinanceBase
 - HyperliquidWebSocket
 - HyperliquidNativeWebSocket
 - domain/models/__init__.py
-- TestCoinFullPrimeRebalancer
+- SafetyGuard
 - 网格波动率扫描器 Grid Volatility Scanner
 - DcaBacktestResult.tsx
 - dcaChart.ts
-- run_multiple_grids.py
+- ReserveMonitor
 - 網格交易持久化方案分析
 - 線上系統無痛導入 v0.2.0-beta（Phase 1–3）指導方針
 - 网格波动率扫描器 - 算法修复完成
@@ -144,16 +144,16 @@
 - 網格完整回測功能 — 實作計畫（zh-TW）
 - SimulationResult
 - ArbitrageMonitorApp
-- DcaYAMLGenerator
+- FakeExchange
 - [0.2.0] — 2026-08-13
 - O1ExchangeBase
 - engine.py
 - TradeFill
-- ReplayExchange
+- assert_grid_core_zero_regression
 - PM2 網格交易機器人管理手冊
-- IPCEnvelope
+- RiskCheckRequest
 - design_system.py
-- RedisStateCache
+- ledger_store.py
 - engine2.py
 - Graphify 使用手冊
 - 網格交易總控台升級方向與實作計畫
@@ -173,7 +173,7 @@
 - audit_test.py
 - 配置文件同步工具使用说明
 - test_design_system_mode.py
-- Decimal
+- GridConfig
 - SymbolConversionService
 - DCA 圖表回測 Phase C5 — 工作日誌
 - Phase 1–3 實機運行驗證稽核清單（沙箱 → 實機交接）
@@ -182,7 +182,7 @@
 - LedgerStore
 - GridBacktestHttpContractTests
 - SymbolNormalizer
-- HourlyStatisticsTracker
+- timedelta
 - DCA 圖表回測 Phase C6 — 工作日誌
 - DCA 圖表與回測 Phase C9 工作紀錄（後續收尾 + 整體功能稽核）
 - 📋 階段一完工項目 Checklist
@@ -196,10 +196,10 @@
 - compilerOptions
 - dca.ts
 - StatsConfigReader
-- Event
+- ProcessManager
 - DIContainer
 - 架構演進任務執行報告：P1 控制面即時化、日誌治理與進程隔離 (Control & Process Pool)
-- ._execute_with_retry
+- Any
 - ArbitrageMonitorService
 - ValueError
 - PriceLockManager
@@ -217,7 +217,7 @@
 - Work Log — 2026-05-03 (Part 2)
 - 網格 / DCA 回測 使用手冊
 - .api_key
-- TestIsCircuitOpen
+- IPositionTracker
 - Grader Agent
 - BM25
 - Lighter 交易所网格交易使用说明
@@ -225,7 +225,7 @@
 - test_coinfull_prime_p1b_safety.py
 - 3. 全局 6 大階段 15 個單元對抗稽核裁決卡 (Adversarial Cards)
 - DCA 機器人 Phase 5 稽核報告 — 前端 DCA 分頁
-- run_stress
+- GridStateStore
 - 🔍 Binance REST API 調用分析
 - Any
 - services/backtest/metrics.py
@@ -238,14 +238,14 @@
 - 🤖 Hermes Grid API — 階段三完工日誌：操作審計 + 安全護欄
 - 1. 逐項修復細節
 - KlineService
-- GridResetManager
+- get_logger
 - OrderResponse
 - ISymbolConversionService
 - Frontend Grid UI Optimization Spec
 - Process
 - main
 - diff_preprocessor.py
-- EventHandler
+- modules.py
 - 公開前安全審查報告（Public Release Audit）— 2026-10-21
 - PositionMonitor
 - CapitalProtectionManager
@@ -262,13 +262,13 @@
 - EdgeXAdapterDemo
 - OKXBase
 - 幣安拉盤潛力幣信號系統 — 開發計畫
-- Any
+- sync_version.py
 - DcaFormWizardContractTests
 - DcaWizardSourceContractTests
 - aggregate_benchmark.py
-- _FakeBasketLedger
+- TestStopLossSafety
 - 2. 觸發規則規格（可直接實作）
-- TestBinanceFastAdapter
+- Decimal
 - DCA 機器人雙軌稽核工作流報告（Phase 1–7 全案）
 - DCA 即時圖表與回測子系統 Phase C3 稽核報告 — `ReplayDriver` 回放驅動器
 - DCA 即時圖表與回測子系統 Phase C4 稽核報告 — 績效指標與參數掃描
@@ -276,7 +276,7 @@
 - 🛠️ 已完成的系統建置
 - 3. Implementation Steps & Tasks
 - Work Log — 2026-05-03
-- load_dca_config
+- BotRecord
 - TestCoinFullPrimeUnifiedAccounting
 - Scripts 脚本目录
 - VolumeMakerStatistics
@@ -292,7 +292,7 @@
 - 🤖 Crypto Opinion Bot - Telegram Deployment & Quickstart Guide
 - 網格 / DCA 回測子系統 稽核報告
 - Phase 2 生產化部署與維運（PostgreSQL + Redis）
-- BaseService
+- test_dca_indicators.py
 - DcaDetailSourceContractTests
 - GridOrder
 - [0.3.2] — 2026-09-08
@@ -308,7 +308,7 @@
 - 🚀 Polymarket & CEX Cross-Market Option Arbitrage Bot
 - stop_system.sh
 - TestBackfillBotIds
-- symbol_cache_service.py
+- Any
 - test_frontend_format_contract.py
 - Project-Specific Rules for AI Agents
 - Code Quality Skill
@@ -327,7 +327,7 @@
 - Ponytail
 - main
 - 架構演進任務執行報告：P3 高性能多語言交易核心演進 (Polyglot High-Performance Core)
-- BaseLogger
+- EntryEvaluator
 - [0.3.9] — 2026-09-23
 - DCA 機器人最終稽核報告（Phase 1–7）
 - DCA 機器人 Phase 1 工作紀錄 — 領域模型與指標引擎（純函式核心，零 I/O）
@@ -361,12 +361,12 @@
 - Ponytail Help
 - Key Resource Checks
 - detect_domain
-- .generate
+- _filter_anti_patterns_for_mode
 - DCA 機器人設定目錄 (`config/dca/`)
 - 網格交易策略配置目錄 (`config/grid/`)
 - DCA 機器人 Phase 7 稽核報告 — 詳情工作台、端到端驗收與交付文件
 - 🛡️ 專案安全性與源碼審查報告
-- IConfigurationService
+- implementations/config_service.py
 - Phase 3 災難恢復 SOP（facts + 事件完整重建）
 - SubscriptionModeDemo
 - convert_account_index.py
@@ -377,7 +377,7 @@
 - 2026-04-30 工作日誌：網格交易系統 Binance WebSocket 價格獲取機制修復
 - CoinFull Prime（市場中性策略）本地端自動化開發計畫書
 - verify_dca_convergence.py
-- .info
+- ._connect_futures_stream
 - graphify reference: query, path, explain
 - AGENTS.md
 - Log Analysis Skill
@@ -395,7 +395,7 @@
 - Bug #8 — `GridCoordinator.get_statistics` 缺失(2026-07-06 01:08 重現)
 - Bug #9 — WebSocket `'ClientConnection' object has no attribute 'closed'`(2026-07-06 01:08 重現)
 - ecosystem.config.js
-- LighterVolumeMakerApp
+- volume_maker_service_impl.py
 - sync_configs.sh
 - TestBotEventStream
 - graphify reference: add a URL and watch a folder
@@ -456,26 +456,27 @@
 - tools/__init__.py
 - .trae/skills/graphify/references/extraction-spec.md
 - backend/__init__.py
-- indicator_trigger_series
-- macd.py
+- vite.config.ts
+- ._convert_to_ccxt_symbol
+- MacdConfig
 - CoinFull Prime v3.0 量化策略重構工程規格說明書與全輪次實證稽核手冊
 - supervisor/__init__.py
 - rotate_logs.sh
 - CoinFull Prime 倉位增減時機（Sizing 規格書）
 - Backtester
 - exp8.py
-- .start_configured_monitoring
-- .build_config
-- indicators/__init__.py
-- ._last_api_error_code
+- ._init_ccxt_exchange
+- rsi.py
+- validate_direction
+- EngineHeartbeat
 - ._convert_from_hyperliquid_symbol
-- Module
+- ReflectionEngine
 - CoinFull Prime — Top-79 真實交易對回測：資料需求與執行方案
-- TestScaleMarginCap
-- TestOptDFailClosed
+- ._monitor_connections
+- IPCEnvelope
 - 10. 優化與降低虧損計畫（Roadmap）★
 - 二、新版三大策略方案之描述性條列式規格說明
-- LogConfig
+- .get_exchange_info
 - 4. 因子研究（找出「為什麼」）
 - CoinFull Prime v3.0 工程規格稽核報告 (Master Spec 對照實作)
 - 🔧 常用调整
@@ -488,14 +489,14 @@
 - trading-core-go
 - 六、系統性優化方案與升級藍圖 (v3.0 Optimization Blueprint)
 - Q: 目前的coinfullprime機器人並沒有完善的交易記錄在前端呈現, 目前是使用什麼方式做紀錄的? /graphify
-- _coerce_decimal
+- _monotonic_regression
 - [0.3.0] — 2026-09-01
 - CoinFull Prime v3.0 量化策略優化實證回測報告 (歷史同週期全量模擬比對)
 - exp11.py
 - fetch_universe79.py
 - StateMachineTests
 - TestStopLossLifecycle
-- CycleResult
+- DcaStatistics
 - 🎨 文件命名规则
 - CoinFull Prime 稽核重建腳本
 - .__init__
@@ -503,17 +504,17 @@
 - bucket_table
 - CoinFull Prime 0.3.14 部署與 live 驗證紀錄（2026-10-21）
 - 🔍 故障排查
-- GridFillMark
+- GridCycleRecord
 - .create_order
 - 執行流程 (6 大階段)
 - BinanceWebSocket
 - 5. 建議新配置（v2 + 風險閘門）
 - 6. 驗證證據
 - validate_data.py
-- .provide_symbol_cache_service
+- ._ccxt_ticker_loop
 - [0.2.0-beta] — 2026-08-31
 - GridBacktestSimulator
-- _code_without_docstrings_and_comments
+- .get_ohlcv
 - exp15_universe79.py
 - D
 - 三策略統一記帳層稽核與修復報告（Grid / DCA / CoinFull Prime）
@@ -523,14 +524,14 @@
 - 5. 稽核工具與閘門
 - 三、歷史各輪次（Round 1 至 Round 9）各方案詳細選幣、報價與損益全覽
 - .create_order
-- TestParseAndSetCircuit
+- .get_current_funding_rates
 - CoinFull Prime v3 P1 修復工作紀錄（2026-10-21）
 - 4. Consider（值得評估項）
 - 1. 修復內容
-- run_coinfull_prime.py
+- ._generate_signature
 - run_oos_pipeline.sh
 - 需偵測並掃除的模式 (Patterns to Detect & Eliminate)
-- VolumeMakerApp
+- .__init__
 - 0. 執行摘要
 - 1. 稽核範圍與方法
 - 9. 變更檔案清單與 Live 驗證紀錄
@@ -555,10 +556,10 @@
 - [0.1.0-beta] — 2026-08-31
 - [0.3.6] — 2026-09-16
 - Make Operations Idempotent (操作冪等性架構原則)
-- TestPlaceBatchOrdersCircuitBreaker
-- .batch_subscribe_mixed
+- .get_account_balance
+- .__init__
 - 7. 宏觀風險閘門 (Regime Gate) 稽核
-- basic_mesa_demo.py
+- .batch_subscribe_all_tickers
 - ❓ 常见问题
 - 8. 換倉差異與訂單執行 (Rebalancer) 稽核
 - 9. 週內硬止損狀態機 (Opt C) 稽核
@@ -572,7 +573,7 @@
 - public_repo_guard.sh
 - Separate Before Serializing Shared State (先隔離共享狀態，再考慮序列化)
 - 🔄 自动同步功能
-- coinfull_reconcile_repair.py
+- .ws_connections
 - [0.0.5] — 2026-08-27
 - 📊 计算示例
 - TypeScript & React Best Practices (前端型別紀律與工程規範)
@@ -582,23 +583,13 @@
 - purge_history.sh
 - 1. 修復內容
 - CoinFull Prime v3 P0 修復工作紀錄（2026-10-21）
-- UILogHandler
-- test_dca_indicators.py
+- RsiConditionTests
 - build_panel79.py
-- migrate_configs.py
-- .create_order
-- run_single_dca_task
+- create_grid_config
 - [0.3.7] — 2026-09-17
-- SSLAdapter
-- .__init__
-- _BasketLedgerStub
-- ._on_order_update
-- MacdConfig
-- test_config_setup.py
-- .__init__
+- BollingerConfig
 - query_account_simple.py
 - [0.3.1] — 2026-09-05
-- .get_cache_stats
 - test_apikey_direct.py
 
 ## God Nodes (most connected - your core abstractions)
@@ -628,35 +619,35 @@
 ## Import Cycles
 - None detected.
 
-## Communities (623 total, 65 thin omitted)
+## Communities (614 total, 67 thin omitted)
 
 ### Community 0 - "OrderBook"
 Cohesion: 0.06
 Nodes (36): B, Conn, BotRiskProfile, MatchResult, MetricsCollector, Order, OrderBook, PerformanceSummary (+28 more)
 
 ### Community 1 - "ExchangeManager"
-Cohesion: 0.08
-Nodes (8): ExchangeManager, Any, ExchangeConfig, 注销交易所适配器 Args: exchange_id: 交易所ID, 重启交易所适配器 Args: exchange_id: 交易所ID，None表示重启所有, 交易所管理器 提供统一的交易所适配器管理功能： - 生命周期管理（启动、停止、重连） - 健康监控和状态管理 - 批量操作和事件协调 - 错误处理和恢复, 注册交易所适配器 Args: exchange_id: 交易所ID config: 交易所配置 priority: 启动优先级（数字越小优先级越高）, ExchangeStatus
+Cohesion: 0.06
+Nodes (14): ExchangeManager, Any, ExchangeConfig, 注销交易所适配器 Args: exchange_id: 交易所ID, 重启交易所适配器 Args: exchange_id: 交易所ID，None表示重启所有, 交易所管理器 提供统一的交易所适配器管理功能： - 生命周期管理（启动、停止、重连） - 健康监控和状态管理 - 批量操作和事件协调 - 错误处理和恢复, 注册交易所适配器 Args: exchange_id: 交易所ID config: 交易所配置 priority: 启动优先级（数字越小优先级越高）, inject (+6 more)
 
 ### Community 2 - "BinanceFastAdapter"
 Cohesion: 0.06
 Nodes (30): ClientResponse, BinanceFastAdapter, Any, ClientSession, datetime, Decimal, OrderSide, OrderType (+22 more)
 
 ### Community 3 - "AuditLogger"
-Cohesion: 0.02
-Nodes (93): Hermes Grid API — 階段一離線測試 不需要啟動 FastAPI 伺服器，直接測試各模組的邏輯。 使用方式： python3…, 生成中性網格 YAML — 驗證結構與 Binance 安全預設值, 生成 follow 模式 YAML — 無 price_range，有 follow_grid_count, 非 Binance 交易所 → 不填入 Binance 安全預設值, config_path → grid_id, grid_id → config_path, grid_id ↔ config_path 來回轉換一致, config/grid/ 存在且可寫 → 通過 (+85 more)
+Cohesion: 0.03
+Nodes (63): TestExchangeAuditAndSwitch, Hermes Grid API — 階段一離線測試 不需要啟動 FastAPI 伺服器，直接測試各模組的邏輯。 使用方式： python3…, 生成中性網格 YAML — 驗證結構與 Binance 安全預設值, 生成 follow 模式 YAML — 無 price_range，有 follow_grid_count, 非 Binance 交易所 → 不填入 Binance 安全預設值, config_path → grid_id, grid_id → config_path, grid_id ↔ config_path 來回轉換一致 (+55 more)
 
 ### Community 4 - "decrypt_secret"
 Cohesion: 0.08
 Nodes (34): Security and Secrets Management Package (P2-2), decrypt_dict_secrets(), decrypt_secret(), derive_key(), encrypt_secret(), get_default_master_key(), load_secure_yaml(), mask_secret() (+26 more)
 
 ### Community 5 - "CoinFullPrimeQuant"
-Cohesion: 0.07
-Nodes (21): ParameterEvaluations, 各項指標之中文語意評價 (例如: 過熱, 極強, 弱勢), RawFeature, RawMetrics, CoinFullPrimeQuant, ClientSession, ndarray, UniverseRankResult (+13 more)
+Cohesion: 0.06
+Nodes (22): 風險閘門 (regime gate) 決策結果 pts(t) = [ BTC 收盤 > BTC 50 日 SMA ] + [ 宇宙中站上 50 日 SMA…, RawFeature, RegimeDecision, CoinFullPrimeQuant, ClientSession, ndarray, UniverseRankResult, 獲取交易所非加密 (TradFi) 合約清單（快取 1 小時）。 包含：美股、韓股、指數 ETF、大宗商品、外匯等。 (+14 more)
 
-### Community 6 - "market.py"
-Cohesion: 0.04
-Nodes (42): MarketIndicatorsResponse, MarketSymbolsResponse, Unit and contract tests for pre-flight symbol validation and normalization…, 測試建立網格機器人時，若交易對不存在則回傳 422 禁止建立, 測試建立網格機器人時，若傳入 alias 符號，自動正規化為 canonical_symbol, 測試建立 DCA 機器人時，若交易對不存在則回傳 422 禁止建立, 測試建立 DCA 機器人時，若傳入 alias 符號，自動正規化為 canonical_symbol, 測試 run_multiple_grids 的 pre-flight 守衛邏輯 (+34 more)
+### Community 6 - "WebUiHttpContractTests"
+Cohesion: 0.07
+Nodes (17): skipUnless, HTTP contract smoke tests for the authenticated Web UI API. The test uses only…, P1-1: 建立時可傳入既有 bot_id，寫入 YAML metadata.bot_id（供編輯/重建保留紀錄）。, WebUiHttpContractTests, get_grid_recommendation(), get_market_indicators(), get_market_info(), get_market_rankings() (+9 more)
 
 ### Community 7 - "useCoinFullPrime.ts"
 Cohesion: 0.06
@@ -667,24 +658,24 @@ Cohesion: 0.12
 Nodes (7): EdgeXRest, Any, datetime, Decimal, OrderSide, OrderType, 获取订单簿完整快照 - 通过公共REST API Args: symbol: 交易对符号 (如 BTC-USDT) limit: 深度限制…
 
 ### Community 10 - "HyperliquidAdapter"
-Cohesion: 0.05
-Nodes (16): HyperliquidAdapter, Any, datetime, Decimal, ExchangeConfig, OrderSide, OrderType, 获取支持的交易对列表（根据exchange_type返回现货或永续） (+8 more)
+Cohesion: 0.04
+Nodes (17): HyperliquidAdapter, Any, datetime, Decimal, ExchangeConfig, OrderSide, OrderType, 获取支持的交易对列表（根据exchange_type返回现货或永续） (+9 more)
 
 ### Community 11 - "dca.py"
 Cohesion: 0.03
-Nodes (174): BacktestRequest, DcaPreviewLadder, DcaPreviewRequest, SweepRequest, 從 bot_id 還原配置檔案路徑；呼叫端應先做路徑穿越驗證。, data_status_from_runtime(), _aggregate_dca_models(), _bot_status() (+166 more)
+Nodes (192): BacktestRequest, DcaPreviewLadder, DcaPreviewRequest, MarketSymbolsResponse, SweepRequest, Unit and contract tests for pre-flight symbol validation and normalization…, 測試 GET /api/v1/market/symbols 端點與快取機制, 從 bot_id 還原配置檔案路徑；呼叫端應先做路徑穿越驗證。 (+184 more)
 
 ### Community 12 - "BackpackAdapter"
 Cohesion: 0.04
 Nodes (10): BackpackAdapter, Any, datetime, ExchangeConfig, Backpack交易所适配器 - 统一接口, 订阅持仓更新流（实时同步持仓） Args: symbol: 交易对 callback: 持仓更新回调函数，接收参数： { 'symbol': str,…, 批量订阅ticker数据（支持硬编码和动态两种模式）, 批量订阅订单簿数据（支持硬编码和动态两种模式） (+2 more)
 
 ### Community 13 - "grids.py"
-Cohesion: 0.04
-Nodes (91): async_write_enabled(), Perform one full write (full save path preferred)., P1-5: env gate for the async batched write path (default enabled)., Redis Streams-based Command Queue for instant (<10ms) control-plane dispatch.…, RedisCommandQueue, Return the stable bot id for a config, falling back to filename stem., resolve_bot_id(), 恢復歷史網格狀態（重啟時從持久化存儲恢復累計成交與盈虧） (+83 more)
+Cohesion: 0.05
+Nodes (75): CreateGridRequest, GridInfo, _code_without_docstrings_and_comments(), _collect_py_files(), Import-spelling contract for the ``web_ui.backend`` package (收尾 C9). Why this…, unittest.mock patch 目標也必須是套件拼法，否則會 patch 到別份模組。, All Python files owned by the backend / engine / tests., Strip docstrings and ``#`` comments so prose never trips the grep. (+67 more)
 
 ### Community 14 - "EdgeXAdapter"
 Cohesion: 0.04
-Nodes (13): EdgeXAdapter, Any, datetime, ExchangeConfig, OrderStatus, setter, 获取订单簿完整快照 - 通过REST API Args: symbol: 交易对符号 limit: 深度限制 (EdgeX支持15或200档)…, EdgeX交易所适配器 - 基于MESA架构的统一接口实现 (+5 more)
+Nodes (13): EdgeXAdapter, Any, datetime, OrderStatus, setter, 获取订单簿完整快照 - 通过REST API Args: symbol: 交易对符号 limit: 深度限制 (EdgeX支持15或200档)…, EdgeX交易所适配器 - 基于MESA架构的统一接口实现, 批量订阅ticker数据（支持硬编码和动态两种模式） Args: symbols: 要订阅的交易对符号列表（None时使用配置文件中的设置）… (+5 more)
 
 ### Community 15 - "test_universe79_lib.py"
 Cohesion: 0.14
@@ -694,93 +685,93 @@ Nodes (10): _make_raw_tree(), _mini_engine2_result(), _qv(), Tiny but REAL engin
 Cohesion: 0.09
 Nodes (38): DCA_STEPS, DcaBacktestResult, DcaForm(), DcaFormProps, initialForm(), Notice, WIZARD_BACKTEST_DISCLOSURES, DcaLadderPreviewProps (+30 more)
 
-### Community 17 - "DcaOrder"
+### Community 17 - "DcaOrderExecutor"
 Cohesion: 0.03
-Nodes (93): OhlcvProvider, DcaCoordinator —— DCA 主狀態機驅動器（計畫 §6 Phase 2 核心交付） 主迴圈語意（armed → triggering →…, 從持久化快照恢復歷史累計數據與持倉狀態（重啟持久化）, 啟動時掃描交易所未成交掛單並接管屬於本 bot 命名空間的訂單, DirectionLock, DirectionLock —— direction=both 的單方向互斥鎖定（決策 D-2，§4.4，INV-6） 語意（凍結）： - armed…, armed 評估時要檢查的方向清單（fixed 方向只評估自己）。, 嘗試鎖定本輪方向。回傳鎖定方向；雙向皆未成立或已鎖定時回傳 None。 (+85 more)
+Nodes (82): CircuitProbe, OhlcvProvider, DcaCoordinator —— DCA 主狀態機驅動器（計畫 §6 Phase 2 核心交付） 主迴圈語意（armed → triggering →…, DirectionLock, DirectionLock —— direction=both 的單方向互斥鎖定（決策 D-2，§4.4，INV-6） 語意（凍結）： - armed…, armed 評估時要檢查的方向清單（fixed 方向只評估自己）。, 嘗試鎖定本輪方向。回傳鎖定方向；雙向皆未成立或已鎖定時回傳 None。, 鎖定期間反向訊號一律忽略（稽核 2.17：斷言無反向單的語意來源）。 (+74 more)
 
-### Community 18 - "TickerData"
-Cohesion: 0.03
-Nodes (129): ExchangeAdapter, 交易所适配器基类 提供交易所适配器的公共功能实现，包括事件集成、错误处理、 重试机制、数据转换等通用功能。, 交易所适配器基类 提供通用的功能实现，包括： - 事件驱动集成 - 错误处理和重试 - 连接管理和健康检查 - 数据标准化 - 限频控制, BackpackSymbolInfo, Backpack基础功能模块 - 重构版 包含Backpack交易所的基础配置、数据解析等公共功能 重构：简化符号映射，推荐使用统一符号转换服务, Backpack交易所适配器 - 重构版本 基于MESA架构的Backpack适配器，提供统一的交易接口。 使用ED25519签名方式直接调用Backpack…, Backpack REST API模块 包含HTTP请求处理、ED25519签名认证、私有API操作等功能, # TODO: 实现K线数据获取 (+121 more)
+### Community 18 - "OrderData"
+Cohesion: 0.04
+Nodes (97): 交易所适配器基类 提供交易所适配器的公共功能实现，包括事件集成、错误处理、 重试机制、数据转换等通用功能。, Backpack基础功能模块 - 重构版 包含Backpack交易所的基础配置、数据解析等公共功能 重构：简化符号映射，推荐使用统一符号转换服务, Backpack交易所适配器 - 重构版本 基于MESA架构的Backpack适配器，提供统一的交易接口。 使用ED25519签名方式直接调用Backpack…, Backpack REST API模块 包含HTTP请求处理、ED25519签名认证、私有API操作等功能, # TODO: 实现K线数据获取, Backpack WebSocket模块 包含WebSocket连接管理、数据订阅、消息处理、实时数据解析等功能 应用了EdgeX的重连机制修复, BinanceMarketType, BinanceSymbolInfo (+89 more)
 
 ### Community 19 - "GridEngineImpl"
-Cohesion: 0.06
-Nodes (14): GridEngineImpl, Decimal, 計算可保證 Post Only (GTX) 成功的 maker 價格。 規則: - BUY : price <= best_bid (嚴格小於,GTX 要求)…, 解析 symbol,取得 (base, quote, is_perp)。 範例: 'SOL/USDC:USDC' -> ('SOL', 'USDC',…, 取得 (free_quote, free_base, total_stable_collateral) 餘額,3 秒緩存。 free_quote:…, 檢查餘額是否足夠支撐此訂單。 規則: - 永續合約(BUY/SELL):需 free_quote >= amount * price / leverage，或…, 网格执行引擎实现 复用现有组件： - 交易所适配器（ExchangeInterface） - 订单管理 - WebSocket订阅, 取得交易所當前開放訂單的 (grid_id, side) 集合（輕量、帶容差） (+6 more)
-
-### Community 20 - "OrderData"
 Cohesion: 0.05
-Nodes (24): _as_decimal(), _fetch_ccxt_public_ohlcv(), PaperExchangeAdapter, Any, Decimal, Simulated venue used only when YAML account_mode is paper. Public market data…, Test/helper hook: set the mark and match resting limits., 從真實交易所抓取公開市場 K 棒（無私有寫入/無 API Key）。 (+16 more)
+Nodes (22): _get_circuit_state_file_path(), GridEngineImpl, Decimal, 計算可保證 Post Only (GTX) 成功的 maker 價格。 規則: - BUY : price <= best_bid (嚴格小於,GTX 要求)…, 解析 symbol,取得 (base, quote, is_perp)。 範例: 'SOL/USDC:USDC' -> ('SOL', 'USDC',…, 取得 (free_quote, free_base, total_stable_collateral) 餘額,3 秒緩存。 free_quote:…, 檢查餘額是否足夠支撐此訂單。 規則: - 永續合約(BUY/SELL):需 free_quote >= amount * price / leverage，或…, 网格执行引擎实现 复用现有组件： - 交易所适配器（ExchangeInterface） - 订单管理 - WebSocket订阅 (+14 more)
+
+### Community 20 - "PaperExchangeAdapter"
+Cohesion: 0.06
+Nodes (17): _as_decimal(), _fetch_ccxt_public_ohlcv(), PaperExchangeAdapter, Any, Decimal, ExchangeConfig, Simulated venue used only when YAML account_mode is paper. Public market data…, Test/helper hook: set the mark and match resting limits. (+9 more)
 
 ### Community 21 - "test_grid_reconcile.py"
-Cohesion: 0.10
-Nodes (17): ExchangeReconciler, Any, Three-way state reconciler: Local Ledger <-> Exchange Positions <-> Open Orders., Perform exchange-as-truth three-way reconciliation for Grid bot (P3-2). 比對：本地…, Reconciler package for state synchronization and exchange truth reconciliation., FakeCoordinator, FakeEngine, FakeExchange (+9 more)
+Cohesion: 0.09
+Nodes (18): ExchangeReconciler, Any, Three-way state reconciler: Local Ledger <-> Exchange Positions <-> Open Orders., Perform exchange-as-truth three-way reconciliation for Grid bot (P3-2). 比對：本地…, Reconciler package for state synchronization and exchange truth reconciliation., 測試 DCA 精度自動填入相容不帶斜線的符號（例如 牛来USDT）, FakeCoordinator, FakeEngine (+10 more)
 
 ### Community 22 - "BackpackRest"
 Cohesion: 0.06
-Nodes (22): BackpackRest, Any, datetime, Decimal, OrderSide, OrderType, 解析时间戳（支持多种格式） Backpack API 返回格式: - ISO 8601 字符串: "2025-10-24T13:49:48.045" -…, 智能计算订单平均成交价格 Backpack API 返回格式: - avgPrice: 直接返回的平均价格（某些端点有） -… (+14 more)
+Nodes (21): BackpackSymbolInfo, BackpackRest, Any, datetime, Decimal, OrderSide, OrderType, 解析时间戳（支持多种格式） Backpack API 返回格式: - ISO 8601 字符串: "2025-10-24T13:49:48.045" -… (+13 more)
 
 ### Community 23 - "LighterAdapter"
-Cohesion: 0.04
-Nodes (33): LighterAdapter, datetime, Decimal, OrderSide, OrderType, 进行身份认证（ExchangeInterface标准方法） Returns: bool: 认证是否成功, 检查是否已连接 Returns: 是否已连接, 获取ticker数据 Args: symbol: 交易对符号 Returns: TickerData对象 (+25 more)
+Cohesion: 0.05
+Nodes (28): LighterAdapter, Decimal, OrderSide, OrderType, 进行身份认证（ExchangeInterface标准方法） Returns: bool: 认证是否成功, 检查是否已连接 Returns: 是否已连接, 获取ticker数据 Args: symbol: 交易对符号 Returns: TickerData对象, 获取多个交易对行情（ExchangeInterface标准方法） Args: symbols: 交易对符号列表，None表示获取所有 Returns:… (+20 more)
 
 ### Community 24 - "api.ts"
 Cohesion: 0.03
 Nodes (82): GridDetailProps, TabType, CreatedGridInfo, GridForm(), GridFormProps, initialForm, InitialGridConfig, Notice (+74 more)
 
 ### Community 25 - "LedgerRepository"
-Cohesion: 0.05
-Nodes (41): emit_bot_event(), emit_fill_event(), emit_reset_checkpoint(), P3-1: non-blocking bot event emitter. Trading and the request path must never…, Best-effort append to the canonical bot_events stream. Returns seq or None., Emit a ``fill`` event from a TradeFill (idempotent by fill_id)., Emit a reset/take_profit/stop_loss checkpoint (P3-1 + P1-4 audit).…, build_timeline() (+33 more)
+Cohesion: 0.06
+Nodes (11): LedgerRepository, Idempotent schema creation. A passed SQLite connection executes the original…, Relational Ledger Repository with immutable fills and OCC. Delegate facade over…, Back-compatible sqlite3 connection for local/semi-direct inspection. F3 fix: in…, Execute migration and backfill on target database., 舊版 grid 快照：cycles 在 filled_orders.cycles（無 top-level），且無逐筆 fills。 遷移後…, TestDatabaseMigratorAndWriter, 屬性 1：fold 與既有 rehydrate_position_from_fills 在 fill 序列上等價。 (+3 more)
 
 ### Community 26 - "SQLAlchemyLedgerStore"
-Cohesion: 0.04
-Nodes (38): _coalesce_literal(), _ignore_insert(), LedgerIntegrityError, LedgerStoreError, _literal(), _monotonic_metrics(), _monotonic_regression(), _num() (+30 more)
+Cohesion: 0.05
+Nodes (29): _coalesce_literal(), _ignore_insert(), LedgerIntegrityError, LedgerStoreError, _literal(), Any, Connection, RuntimeError (+21 more)
 
 ### Community 27 - "CoinFullPrimeService"
-Cohesion: 0.05
-Nodes (41): 統一將交易所合約符號標準化為純字串格式 (例: 'ORCA/USDT:USDT' -> 'ORCAUSDT'), CoinFullPrimeService, Any, Path, UniverseRankResult, 記錄一次風險閘門決策。 P4-1：真相源為 canonical ledger 的 ``bot_regime_decisions``（+…, 自 canonical ledger 讀取風險閘門決策歷史（供 API / 稽核使用）。, 從交易所 income 端點同步資金費率現金流到 canonical ledger。 - 只處理 FUNDING_FEE；每筆以 tranId 作為穩定… (+33 more)
+Cohesion: 0.04
+Nodes (47): CoinFullPrimeService, Any, datetime, Path, UniverseRankResult, 記錄一次風險閘門決策。 P4-1：真相源為 canonical ledger 的 ``bot_regime_decisions``（+…, 自 canonical ledger 讀取風險閘門決策歷史（供 API / 稽核使用）。, 從交易所 income 端點同步資金費率現金流到 canonical ledger。 - 只處理 FUNDING_FEE；每筆以 tranId 作為穩定… (+39 more)
 
 ### Community 28 - "BinanceRest"
-Cohesion: 0.06
-Nodes (27): BinanceRest, Any, datetime, Decimal, OrderSide, OrderType, 解析 API 錯誤字串並更新適配器級別熔斷狀態。 同時同步到 GridEngineImpl 的類變量和磁碟持久化。 Returns: 解析到的錯誤碼字串（如…, 同步熔斷狀態到 GridEngineImpl 類變量和磁碟持久化檔 (+19 more)
+Cohesion: 0.08
+Nodes (17): BinanceRest, Any, datetime, Decimal, OrderSide, OrderType, 解析 API 錯誤字串並更新適配器級別熔斷狀態。 同時同步到 GridEngineImpl 的類變量和磁碟持久化。 Returns: 解析到的錯誤碼字串（如…, 同步熔斷狀態到 GridEngineImpl 類變量和磁碟持久化檔 (+9 more)
 
 ### Community 29 - "LighterMarketVolumeMakerService"
-Cohesion: 0.07
-Nodes (20): LighterMarketVolumeMakerService, Any, Decimal, Exception, 等待信号源价格稳定（复用原脚本的所有判断逻辑） 判断条件： 1. 价格稳定性 2. 买卖单数量对比反转检测（可选） 3. 买卖单数量比例检查（可选） 4.…, 决定交易方向 策略： - 如果配置了direction_strategy="alternate"，交替买卖 - 否则使用伪随机选择（基于时间戳） -…, 等待信号源价格变化或买卖单数量反转（复用原脚本逻辑） 监控条件： 1. 价格变化达到要求次数 2. 买卖单数量反转（可选） Args:…, 在Lighter执行市价开仓（优化版 + 支持动态滑点） 🔥 优化策略： - 使用 client_id 追踪订单 - WebSocket 优先，超时才用… (+12 more)
+Cohesion: 0.06
+Nodes (21): LighterMarketVolumeMakerService, Any, Decimal, Exception, 等待信号源价格稳定（复用原脚本的所有判断逻辑） 判断条件： 1. 价格稳定性 2. 买卖单数量对比反转检测（可选） 3. 买卖单数量比例检查（可选） 4.…, 决定交易方向 策略： - 如果配置了direction_strategy="alternate"，交替买卖 - 否则使用伪随机选择（基于时间戳） -…, 等待信号源价格变化或买卖单数量反转（复用原脚本逻辑） 监控条件： 1. 价格变化达到要求次数 2. 买卖单数量反转（可选） Args:…, 在Lighter执行市价开仓（优化版 + 支持动态滑点） 🔥 优化策略： - 使用 client_id 追踪订单 - WebSocket 优先，超时才用… (+13 more)
 
 ### Community 30 - "PortfolioRebalancer"
-Cohesion: 0.08
-Nodes (32): BaseModel, RankedItem, CoinFull Prime 數據模型定義, 截面評分後的單幣結果 (含原始數值、Z 分與語意評價), RebalanceOrder, RebalanceReport, SignalZScores, UniverseRankResult (+24 more)
+Cohesion: 0.04
+Nodes (54): BasketEntry, Phase 4 (P4-1): 多標的策略的「受管持倉籃子」單一成分。 統一記帳層以本結構取代…, ParameterEvaluations, BaseModel, RankedItem, CoinFull Prime 數據模型定義, 各項指標之中文語意評價 (例如: 過熱, 極強, 弱勢), 截面評分後的單幣結果 (含原始數值、Z 分與語意評價) (+46 more)
 
-### Community 31 - "DcaOrderExecutor"
-Cohesion: 0.08
-Nodes (21): CircuitProbe, DcaOrderExecutor, Any, Decimal, OrderSide, OrderType, DcaOrderExecutor —— 包裝 ExchangeInterface 的 DCA 下單執行器（Phase 2） 職責（計畫 Phase 2…, 以 exchange get_order 依 client id 反查；無法找到時回傳 None。 (+13 more)
+### Community 31 - "GridState"
+Cohesion: 0.04
+Nodes (42): create_paper_adapter(), 网格执行引擎实现 功能： - 与交易所适配器交互，执行订单操作 - 通过 WebSocket 实时监控订单成交 - 支持批量下单、订单健康检查、价格监控…, 订单健康检查器 职责： 1. 检测并清理重复订单 2. 检测并清理超出范围的订单 3. 评估网格覆盖情况 4. 根据安全规则决定是否补单, 网格交易系统模块 完整的网格交易系统实现，支持： - 做多网格（Long Grid） - 做空网格（Short Grid） - 等差网格间隔 - 自动反向挂单…, GridDirection, GridType, Enum, 网格配置模型 定义网格交易系统的配置参数 🔥 重要修复说明（2025-11-03）：价格精度问题… (+34 more)
 
-### Community 32 - "redis_support.py"
-Cohesion: 0.06
-Nodes (25): get_redis(), get_redis_pubsub_client(), Any, Optional Redis integration (Phase 2, P2-3/4/5). Redis is treated as a…, Run a Redis callback; swallow errors and return default (DB degrade)., True if Redis is enabled and reachable., Pub/Sub for lifecycle / heartbeat / fill events (P2-4). F5 fix: the listener…, Return a subscription handle; caller must keep it referenced/close. (+17 more)
+### Community 32 - "run_multiple_grids.py"
+Cohesion: 0.04
+Nodes (82): 一键设置所有优化的日志配置 Args: use_colored: 是否使用彩色输出, setup_optimized_logging(), async_write_enabled(), P1-5: env gate for the async batched write path (default enabled)., emit_bot_event(), Best-effort append to the canonical bot_events stream. Returns seq or None., get_redis(), get_redis_pubsub_client() (+74 more)
 
 ### Community 33 - "VolumeMakerServiceImpl"
-Cohesion: 0.07
-Nodes (19): Decimal, OrderSide, 获取订单成交信息（支持REST和WebSocket两种方式） 方式选择（通过配置 fill_price_method）： - "websocket":…, 从 REST API 查询订单成交信息（延迟较高但稳定） 策略： 1. 查询历史订单（get_order_history）- 包含已完全成交的订单 2.…, 等待价格稳定（支持 WebSocket 和 REST API 两种方式） 根据配置 orderbook_method 选择： - "websocket":…, 使用 WebSocket 订单簿等待价格稳定（推荐方式） Returns: (bid_price, ask_price, quantity_ratio) 或…, 使用 REST API 轮询订单簿等待价格稳定（兼容方式） 支持可选的买卖单数量对比反转检测 Returns: (bid_price, ask_price,…, 同时挂买单和卖单 Args: bid_price: 买1价格 ask_price: 卖1价格 Returns: 是否成功 (+11 more)
+Cohesion: 0.08
+Nodes (13): Any, 同时挂买单和卖单 Args: bid_price: 买1价格 ask_price: 卖1价格 Returns: 是否成功, 等待其中一个订单成交 参考网格交易的方法： 使用 get_open_orders() 查询所有订单，避免 Backpack API 不支持单独查询订单的问题…, 检查账户余额是否满足最小要求 Returns: True: 余额充足，可以继续交易 False: 余额不足，应该停止交易, WebSocket 重连循环任务 持续检查WebSocket健康状态，并在需要时重连 参考网格脚本的实现： 1.…, 初始化刷量服务 Args: exchange_adapter: 交易所适配器, 执行一轮交易（根据配置选择限价或市价模式）, 订阅 WebSocket 订单更新（用于获取成交价格） (+5 more)
 
 ### Community 34 - "BackpackBase"
 Cohesion: 0.06
 Nodes (14): BackpackBase, Any, datetime, Decimal, OrderSide, OrderStatus, OrderType, 映射交易对符号 @deprecated: 建议使用统一的符号转换服务 (+6 more)
 
-### Community 35 - "BinanceAdapter"
-Cohesion: 0.06
-Nodes (6): BinanceAdapter, Any, datetime, Decimal, OrderSide, OrderType
+### Community 35 - "TickerData"
+Cohesion: 0.05
+Nodes (15): BinanceAdapter, Any, datetime, Decimal, OrderSide, OrderType, decimal_to_float(), ensure_decimal() (+7 more)
 
 ### Community 36 - "LighterRest"
-Cohesion: 0.06
-Nodes (25): LighterRest, Any, Decimal, OrderSide, OrderStatus, OrderType, 初始化Lighter REST客户端 Args: config: 配置字典, 处理下单结果 ⚠️ 重要：Lighter下单API返回的是transaction hash，不是order_id… (+17 more)
+Cohesion: 0.05
+Nodes (26): LighterRest, Any, Decimal, OrderSide, OrderStatus, OrderType, 初始化Lighter REST客户端 Args: config: 配置字典, 处理下单结果 ⚠️ 重要：Lighter下单API返回的是transaction hash，不是order_id… (+18 more)
 
 ### Community 37 - "HyperliquidRest"
-Cohesion: 0.13
-Nodes (3): HyperliquidRest, Any, Hyperliquid REST API类
+Cohesion: 0.08
+Nodes (11): HyperliquidRest, Any, datetime, Decimal, OrderSide, OrderType, 带重试的API调用 - 支持 async 和同步函数, 自定义 SSL 适配器 - 禁用 SSL 验证以兼容 Python 3.13 (+3 more)
 
-### Community 38 - "test_dca_coordinator.py"
-Cohesion: 0.07
-Nodes (40): 評估指定方向的入場條件。 immediate 模式：恆真且不觸碰 OHLCV provider（稽核 1.11 語意延伸至引擎層）。 indicator…, EntryVerdict, DcaOrderRole, SlotStatus, FakeExchange, FakeExchange, Decimal, SimpleNamespace (+32 more)
+### Community 38 - "DcaOrder"
+Cohesion: 0.04
+Nodes (90): EntryMonitor, EntryMonitor —— armed 期間的入場條件輪詢（計畫 Phase 2 交付物） 職責： - 依 EntryConfig 決定…, 評估指定方向的入場條件。 immediate 模式：恆真且不觸碰 OHLCV provider（稽核 1.11 語意延伸至引擎層）。 indicator…, EntryVerdict, EntryEvaluator —— DCA 入場條件評估器（§4.2-B / 稽核 1.9–1.11） 語意： -…, PriceChangeConfig, Price Change（§4.3.4）。 門檻依方向分開指定：做多預設 -3.0（跌幅達標進場）、做空預設 +3.0。 lookback_bars=24…, DCA 機器人（Dollar-Cost Averaging Bot）子系統 依據 docs/dca_bot_implementation_plan_zh-… (+82 more)
 
 ### Community 39 - "Dashboard.tsx"
 Cohesion: 0.11
@@ -791,24 +782,24 @@ Cohesion: 0.06
 Nodes (6): OKXAdapter, Any, datetime, Decimal, OrderSide, OrderType
 
 ### Community 41 - "DcaConfig"
-Cohesion: 0.04
-Nodes (70): EntryMonitor, OhlcvProvider, TriggerSeriesFn, EntryMonitor —— armed 期間的入場條件輪詢（計畫 Phase 2 交付物） 職責： - 依 EntryConfig 決定…, EntryEvaluator, IndicatorConfig, Number, TriggerSeriesFn (+62 more)
+Cohesion: 0.07
+Nodes (22): precompute_series_fns(), 對固定 entry，預先計算每個指標在每一個 fetch_limit 視窗上的觸發序列。 series_fn 收到與逐棒重算相同的 closes…, DcaConfig, DCA 機器人完整設定（§4.2 欄位表 A–E）。 必填：exchange / symbol / base_order_amount；其餘全部有凍結預設值。, BudgetTests, _declining_candles(), EquivalenceTests, ExpandGridTests (+14 more)
 
 ### Community 42 - "GridTerminalUI"
-Cohesion: 0.08
-Nodes (22): 获取持仓信息 Args: symbols: 交易对符号列表（Lighter会忽略，返回所有持仓） Returns: PositionData列表, 獲取網格統計資料(給 `run_multiple_grids.py` 週期性統計彙報使用) 職責: 1. 更新當前價格到 state(用…, 获取统计数据 Returns: 网格统计数据, GridStatistics, Decimal, 未实现盈亏的别名（用于与PositionData保持一致）, 已实现盈亏的别名（用于与PositionData保持一致）, GridTerminalUI (+14 more)
+Cohesion: 0.09
+Nodes (21): 获取持仓信息 Args: symbols: 交易对符号列表（Lighter会忽略，返回所有持仓） Returns: PositionData列表, GridStatistics, Decimal, 未实现盈亏的别名（用于与PositionData保持一致）, 已实现盈亏的别名（用于与PositionData保持一致）, GridTerminalUI, Decimal, deque (+13 more)
 
 ### Community 43 - "MasterSupervisor"
 Cohesion: 0.08
-Nodes (20): main(), MasterSupervisor, Path, 優雅停止指定 Worker 子進程 (SIGTERM -> SIGKILL)。, 健康探測：檢查所有子進程狀態，捕獲異常退出並進行帶指數退避的重試自癒。, 對齊 active_grids.json 與 active_dca.json 檔案狀態 (Reconciliation)。, 停機清理所有 Worker 子進程 (並行優雅終止，防範串行累積超時 FRG-05)。, 供 run_multiple_grids.py 或獨立 CLI 呼叫的入口。 (+12 more)
+Nodes (17): MasterSupervisor, Path, 優雅停止指定 Worker 子進程 (SIGTERM -> SIGKILL)。, 健康探測：檢查所有子進程狀態，捕獲異常退出並進行帶指數退避的重試自癒。, 對齊 active_grids.json 與 active_dca.json 檔案狀態 (Reconciliation)。, 停機清理所有 Worker 子進程 (並行優雅終止，防範串行累積超時 FRG-05)。, Master 進程監督者，管理獨立子進程 Worker 池。, 啟動或重啟指定策略的 Worker 子進程。 (+9 more)
 
 ### Community 44 - "HermesGridClient"
-Cohesion: 0.08
-Nodes (21): patch, Test one complete iteration of the monitor loop under the Controller, Verify is_system_ready returns True when FastAPI health endpoint is OK, Verify create_neutral_grid makes a POST to grids endpoint with valid inputs, HermesDecision, HermesGridClient, HermesGridController, Any (+13 more)
+Cohesion: 0.07
+Nodes (26): patch, Verify stop_grid posts request to stop endpoint, Tests for the HermesGridController monitoring loops and AI decision routing, Test one complete iteration of the monitor loop under the Controller, Integration tests for HermesGridClient using in-process FastAPI AsyncClient…, Verify is_system_ready returns True when FastAPI health endpoint is OK, Verify create_neutral_grid makes a POST to grids endpoint with valid inputs, TestHermesGridClient (+18 more)
 
 ### Community 45 - "DataAggregator"
-Cohesion: 0.07
-Nodes (16): AggregatedData, DataAggregator, MarketSnapshot, Any, DataType, singleton, 处理ticker数据 - 直接转发原始数据, 处理orderbook数据 - 直接转发原始数据 (+8 more)
+Cohesion: 0.06
+Nodes (22): AggregatedData, DataAggregator, MarketSnapshot, Any, DataType, singleton, SymbolOverlapConfig, 监控交易所连接状态变化，自动处理重连后的订阅 (+14 more)
 
 ### Community 46 - "DCA 機器人（Dollar-Cost Averaging Bot）實作計畫"
 Cohesion: 0.04
@@ -816,7 +807,7 @@ Nodes (46): 0. 執行摘要, 10.1 D-2 對實作的具體影響（Phase 1/2 必�
 
 ### Community 47 - "devDependencies"
 Cohesion: 0.04
-Nodes (46): eslint, @eslint/js, eslint-plugin-react-hooks, eslint-plugin-react-refresh, globals, lightweight-charts, lucide-react, react (+38 more)
+Nodes (48): eslint, @eslint/js, eslint-plugin-react-hooks, eslint-plugin-react-refresh, globals, lightweight-charts, lucide-react, react (+40 more)
 
 ### Community 48 - "HyperliquidBase"
 Cohesion: 0.06
@@ -824,23 +815,23 @@ Nodes (10): HyperliquidBase, Any, datetime, Decimal, 设置遗留符号映射（
 
 ### Community 49 - "LighterWebSocket"
 Cohesion: 0.08
-Nodes (16): LighterWebSocket, Any, 处理直接WebSocket消息 根据文档，account_all_orders返回： { "channel":…, 创建专门的价格日志器（只输出到文件，不显示在终端）, 处理market_stats更新 market_stats格式: { "market_id": 1, "index_price": "110687.2",…, 解析来自account_all_orders的订单数据 根据文档，Order JSON格式： { "order_index": INTEGER,…, 订阅订单簿 Args: market_index_or_symbol: 市场索引或交易对符号 symbol: 交易对符号（如果第一个参数是市场索引）, 订阅成交数据 Args: symbol: 交易对符号 callback: 数据回调函数 (+8 more)
+Nodes (16): LighterWebSocket, 直接订阅account_all_orders频道 根据Lighter WebSocket文档，订阅account_all_orders需要： 1.…, 运行直接WebSocket订阅（永久运行，自动重连）, 创建专门的价格日志器（只输出到文件，不显示在终端）, 订阅ticker数据（使用market_stats频道） Args: symbol: 交易对符号 callback: 数据回调函数, 订阅订单簿 Args: market_index_or_symbol: 市场索引或交易对符号 symbol: 交易对符号（如果第一个参数是市场索引）, 订阅市场统计数据（market_stats频道，用于获取价格） Args: market_index_or_symbol: 市场索引或交易对符号…, 确保直接WebSocket订阅任务正在运行 (+8 more)
 
 ### Community 50 - "main.py"
-Cohesion: 0.04
-Nodes (88): FastAPI, GridBacktestRequest, HTTPAuthorizationCredentials, put, DCA 回測 HTTP 契約測試（Phase C5 稽核 5.1-5.13，C7 修復並延伸）…, GRID_API_TOKEN 環境變數優先, API Token 認證模組 提供 Bearer Token 認證機制，供 /api/v1/ 路由使用。 Token 來源優先順序： 1. 環境變數…, _resolve_api_token() (+80 more)
+Cohesion: 0.06
+Nodes (50): FastAPI, GridBacktestRequest, HTTPAuthorizationCredentials, put, DCA 回測 HTTP 契約測試（Phase C5 稽核 5.1-5.13，C7 修復並延伸）…, GRID_API_TOKEN 環境變數優先, Hermes Grid API — Phase 4 Hermes Client & Integration Test Suite This test file…, API Token 認證模組 提供 Bearer Token 認證機制，供 /api/v1/ 路由使用。 Token 來源優先順序： 1. 環境變數… (+42 more)
 
 ### Community 51 - "OrderHealthChecker"
-Cohesion: 0.07
-Nodes (24): OrderHealthChecker, any, Decimal, 获取订单和持仓数据（纯REST API） 🔥 重大修改：持仓数据也使用REST API，不再依赖WebSocket缓存 原因：Backpack…, 从订单价格反向计算实际网格范围 遍历所有订单，找出最低价和最高价， 然后反向计算这些价格对应的网格ID Args: orders: 订单列表 Returns:…, 确定扩展范围 根据订单类型判断是否需要扩展网格范围： - 做多网格 + 存在卖单 → 向上扩展 - 做空网格 + 存在买单 → 向下扩展 Args:…, 对比实际范围和理论范围，输出差异分析 Args: actual_range: 实际订单覆盖的网格范围 theoretical_range: 理论扩展范围, 诊断问题订单（直接分析市场订单） 🔥 新方案：不对比缓存，直接分析市场订单是否符合预期 检测： 1. 重复订单（相同价格的订单） 2. 超出理论扩展范围的订单… (+16 more)
+Cohesion: 0.06
+Nodes (26): OrderHealthChecker, any, Decimal, 获取订单和持仓数据（纯REST API） 🔥 重大修改：持仓数据也使用REST API，不再依赖WebSocket缓存 原因：Backpack…, 从订单价格反向计算实际网格范围 遍历所有订单，找出最低价和最高价， 然后反向计算这些价格对应的网格ID Args: orders: 订单列表 Returns:…, 确定扩展范围 根据订单类型判断是否需要扩展网格范围： - 做多网格 + 存在卖单 → 向上扩展 - 做空网格 + 存在买单 → 向下扩展 Args:…, 对比实际范围和理论范围，输出差异分析 Args: actual_range: 实际订单覆盖的网格范围 theoretical_range: 理论扩展范围, 诊断问题订单（直接分析市场订单） 🔥 新方案：不对比缓存，直接分析市场订单是否符合预期 检测： 1. 重复订单（相同价格的订单） 2. 超出理论扩展范围的订单… (+18 more)
 
 ### Community 52 - "PriceAlertServiceImpl"
 Cohesion: 0.06
-Nodes (22): PriceAlertServiceImpl, SymbolConfig, 初始化服务 Args: exchange_adapter: 交易所适配器, IPriceAlertService, ABC, 初始化服务 Args: config: 系统配置 Returns: bool: 是否成功初始化, 获取统计数据 Returns: Dict[str, SymbolStatistics]: 代币统计数据字典, AlertSoundConfig (+14 more)
+Nodes (21): PriceAlertServiceImpl, SymbolConfig, 初始化服务 Args: exchange_adapter: 交易所适配器, IPriceAlertService, ABC, 初始化服务 Args: config: 系统配置 Returns: bool: 是否成功初始化, 获取统计数据 Returns: Dict[str, SymbolStatistics]: 代币统计数据字典, AlertSoundConfig (+13 more)
 
-### Community 53 - "config_loader.py"
-Cohesion: 0.23
-Nodes (18): _as_bool(), _as_float(), _as_int(), _build_entry(), _build_indicator(), dca_config_to_dict(), _indicator_to_dict(), _int_or_none() (+10 more)
+### Community 53 - "PositionTrackerImpl"
+Cohesion: 0.06
+Nodes (25): 网格交易系统实现层 包含各个接口的具体实现, PositionTrackerImpl, Decimal, GridState, 持仓跟踪器实现 跟踪网格系统的持仓、盈亏、交易历史等, 持仓跟踪器实现 功能： 1. 跟踪当前持仓和成本 2. 计算已实现和未实现盈亏 3. 记录交易历史 4. 生成统计数据, P1-3: 將單筆 grid 成交寫入不可變成交流水 trade_fills（冪等 append-only）。 P4-1：改走…, 解析交易對手續費率（優先依據用戶配置，若無或為None則依交易所與交易對規則自動判斷） (+17 more)
 
 ### Community 54 - "App.tsx"
 Cohesion: 0.11
@@ -848,27 +839,27 @@ Nodes (23): App(), GridDetail, LoginPage(), LoginPageProps, MarketRankings(), Ma
 
 ### Community 55 - "ExchangeInterface"
 Cohesion: 0.03
-Nodes (46): Any, ExchangeConfig, 创建交易所适配器实例 Args: exchange_id: 交易所ID config: 交易所配置（可选，如果不提供将使用默认配置） event_bus:…, 获取或创建交易所适配器实例（单例模式） Args: exchange_id: 交易所ID config: 交易所配置 event_bus: 事件总线实例…, 创建默认配置 Args: exchange_id: 交易所ID **kwargs: 额外配置参数 Returns: ExchangeConfig: 默认配置, 合并用户配置和默认配置 Args: user_config: 用户配置 default_config: 默认配置 Returns:…, 获取已创建的适配器实例 Args: exchange_id: 交易所ID Returns: ExchangeInterface:…, 列出所有已创建的适配器实例 Returns: Dict[str, ExchangeInterface]: 实例字典 (+38 more)
+Nodes (40): 获取已创建的适配器实例 Args: exchange_id: 交易所ID Returns: ExchangeInterface:…, 列出所有已创建的适配器实例 Returns: Dict[str, ExchangeInterface]: 实例字典, ExchangeInterface, ABC, Any, datetime, Decimal, OrderSide (+32 more)
 
 ### Community 56 - "GridCommandRepository"
 Cohesion: 0.07
-Nodes (15): PermissionError, Row, GridCommandRepositoryTests, Tests for durable, auditable grid lifecycle commands., DashboardSnapshotTests, skipUnless, Contract tests for the dashboard batch read model., CommandIdempotencyTests (+7 more)
+Nodes (14): PermissionError, Row, GridCommandRepositoryTests, Tests for durable, auditable grid lifecycle commands., DashboardSnapshotTests, skipUnless, Contract tests for the dashboard batch read model., CommandIdempotencyTests (+6 more)
 
-### Community 57 - "ExchangeAdapterDemo"
-Cohesion: 0.20
-Nodes (4): 处理ticker数据更新回调 Args: symbol: 交易对符号 ticker_data: ticker数据, ExchangeAdapterDemo, main(), ExchangeConfig
+### Community 57 - "ExchangeConfig"
+Cohesion: 0.04
+Nodes (44): O1Exchange 交易所基础模块 包含基础配置、网络管理、签名工具等共用功能, ExchangeFactory, ExchangeRegistryEntry, get_exchange_factory(), Any, ExchangeConfig, 交易所工厂模式实现 提供统一的交易所适配器创建和管理机制， 支持配置驱动的适配器创建和注册机制。, 注册交易所适配器 Args: exchange_id: 交易所ID adapter_class: 适配器类 exchange_type: 交易所类型… (+36 more)
 
 ### Community 58 - "LedgerConsistencyAuditor"
-Cohesion: 0.14
-Nodes (15): AuditFinding, LedgerAuditReport, LedgerConsistencyAuditor, Any, P4-1: 統一記帳一致性稽核 (Unified Ledger Consistency Auditor). 科學化驗證「grid / dca /…, 稽核報告（含計數、後端資訊、發現清單與整體判定）。, 以帳本不變式驗證三策略記帳統一度的稽核器（唯讀，可安全在生產執行）。, 操作稽核日誌（data/grid_audit.db）自身健康度 —— 「稽核功能」是否可用。 (+7 more)
+Cohesion: 0.12
+Nodes (17): AuditFinding, LedgerAuditReport, LedgerConsistencyAuditor, Any, P4-1: 統一記帳一致性稽核 (Unified Ledger Consistency Auditor). 科學化驗證「grid / dca /…, 稽核報告（含計數、後端資訊、發現清單與整體判定）。, 以帳本不變式驗證三策略記帳統一度的稽核器（唯讀，可安全在生產執行）。, 操作稽核日誌（data/grid_audit.db）自身健康度 —— 「稽核功能」是否可用。 (+9 more)
 
 ### Community 59 - "网格配置生成器 - Grid Configuration Generator"
 Cohesion: 0.07
 Nodes (27): 1. 做空配置, 1. 参数选择建议, 1. 基本使用, 2. 工作流程, 2. 工作流程建议, 2. 现货配置, 3. 安全建议, 3. 禁用自动同步 (+19 more)
 
-### Community 60 - "IPositionTracker"
-Cohesion: 0.04
-Nodes (32): IGridEngine, ABC, Decimal, 网格执行引擎接口 定义网格交易执行引擎的抽象接口, 订阅订单更新 Args: callback: 回调函数，接收订单更新, 网格执行引擎接口 负责订单的执行和管理, 初始化执行引擎 Args: config: 网格配置, 下单 Args: order: 网格订单 Returns: 更新后的订单（包含交易所订单ID） (+24 more)
+### Community 60 - "IGridEngine"
+Cohesion: 0.06
+Nodes (23): 网格策略实现 实现网格策略的核心逻辑： - 做多网格（Long Grid） - 做空网格（Short Grid） - 统一的反向挂单机制, IGridEngine, ABC, Decimal, 网格执行引擎接口 定义网格交易执行引擎的抽象接口, 订阅订单更新 Args: callback: 回调函数，接收订单更新, 网格执行引擎接口 负责订单的执行和管理, 初始化执行引擎 Args: config: 网格配置 (+15 more)
 
 ### Community 61 - "OhlcvCache"
 Cohesion: 0.08
@@ -887,8 +878,8 @@ Cohesion: 0.08
 Nodes (18): GridVolatilityScanner, Decimal, 背景模式下的週期性摘要輸出(每 60 秒一次), 加载配置文件(2026-06-27 增强:同時載入 exchanges 區塊), 取得當前交易所 id(從 adapter 或 config 推斷,2026-06-27 新增) 順序: 1. adapter.exchange_id…, 取得指定交易所的適配 profile,找不到時用 default (2026-06-27 新增), 获取所有市场 Returns: 市场信息列表, 批量获取初始价格并预创建虚拟网格 Args: symbols: 代币符号列表 Returns: 成功预创建的虚拟网格数量 (+10 more)
 
 ### Community 65 - "TradingCoreClient"
-Cohesion: 0.06
-Nodes (23): High-Performance IPC Module for Polyglot Core Evolution (Task P3). Provides…, AsyncTradingCoreClient, Exception, Unix Domain Socket (UDS) IPC 客戶端 支援 Python 控制面與 Go 高性能微引擎間的高速二進位 Protobuf 通訊。, 非同步協程 UDS IPC 客戶端 (適用於 asyncio 事件循環), 非同步建立 Unix Domain Socket 連線, 同步阻塞式 UDS IPC 客戶端 (適用於 Worker 進程或單元測試), 建立 Unix Domain Socket 連線 (+15 more)
+Cohesion: 0.07
+Nodes (22): High-Performance IPC Module for Polyglot Core Evolution (Task P3). Provides…, AsyncTradingCoreClient, Exception, Unix Domain Socket (UDS) IPC 客戶端 支援 Python 控制面與 Go 高性能微引擎間的高速二進位 Protobuf 通訊。, 非同步協程 UDS IPC 客戶端 (適用於 asyncio 事件循環), 非同步建立 Unix Domain Socket 連線, 同步阻塞式 UDS IPC 客戶端 (適用於 Worker 進程或單元測試), 建立 Unix Domain Socket 連線 (+14 more)
 
 ### Community 66 - "BackpackWebSocket"
 Cohesion: 0.08
@@ -899,16 +890,16 @@ Cohesion: 0.09
 Nodes (23): 交易所适配器工具模块 提供日志优化、格式化等工具函数, ColoredFormatter, CompactFormatter, DetailedFormatter, format_order_log(), format_sync_log(), format_ws_log(), 优化的日志格式化器 提供简洁清晰的日志格式，同时保留完整信息 (+15 more)
 
 ### Community 68 - "RuntimeSnapshotRepository"
-Cohesion: 0.05
-Nodes (25): AsyncDatabaseWriter, Any, Start the background async flush loop., Stop writer and perform final flush., Async writer queue that aggregates write operations into periodic batched…, True when the background flush loop has been started., Enqueue a snapshot for batched writing (deduplicated on flush)., Synchronously flush all queued snapshots; bounded retry on failure. (+17 more)
+Cohesion: 0.04
+Nodes (31): AsyncDatabaseWriter, Any, Asynchronous Batched Database Writer. Buffers high-frequency runtime snapshots…, Perform one full write (full save path preferred)., Start the background async flush loop., Stop writer and perform final flush., Async writer queue that aggregates write operations into periodic batched…, True when the background flush loop has been started. (+23 more)
 
 ### Community 69 - "資料層韌性強化開發計畫（Phase 1–3）"
 Cohesion: 0.05
 Nodes (38): 0. 執行摘要, 10. 里程碑, 11. 名詞對照, 1.1 既有儲存架構, 1.2 Schema 現況（`core/infrastructure/database/schema.sql`）, 1.3 根因（可證偽）, 1. 現況盤點（commit `eb0190c`）, 2.1 目標（Goal） (+30 more)
 
-### Community 70 - "._run_direct_ws_subscription"
-Cohesion: 0.13
-Nodes (8): 直接订阅account_all_orders频道 根据Lighter WebSocket文档，订阅account_all_orders需要： 1.…, 运行直接WebSocket订阅（永久运行，自动重连）, 订阅ticker数据（使用market_stats频道） Args: symbol: 交易对符号 callback: 数据回调函数, 订阅市场统计数据（market_stats频道，用于获取价格） Args: market_index_or_symbol: 市场索引或交易对符号…, 确保直接WebSocket订阅任务正在运行, 发送market_stats订阅消息（支持批量发送）, 订阅订单更新 使用直接WebSocket连接订阅account_all_orders频道 这样可以接收挂单状态推送，而不仅仅是成交推送 Args:…, 订阅持仓更新 🔥 使用直接WebSocket订阅account_all频道（包含持仓数据） 避免使用SDK订阅，防止重复推送 Args: callback:…
+### Community 70 - "coinfull_prime.py"
+Cohesion: 0.09
+Nodes (37): control_scheduler(), get_account_positions(), get_coinfull_prime_accounting(), get_coinfull_prime_basket(), get_coinfull_prime_fills(), get_coinfull_prime_history(), get_coinfull_prime_regime(), get_coinfull_prime_regime_history() (+29 more)
 
 ### Community 71 - "网格配置生成器 - 实现总结"
 Cohesion: 0.07
@@ -919,8 +910,8 @@ Cohesion: 0.08
 Nodes (13): EdgeXBase, Any, datetime, Decimal, OrderSide, OrderStatus, OrderType, 映射交易对符号 @deprecated: 建议使用统一的符号转换服务 (+5 more)
 
 ### Community 73 - "ReplayDriver"
-Cohesion: 0.04
-Nodes (91): Candle, Candle models and pure sequence utilities for backtesting. Zero I/O, pure…, Immutable candlestick representation with strict validation., Convert various candle representations (StoredKline, dict, tuple, OHLCVData) to…, to_candles(), core/services/dca/backtest —— DCA 即時圖表與回測子系統核心套件 包含： - Candle…, _as_direction(), buy_hold_return_pct() (+83 more)
+Cohesion: 0.03
+Nodes (122): Candle, make_candle(), Any, Candle models and pure sequence utilities for backtesting. Zero I/O, pure…, Immutable candlestick representation with strict validation., Convenience constructor from numeric, string, or Decimal values., Convert various candle representations (StoredKline, dict, tuple, OHLCVData) to…, to_candles() (+114 more)
 
 ### Community 74 - "EdgeXWebSocket"
 Cohesion: 0.09
@@ -935,8 +926,8 @@ Cohesion: 0.07
 Nodes (28): 1. 做多籃子開單對比 (Long Basket Comparison), 1. 做多籃子開單對比 (Long Basket Comparison), 1. 做多籃子開單對比 (Long Basket Comparison), 1. 做多籃子開單對比 (Long Basket Comparison), 1. 做多籃子開單對比 (Long Basket Comparison), 1. 做多籃子開單對比 (Long Basket Comparison), 1. 做多籃子開單對比 (Long Basket Comparison), 1. 做多籃子開單對比 (Long Basket Comparison) (+20 more)
 
 ### Community 77 - "DcaHttpContractTests"
-Cohesion: 0.09
-Nodes (7): _create_payload(), DcaHttpContractTests, PaperDcaGuard, _preview_payload(), skipUnless, DCA HTTP contract tests (Phase 4 audit 4.1-4.24)., 設定模組/類別級全域，並登記測試結束後自動還原。
+Cohesion: 0.06
+Nodes (16): _create_payload(), DcaHttpContractTests, PaperDcaGuard, _preview_payload(), skipUnless, DCA HTTP contract tests (Phase 4 audit 4.1-4.24)., 設定模組/類別級全域，並登記測試結束後自動還原。, 測試建立網格機器人時，若交易對不存在則回傳 422 禁止建立 (+8 more)
 
 ### Community 78 - "🤖 AI 交易員標準作業程序（SOP）與全天候操盤指南"
 Cohesion: 0.05
@@ -958,9 +949,9 @@ Nodes (24): 1. 執行摘要與架構願景 (Executive Summary & Architectural No
 Cohesion: 0.06
 Nodes (35): 10. 一句話裁決, 1. 範圍與風險摘要, 2. 本輪實際交付（通過項）, 3. 稽核檢核表, 4. 發現清單（依嚴重度）, 5. 根因：兩套控制平面沒接起來, 6. 修改計畫, 7. 建議的下一個可提交工作包 (+27 more)
 
-### Community 83 - "Any"
-Cohesion: 0.08
-Nodes (8): Any, Decimal, Exception, ExchangeConfig, 带重试的操作执行 Args: func: 要执行的函数 *args: 函数参数 operation_name: 操作名称（用于日志） **kwargs:…, 判断是否需要重连 Args: error: 发生的异常 Returns: bool: 是否需要重连, 检查限频 Args: operation: 操作类型, 初始化适配器 Args: config: 交易所配置 event_bus: 事件总线实例（在新架构中可选）
+### Community 83 - "ExchangeAdapter"
+Cohesion: 0.10
+Nodes (10): ExchangeAdapter, Any, Decimal, Exception, ExchangeConfig, 带重试的操作执行 Args: func: 要执行的函数 *args: 函数参数 operation_name: 操作名称（用于日志） **kwargs:…, 判断是否需要重连 Args: error: 发生的异常 Returns: bool: 是否需要重连, 交易所适配器基类 提供通用的功能实现，包括： - 事件驱动集成 - 错误处理和重试 - 连接管理和健康检查 - 数据标准化 - 限频控制 (+2 more)
 
 ### Community 84 - "LedgerAuditTestCase"
 Cohesion: 0.12
@@ -994,9 +985,9 @@ Nodes (33): Accessibility, Available Domains, Available Stacks, Common Rules for
 Cohesion: 0.13
 Nodes (6): OKXRest, Any, datetime, Decimal, OrderSide, OrderType
 
-### Community 92 - "simulator.py"
-Cohesion: 0.13
-Nodes (23): GridAllocation, GridBacktestResult, GridEquityPoint, GridRiskMetrics, core/services/grid/backtest/models.py —— 網格回測資料契約模型 約束： - 全數值以標準型別（int / float…, additional_capital_for_coverage(), build_risk_metrics(), _d() (+15 more)
+### Community 92 - "core/services/grid/backtest/__init__.py"
+Cohesion: 0.15
+Nodes (19): GridEquityPoint, GridRiskMetrics, additional_capital_for_coverage(), build_risk_metrics(), _d(), liquidation_price_long(), liquidation_price_short(), margin_state() (+11 more)
 
 ### Community 93 - "OrderRequest"
 Cohesion: 0.05
@@ -1034,33 +1025,33 @@ Nodes (27): generate_html(), main(), Generate HTML report from loop output data.
 Cohesion: 0.11
 Nodes (10): ConfigurationServiceImpl, Any, DataType, ExchangeConfig, singleton, SymbolConfig, 配置服务实现 - 🔥 统一使用ConfigManager作为配置源, 🔥 修改：统一使用ConfigManager加载配置 (+2 more)
 
-### Community 102 - "identity.py"
-Cohesion: 0.09
-Nodes (20): _abs_path(), find_config_path(), generate_bot_id(), Stable bot identity helpers (P1-1). Decouples the durable ledger key…, Attach ``metadata.bot_id`` to a YAML dict (grid_system / dca sibling)., Reverse lookup: return ``<directory>/<name>.yaml`` whose metadata.bot_id…, Return a fresh stable bot id (32 hex chars, filename/order-id safe)., Read and return the top-level ``metadata`` mapping of a YAML, or None. (+12 more)
+### Community 102 - "DcaYAMLGenerator"
+Cohesion: 0.04
+Nodes (69): _abs_path(), find_config_path(), generate_bot_id(), Stable bot identity helpers (P1-1). Decouples the durable ledger key…, Attach ``metadata.bot_id`` to a YAML dict (grid_system / dca sibling)., Reverse lookup: return ``<directory>/<name>.yaml`` whose metadata.bot_id…, Return a fresh stable bot id (32 hex chars, filename/order-id safe)., Read and return the top-level ``metadata`` mapping of a YAML, or None. (+61 more)
 
 ### Community 103 - "🔄 Account Index 进制转换工具"
 Cohesion: 0.06
 Nodes (31): 1. Lighter API 使用十进制, 1. 直接在脚本中使用, 2. 前端显示可能是十六进制, 2. 集成到配置脚本, 3. 区块链浏览器使用十六进制, 3. 查看所有示例, 4. 查看帮助, 🔄 Account Index 进制转换工具 (+23 more)
 
 ### Community 104 - "BinanceBase"
-Cohesion: 0.11
-Nodes (10): BinanceBase, Any, Decimal, 设置遗留符号映射（已弃用） @deprecated: 建议使用统一的符号转换服务, 映射通用符号到Binance格式（支援原生ID、斜線對、小寫、CCXT永續格式、分隔符等）, 解析行情数据（同时兼容CCXT标准字段与Binance原始字段）, 解析订单簿数据（兼容CCXT与Binance原始字段）, 解析持仓数据，兼容 CCXT 统一结构及 Binance 原始结构 (+2 more)
+Cohesion: 0.13
+Nodes (9): BinanceBase, Any, Decimal, 映射通用符号到Binance格式（支援原生ID、斜線對、小寫、CCXT永續格式、分隔符等）, 解析行情数据（同时兼容CCXT标准字段与Binance原始字段）, 解析订单簿数据（兼容CCXT与Binance原始字段）, 解析持仓数据，兼容 CCXT 统一结构及 Binance 原始结构, ExchangeConfig (+1 more)
 
 ### Community 105 - "HyperliquidWebSocket"
-Cohesion: 0.06
-Nodes (9): HyperliquidWebSocket, Any, ExchangeConfig, 订阅用户数据（余额、订单） Args: callback: 用户数据回调函数 symbols: 要订阅的交易对列表（可选）, Hyperliquid WebSocket客户端 - 基于ccxt实现, 初始化WebSocket适配器 Args: config: 交易所配置 base_instance: HyperliquidBase实例，用于符号转换等操作, 使用ccxt WebSocket订阅ticker数据, 使用ccxt WebSocket订阅orderbook数据 (+1 more)
+Cohesion: 0.11
+Nodes (4): HyperliquidWebSocket, ExchangeConfig, Hyperliquid WebSocket客户端 - 基于ccxt实现, 初始化WebSocket适配器 Args: config: 交易所配置 base_instance: HyperliquidBase实例，用于符号转换等操作
 
 ### Community 106 - "HyperliquidNativeWebSocket"
-Cohesion: 0.12
-Nodes (4): HyperliquidNativeWebSocket, 连接到Hyperliquid WebSocket, Hyperliquid原生WebSocket客户端 - 零延迟实现, 批量订阅ticker数据 - 使用allMids
+Cohesion: 0.11
+Nodes (5): HyperliquidNativeWebSocket, ExchangeConfig, 连接到Hyperliquid WebSocket, Hyperliquid原生WebSocket客户端 - 零延迟实现, 批量订阅ticker数据 - 使用allMids
 
 ### Community 107 - "domain/models/__init__.py"
 Cohesion: 0.10
 Nodes (12): DataType, DataTypeConfig, ExchangeData, ExchangeDataTypeConfig, ExchangeStatus, MarketData, MonitoringDataTypeConfig, PriceData (+4 more)
 
-### Community 108 - "TestCoinFullPrimeRebalancer"
-Cohesion: 0.10
-Nodes (8): Any, 依交易所合約之精度（precision.amount / stepSize）與最小下單量動態裁切。, 讀取籃子 currently-active 成分（Dry-Run 損益估算用，唯讀不改帳）。, 執行盤中單幣硬止損（市價 reduceOnly 平倉）並由 StrategyLedger 結算已實現損益。, 驗證 execute_rebalance 自動登記 bot 身分並將 fills 與 events 寫入 Canonical Ledger P4-1：讀寫同源…, 驗證使用 PaperExchangeAdapter (dry_run=False) 時不會被誤判跳過, 驗證盤中單幣硬止損（市價 reduceOnly 平倉）的均價法結算與記帳完整性, TestCoinFullPrimeRebalancer
+### Community 108 - "SafetyGuard"
+Cohesion: 0.08
+Nodes (12): 檢查「網格 + DCA」合計是否已達總量上限（稽核 4.15）。, 確認 config/dca/ 目錄存在且可寫入。, 檢查同一交易對是否已有 active 網格。 注意：只檢查 active_grids.json 中 enabled=true 的項目。, 檢查 run_multiple_grids.py 引擎進程是否存活, 確認 config/grid/ 目錄存在且可寫入, 取得目前運行中（desired enabled）的 DCA 數, 驗證最小投資額安全限制。 `order_amount * grid_count * min_price >= MIN_INVEST`, 寫操作頻率限制器 (dashboard 60 秒內最多 10 次，hermes 60 秒內最多 3 次) (+4 more)
 
 ### Community 109 - "网格波动率扫描器 Grid Volatility Scanner"
 Cohesion: 0.06
@@ -1074,9 +1065,9 @@ Nodes (25): DcaBacktestResult(), DcaBacktestResultProps, DcaChart, MetricCardPro
 Cohesion: 0.15
 Nodes (26): cssVar(), DcaChart(), DcaChartProps, toLibShape(), ChartCandleInput, ChartCandlePoint, ChartDataNotice, ChartEquityPoint (+18 more)
 
-### Community 112 - "run_multiple_grids.py"
-Cohesion: 0.04
-Nodes (62): create_paper_adapter(), is_paper_config(), ExchangeConfig, 一键设置所有优化的日志配置 Args: use_colored: 是否使用彩色输出, setup_optimized_logging(), Asynchronous Batched Database Writer. Buffers high-frequency runtime snapshots…, leader_election_enabled(), Enable leader election automatically when Redis is configured. (+54 more)
+### Community 112 - "ReserveMonitor"
+Cohesion: 0.15
+Nodes (12): 现货预留BTC管理模块 此模块仅对现货网格生效，永续合约不使用。 功能： 1. 追踪预留BTC消耗 2. 自动补充预留BTC 3. 启动时检查和购买 4.…, auto_buy_reserve_if_needed(), check_spot_reserve_on_startup(), _get_base_currency_balance(), Decimal, 启动检查器 职责： 1. 启动前检查预留BTC是否充足 2. 自动购买不足的预留 3. 提供用户交互和提示 在系统启动前调用，仅对现货生效。, 自动购买不足的预留BTC Args: exchange_adapter: 交易所适配器 reserve_manager:…, 获取指定币种余额（总余额） 🔥 重要：启动检查时应该查询总余额(total)，而不是可用余额(free) 因为： - 预留BTC 在账户总余额中 -… (+4 more)
 
 ### Community 113 - "網格交易持久化方案分析"
 Cohesion: 0.07
@@ -1095,12 +1086,12 @@ Cohesion: 0.11
 Nodes (17): [0.0.1] — 2026-08-13, [0.0.3] — 2026-08-25, [0.0.4] — 2026-08-26, [0.3.3] — 2026-09-16, [0.3.4] — 2026-09-16, [0.3.5] — 2026-09-16, [0.3.8] — 2026-09-18, Added (+9 more)
 
 ### Community 117 - "StopLossMonitor"
-Cohesion: 0.14
-Nodes (9): Decimal, 判断价格是否到达止损触发位置（基于百分比） Args: current_price: 当前价格 Returns: True: 到达或超过触发位置,…, 止损保护监控器 职责： 1. 持续监控价格位置（是否脱离不利方向） 2. 记录脱离开始时间 3. 判断是否触发止损条件 4. 执行止损操作（市价平仓 →…, 触发止损保护 流程： 1. 获取实时APR 2. 判断APR阈值 3. 市价平仓 4. 取消所有订单 5. 检查持仓和订单 6. 根据APR执行重置或停止…, 初始化止损监控器 Args: engine: 执行引擎 config: 网格配置 coordinator: 协调器引用, 验证持仓和订单已清理，如有残留则继续清理 Args: max_retries: 最大重试次数（默认3次）, 重置网格 Args: current_price: 当前价格（用于重新计算价格区间）, 單次檢查止損條件（給 coordinator 監控迴圈呼叫） (+1 more)
+Cohesion: 0.12
+Nodes (10): Decimal, 止损保护监控模块 功能：监控价格向不利方向脱离网格，触发止损保护机制 止损逻辑： 1. 做多网格：价格跌破下边界 + 持续N秒 → 触发 2.…, 判断价格是否到达止损触发位置（基于百分比） Args: current_price: 当前价格 Returns: True: 到达或超过触发位置,…, 止损保护监控器 职责： 1. 持续监控价格位置（是否脱离不利方向） 2. 记录脱离开始时间 3. 判断是否触发止损条件 4. 执行止损操作（市价平仓 →…, 触发止损保护 流程： 1. 获取实时APR 2. 判断APR阈值 3. 市价平仓 4. 取消所有订单 5. 检查持仓和订单 6. 根据APR执行重置或停止…, 初始化止损监控器 Args: engine: 执行引擎 config: 网格配置 coordinator: 协调器引用, 验证持仓和订单已清理，如有残留则继续清理 Args: max_retries: 最大重试次数（默认3次）, 重置网格 Args: current_price: 当前价格（用于重新计算价格区间） (+2 more)
 
 ### Community 118 - "BalanceMonitor"
-Cohesion: 0.12
-Nodes (11): BalanceMonitor, Decimal, 余额监控模块 提供账户余额定期监控和更新, 更新账户余额 从 Backpack collateral API 获取USDC余额 - spot_balance:…, 账户余额监控管理器 职责： 1. 定期查询账户余额（REST API） 2. 更新现货余额、抵押品余额、订单冻结余额 3.…, 初始化余额监控器 Args: engine: 执行引擎 config: 网格配置 coordinator: 协调器引用（用于访问各种管理器）…, 获取当前余额 🔥 重要：现货模式时，collateral_balance 需要通过属性获取 因为属性会自动加上持仓价值（USDC + BTC价值）, 抵押品余额（当前权益） 🔥 现货模式：返回实时权益 = 当前USDC + 当前BTC总价值（包括预留） 🔥 合约模式：返回账户权益（保持原逻辑） (+3 more)
+Cohesion: 0.04
+Nodes (36): BalanceMonitor, Decimal, 余额监控模块 提供账户余额定期监控和更新, 更新账户余额 从 Backpack collateral API 获取USDC余额 - spot_balance:…, 账户余额监控管理器 职责： 1. 定期查询账户余额（REST API） 2. 更新现货余额、抵押品余额、订单冻结余额 3.…, 初始化余额监控器 Args: engine: 执行引擎 config: 网格配置 coordinator: 协调器引用（用于访问各种管理器）…, 获取当前余额 🔥 重要：现货模式时，collateral_balance 需要通过属性获取 因为属性会自动加上持仓价值（USDC + BTC价值）, 抵押品余额（当前权益） 🔥 现货模式：返回实时权益 = 当前USDC + 当前BTC总价值（包括预留） 🔥 合约模式：返回账户权益（保持原逻辑） (+28 more)
 
 ### Community 119 - "🤖 Hermes Agent × Grid Trading 整合計畫書 v1.0"
 Cohesion: 0.07
@@ -1116,19 +1107,19 @@ Nodes (8): UI模块 - User Interface 基于Rich库的终端UI显示系统, Deque
 
 ### Community 122 - "evaluate_indicator"
 Cohesion: 0.14
-Nodes (10): BollingerConfig, Bollinger Bands（§4.3.3）。condition: touch（預設）/ break / return, evaluate_indicator(), 對最後一根已收線 K 棒評估單一指標（未收線的尾棒一律丟棄）。, BollingerConditionTests, LockedVectorTests, 稽核 1.5d：BB 三種 condition × long/short 全覆蓋（數列已掃描定標）, 稽核 1.5 / 1.5b：鎖定向量，容差 1e-6 (+2 more)
+Nodes (15): IndicatorType, Enum, 指標設定與預設值 —— §4.3 表格的唯一真相來源 四種指標（RSI / MACD / Bollinger / Price…, evaluate_indicator(), indicator_trigger_series(), _indicator_type(), IndicatorConfig, Number (+7 more)
 
 ### Community 123 - "Process"
 Cohesion: 0.07
 Nodes (27): Analyzing Benchmark Results, Categories for Suggestions, Guidelines, Guidelines, Inputs, Inputs, Output Format, Post-hoc Analyzer Agent (+19 more)
 
 ### Community 124 - "DesignSystemGenerator"
-Cohesion: 0.17
-Nodes (8): DesignSystemGenerator, Generates design system recommendations from aggregated searches., Load reasoning rules from CSV., Find matching reasoning rule for a category., Apply reasoning rules to search results., TestReasoningMatch, The exact reproduction from issue #428., TestEndToEndCoherence
+Cohesion: 0.11
+Nodes (15): DesignSystemGenerator, generate_design_system(), Generates design system recommendations from aggregated searches., Load reasoning rules from CSV., Execute searches across multiple domains., Find matching reasoning rule for a category., Apply reasoning rules to search results., Select best matching result based on priority keywords. (+7 more)
 
 ### Community 125 - "TakeProfitManager"
-Cohesion: 0.13
-Nodes (12): 止盈模式管理 当抵押品余额盈利超过设定百分比时，触发止盈模式, Decimal, 激活止盈模式 Args: current_collateral: 当前抵押品余额, 获取盈利金额 Args: current_collateral: 当前抵押品余额 Returns: 盈利金额（正数为盈利，负数为亏损）, 获取盈利率 Args: current_collateral: 当前抵押品余额 Returns: 盈利率（小数形式，如0.01表示1%）, 止盈管理器 功能： 1. 记录初始本金（每次网格重置后都会更新） 2. 持续监控抵押品余额，计算盈利率 3. 当盈利率达到设定百分比时触发止盈 4.…, 获取盈利百分比 Args: current_collateral: 当前抵押品余额 Returns: 盈利百分比（如1.5表示1.5%）, 获取状态摘要（用于UI显示） Args: current_collateral: 当前抵押品余额 Returns: 状态摘要字典 (+4 more)
+Cohesion: 0.11
+Nodes (13): 止盈模式管理 当抵押品余额盈利超过设定百分比时，触发止盈模式, Decimal, 激活止盈模式 Args: current_collateral: 当前抵押品余额, 获取盈利金额 Args: current_collateral: 当前抵押品余额 Returns: 盈利金额（正数为盈利，负数为亏损）, 获取盈利率 Args: current_collateral: 当前抵押品余额 Returns: 盈利率（小数形式，如0.01表示1%）, 止盈管理器 功能： 1. 记录初始本金（每次网格重置后都会更新） 2. 持续监控抵押品余额，计算盈利率 3. 当盈利率达到设定百分比时触发止盈 4.…, 获取盈利百分比 Args: current_collateral: 当前抵押品余额 Returns: 盈利百分比（如1.5表示1.5%）, 获取状态摘要（用于UI显示） Args: current_collateral: 当前抵押品余额 Returns: 状态摘要字典 (+5 more)
 
 ### Community 126 - "網格完整回測功能 — 實作計畫（zh-TW）"
 Cohesion: 0.06
@@ -1139,12 +1130,12 @@ Cohesion: 0.17
 Nodes (7): Decimal, 网格模拟结果 用于存储和展示每个交易对的模拟结果, 从虚拟网格创建模拟结果 Args: grid: 虚拟网格对象 order_value_usdc: 每格订单价值（USDC），2026-06-27 新增参数…, 根据APR计算评级 评级标准 (2026-06-27 调整,与新 APR 公式对齐): - S级: APR >= 1000%(极度推荐,只出现在高频机会) -…, SimulationResult, 获取扫描结果 Returns: 按APR排序的模拟结果列表（BTC永远排第一）, 更新扫描结果 Args: results: 模拟结果列表
 
 ### Community 128 - "ArbitrageMonitorApp"
-Cohesion: 0.14
-Nodes (9): ArbitrageMonitorApp, main(), Layout, Panel, 格式化持续时间为 1D1H1M 格式 Args: seconds: 持续秒数 Returns: 格式化的时间字符串，例如：1D2H30M, 更新费率差异持续时间跟踪 Args: symbol: 交易对 rate_diff_annual: 年化费率差（百分比）, 获取费率差异持续时间 Args: symbol: 交易对 Returns: 格式化的持续时间字符串, 根据价格大小动态决定显示精度 Args: price: 价格 Returns: 小数位数 (+1 more)
+Cohesion: 0.12
+Nodes (10): ArbitrageMonitorApp, main(), deque, Layout, Panel, 格式化持续时间为 1D1H1M 格式 Args: seconds: 持续秒数 Returns: 格式化的时间字符串，例如：1D2H30M, 更新费率差异持续时间跟踪 Args: symbol: 交易对 rate_diff_annual: 年化费率差（百分比）, 获取费率差异持续时间 Args: symbol: 交易对 Returns: 格式化的持续时间字符串 (+2 more)
 
-### Community 129 - "DcaYAMLGenerator"
-Cohesion: 0.18
-Nodes (8): _base_params(), DcaYamlGeneratorTests, DcaYAMLGenerator unit tests (Phase 4 audit 4.8 / 4.22 / 4.14)., DcaYAMLGenerator, DCA YAML 配置自動生成器（Phase 4） 從 API JSON 參數自動生成 `config/dca/*.yaml`（以 `dca:`…, 從配置檔案路徑提取 bot_id（去掉目錄與 .yaml 後綴）。 注意：此為 UI/命令層身份；帳本持久化 key 由…, 路徑穿越防護（稽核 4.22）：只允許安全的 bot 識別碼。, 從 API JSON 參數自動生成合規 DCA YAML 配置檔。
+### Community 129 - "FakeExchange"
+Cohesion: 0.20
+Nodes (8): FakeExchange, build_coordinator(), drive_until(), event_names(), make_config(), 逐步推進直到進入目標狀態（上限保護防無窮迴圈）。, safety_creates(), tp_creates()
 
 ### Community 130 - "[0.2.0] — 2026-08-13"
 Cohesion: 0.07
@@ -1159,28 +1150,28 @@ Cohesion: 0.14
 Nodes (21): BT, factor_panel(), ic_table(), load_macro(), load_panel(), _maxdd(), perf(), DataFrame (+13 more)
 
 ### Community 133 - "TradeFill"
-Cohesion: 0.05
-Nodes (36): EnvironmentGuard, ProductionDatabaseProtectionError, Database Environment Guard. Protects production databases from accidental…, Raised when a test environment attempts to access the production database., Safeguard asserting that unit tests cannot connect to or mutate production…, Canonical production SQLite path (independent of test redirection)., Detect if the current process is running in a test suite., Check if the given path targets a production database file. (+28 more)
+Cohesion: 0.04
+Nodes (58): build_timeline(), diff_projection(), events_from_fills(), fill_event_payload(), fold_timeline(), _num(), P3-1: Event-sourcing fold — rebuild projections from the bot_events stream.…, Rebuild the projection from the canonical facts (events + fills). (+50 more)
 
-### Community 134 - "ReplayExchange"
-Cohesion: 0.05
-Nodes (40): make_candle(), Any, Convenience constructor from numeric, string, or Decimal values., Any, Decimal, SimpleNamespace, R-4 同棒保守順序：不利優先。 做多場景： 1. 安全單買進 / 基礎單買進（對部位不利，由高價到低價） 2. 止盈單賣出（平倉獲利，由低價到高價） 3.…, 檢驗訂單是否在此根 K 棒撮合成交，並計算跳空成交價（R-2, R-3, R-5）。 (+32 more)
+### Community 134 - "assert_grid_core_zero_regression"
+Cohesion: 0.14
+Nodes (12): assert_grid_core_zero_regression(), grid_diff_files(), Path, 網格核心零變更守門：共享工具與授權允許清單。 背景 ---- `test_audit_2_13 / 3_14 / 4_11 / 5_13 / 8_3`…, 回傳網格核心相對基準的變更檔案清單（工作區 + 已提交）。, 守門斷言：網格核心僅允許 ALLOWLIST 內的改動。 Args: testcase: unittest.TestCase（提供 assertEqual）。…, unauthorized_grid_diffs(), GridZeroRegressionTests (+4 more)
 
 ### Community 135 - "PM2 網格交易機器人管理手冊"
 Cohesion: 0.07
 Nodes (26): 1. 啟動後顯示「跳過批量下單：該交易對已達200掛單上限」, 1. 多網格引擎的 Log（推薦使用多網格時查看）, 1. 多網格模式修改流程：, 1. 手動啟動多個網格 (並發執行), 1. 運行多個網格 (使用 `multi-grid-engine`), 2. PM2 進程一直重啟（↺ 次數不斷增加）, 2. 單網格模式修改流程：, 2. 單網格進程的 Log (+18 more)
 
-### Community 136 - "IPCEnvelope"
-Cohesion: 0.03
-Nodes (11): Message, MessageState, CancelRequest, CancelResponse, EngineHeartbeat, IPCEnvelope, OrderBookUpdate, PriceLevel (+3 more)
+### Community 136 - "RiskCheckRequest"
+Cohesion: 0.04
+Nodes (10): Message, MessageState, CancelRequest, CancelResponse, OrderBookUpdate, PriceLevel, RiskCheckRequest, RiskCheckResponse (+2 more)
 
 ### Community 137 - "design_system.py"
-Cohesion: 0.09
-Nodes (27): ansi_ljust(), _detect_page_type(), format_ascii_box(), format_markdown(), format_master_md(), format_page_override_md(), generate_design_system(), _generate_intelligent_overrides() (+19 more)
+Cohesion: 0.10
+Nodes (24): ansi_ljust(), _detect_page_type(), format_ascii_box(), format_markdown(), format_master_md(), format_page_override_md(), _generate_intelligent_overrides(), hex_to_ansi() (+16 more)
 
-### Community 138 - "RedisStateCache"
-Cohesion: 0.04
-Nodes (41): create_ledger_store(), get_database_url(), is_postgres_url(), normalize_postgres_url(), postgres_schema_for_path(), PostgresLedgerStore, SQLite implementation using SQLAlchemy Core (P2-1)., PostgreSQL source-of-truth store (P2-2). ``schema`` optionally namespaces every… (+33 more)
+### Community 138 - "ledger_store.py"
+Cohesion: 0.06
+Nodes (34): create_ledger_store(), get_database_url(), is_postgres_url(), normalize_postgres_url(), postgres_schema_for_path(), PostgresLedgerStore, SQLAlchemy-backed ledger stores (Phase 2). This module introduces the P2-1…, SQLite implementation using SQLAlchemy Core (P2-1). (+26 more)
 
 ### Community 140 - "Graphify 使用手冊"
 Cohesion: 0.08
@@ -1207,8 +1198,8 @@ Cohesion: 0.08
 Nodes (26): 【Round 1】週期: 2026-08-20 ~ 2026-08-27 (7 天), 【Round 2】週期: 2026-08-27 ~ 2026-09-03 (7 天), 【Round 3】週期: 2026-09-03 ~ 2026-09-10 (7 天), 【Round 4】週期: 2026-09-10 ~ 2026-09-17 (7 天), 【Round 5】週期: 2026-09-17 ~ 2026-09-24 (7 天), 【Round 6】週期: 2026-09-24 ~ 2026-10-01 (7 天), 【Round 7】週期: 2026-10-01 ~ 2026-10-08 (7 天), 【Round 8】週期: 2026-10-08 ~ 2026-10-15 (7 天) (+18 more)
 
 ### Community 146 - "logging/__init__.py"
-Cohesion: 0.18
-Nodes (25): _ensure_initialized(), get_data_logger(), get_error_logger(), get_exchange_logger(), get_performance_logger(), get_system_logger(), get_trading_logger(), MESA交易系统 - 统一日志入口 (v3.0) 这是日志系统的统一入口，提供： - 简洁的API接口 - 自动初始化 - 完整的日志功能 推荐使用方式：… (+17 more)
+Cohesion: 0.08
+Nodes (31): _ensure_initialized(), get_data_logger(), get_error_logger(), get_exchange_logger(), get_performance_logger(), get_trading_logger(), MESA交易系统 - 统一日志入口 (v3.0) 这是日志系统的统一入口，提供： - 简洁的API接口 - 自动初始化 - 完整的日志功能 推荐使用方式：…, BaseLogger (+23 more)
 
 ### Community 147 - "SpotReserveManager"
 Cohesion: 0.17
@@ -1235,12 +1226,12 @@ Cohesion: 0.15
 Nodes (19): build_run(), embed_file(), find_runs(), _find_runs_recursive(), generate_html(), get_mime_type(), _kill_port(), load_previous_iteration() (+11 more)
 
 ### Community 153 - "ConfigManager"
-Cohesion: 0.17
-Nodes (8): ConfigManager, ExchangeConfig, MonitoringConfig, Any, 配置服务实现 实现配置管理功能，整合监控配置、交易所配置等 🔥 新增：内部使用ConfigManager统一配置源, debug_config_loading(), main(), test_unified_config_system()
+Cohesion: 0.15
+Nodes (9): ConfigManager, ExchangeConfig, MonitoringConfig, Any, debug_config_loading(), main(), test_config_setup(), main() (+1 more)
 
 ### Community 154 - "SymbolCacheServiceImpl"
-Cohesion: 0.14
-Nodes (8): Any, inject, SymbolOverlapConfig, 生成各交易所的订阅符号列表（转换回原始符号）, 符号缓存服务实现 - 专注于重叠分析和缓存管理, 初始化符号缓存服务 Args: exchange_manager: 交易所管理器 symbol_conversion_service: 符号转换服务, SymbolCacheServiceImpl, SymbolCacheData
+Cohesion: 0.16
+Nodes (6): Any, SymbolOverlapConfig, 生成各交易所的订阅符号列表（转换回原始符号）, 符号缓存服务实现 - 专注于重叠分析和缓存管理, SymbolCacheServiceImpl, SymbolCacheData
 
 ### Community 155 - "audit_test.py"
 Cohesion: 0.32
@@ -1251,15 +1242,15 @@ Cohesion: 0.08
 Nodes (24): 1. 基本使用, 📋 功能介绍, 场景1：修改了通用参数，同步到所有账户, 场景2：批量更新多个币种配置, 场景3：重要更新，需要备份, 场景4：测试新配置，先只更新一个账户, 🛡️ 安全建议, 🎯 常用场景 (+16 more)
 
 ### Community 157 - "test_design_system_mode.py"
-Cohesion: 0.18
-Nodes (8): _palette_is_dark(), WCAG relative luminance of a #RRGGBB string, or None if unparseable., True when a colors.csv row's Background is a dark surface., Pick the highest-ranked palette matching the resolved mode. Only the dark case…, _relative_luminance(), _select_palette_for_mode(), TestLuminance, TestPaletteSelection
+Cohesion: 0.14
+Nodes (10): _palette_is_dark(), WCAG relative luminance of a #RRGGBB string, or None if unparseable., True when a colors.csv row's Background is a dark surface., Pick the highest-ranked palette matching the resolved mode. Only the dark case…, _relative_luminance(), _select_palette_for_mode(), The exact reproduction from issue #428., TestEndToEndCoherence (+2 more)
 
-### Community 158 - "Decimal"
-Cohesion: 0.10
-Nodes (10): Decimal, 获取第一个订单的价格 做多网格：上限 - 1个网格间隔 做空网格：下限 + 1个网格间隔 中性网格：不适用（不预先挂单）, 获取指定网格索引的价格 Args: grid_index: 网格索引 (1-based) Returns: 该网格的价格 逻辑： 做多网格：Grid 1 =…, 根据价格获取网格索引 Args: price: 价格 Returns: 网格索引 (1-based) 逻辑： 做多网格：Grid 1 =…, 判断是否为价格移动网格模式 Returns: True: 价格移动网格模式 False: 其他模式, 为价格移动网格动态更新价格区间 Args: current_price: 当前市场价格 逻辑： 做多网格：以当前价格为上限，向下计算下限…, 检查价格是否脱离网格范围 Args: current_price: 当前市场价格 Returns: (是否需要重置, 脱离方向) 逻辑：…, 获取指定网格的订单金额（理论值，未格式化） Args: grid_index: 网格索引 (1-based) Returns: 该网格的订单金额（理论值）… (+2 more)
+### Community 158 - "GridConfig"
+Cohesion: 0.05
+Nodes (37): GridConfig, Decimal, 获取第一个订单的价格 做多网格：上限 - 1个网格间隔 做空网格：下限 + 1个网格间隔 中性网格：不适用（不预先挂单）, 获取指定网格索引的价格 Args: grid_index: 网格索引 (1-based) Returns: 该网格的价格 逻辑： 做多网格：Grid 1 =…, 根据价格获取网格索引 Args: price: 价格 Returns: 网格索引 (1-based) 逻辑： 做多网格：Grid 1 =…, 判断是否为马丁网格模式（订单金额递增） Returns: True: 启用了马丁模式（订单金额递增） False: 固定金额模式 注意： - 只要设置了…, 判断是否为价格移动网格模式 Returns: True: 价格移动网格模式 False: 其他模式, 判断是否为做多网格（普通或价格移动） Returns: True: 做多网格 False: 做空网格 (+29 more)
 
 ### Community 159 - "SymbolConversionService"
-Cohesion: 0.17
+Cohesion: 0.16
 Nodes (4): Any, inject, singleton, SymbolConversionService
 
 ### Community 160 - "DCA 圖表回測 Phase C5 — 工作日誌"
@@ -1279,8 +1270,8 @@ Cohesion: 0.14
 Nodes (16): _domain_keywords(), _get_bm25(), _load_csv(), _load_product_keywords(), Load CSV and return list of dicts, with mtime-based caching., Fitted BM25 index for this file+columns, with mtime-based caching., Core search function using BM25. Returns (results, bm25_or_none)., Nearest known vocabulary terms for a query that returned 0 hits, so the caller… (+8 more)
 
 ### Community 164 - "LedgerStore"
-Cohesion: 0.04
-Nodes (13): The active LedgerStore backend (SQLite or PostgreSQL)., LedgerStore, Ledger write/read port used by the engine and web API., BotRecord, _iter_policy_files(), P4-1 記帳路徑政策護欄 (Harness Guardrails)。 這些測試不是驗證行為，而是讓「記帳孤島」在物理上無法再次出現： 1. 策略層 /…, 檔案落地必須伴隨 canonical ledger 寫入（DB 為真相源）。, 程式碼（非註解）中不得殘留硬編碼的相對 SQLite 路徑。 (+5 more)
+Cohesion: 0.03
+Nodes (16): The active LedgerStore backend (SQLite or PostgreSQL)., LedgerStore, Ledger write/read port used by the engine and web API., BotIdentityEvent, BotPosition, Phase 4 (P4-1): per-bot 執行期狀態 KV（排程器、延後補跑、回填標記等）。 取代…, 審計事件：bot 身份的建立/連結/改名/重映射（P1-6）。, RuntimeStateEntry (+8 more)
 
 ### Community 165 - "GridBacktestHttpContractTests"
 Cohesion: 0.21
@@ -1290,9 +1281,9 @@ Nodes (6): _candles(), _FakeKlineService, GridBacktestHttpContractTests, _payloa
 Cohesion: 0.16
 Nodes (10): ContractType, Enum, QuoteCurrency, 符号标准化模块 提供智能的符号标准化逻辑，能够正确识别不同交易所的相同交易对, 解析Hyperliquid格式符号: BTC/USDC:PERP, ETH/USDC:PERP, 解析Backpack格式符号: BTC_USDC_PERP, SOL_USDC_PERP, 解析EdgeX格式符号: BTC_USDT_PERP, SOL_USDT_PERP, 查找重叠的符号 Returns: Dict[comparison_key, Dict[exchange_id, StandardizedSymbol]] (+2 more)
 
-### Community 167 - "HourlyStatisticsTracker"
-Cohesion: 0.28
-Nodes (4): HourlyStatistics, HourlyStatisticsTracker, datetime, Path
+### Community 167 - "timedelta"
+Cohesion: 0.19
+Nodes (6): HourlyStatistics, HourlyStatisticsTracker, datetime, Path, 获取最近5分钟的循环次数 通过清理cycle_events队列中超过5分钟的事件， 返回队列中剩余的事件数量（即最近5分钟的循环次数） Returns:…, timedelta
 
 ### Community 168 - "DCA 圖表回測 Phase C6 — 工作日誌"
 Cohesion: 0.09
@@ -1319,8 +1310,8 @@ Cohesion: 0.06
 Nodes (35): 0.1 目前獲利能力結論, 0.2 三個最重要的行動（依效益排序）, 0. 執行摘要（Executive Summary）, 11. 風險與限制, 1.1 稽核檔案, 1.2 重建方法與假設, 1.3 重建限制（必讀）, 1. 稽核範圍與方法 (+27 more)
 
 ### Community 174 - "OrderMonitor"
-Cohesion: 0.13
-Nodes (8): OrderMonitor, 订单监控器 功能： 1. 定期轮询检查订单状态 2. 检测订单成交 3. 触发成交回调, 处理已成交订单 Args: filled_order_ids: 已成交的订单ID集合, 触发成交回调 Args: filled_order: 已成交订单, 获取监控统计信息 Returns: 统计字典, 添加订单到监控列表 Args: order: 网格订单, 从监控列表移除订单 Args: order_id: 订单ID, 添加订单成交回调 Args: callback: 回调函数，接收 GridOrder 参数
+Cohesion: 0.11
+Nodes (9): OrderMonitor, 订单监控器 功能： 1. 定期轮询检查订单状态 2. 检测订单成交 3. 触发成交回调, 处理已成交订单 Args: filled_order_ids: 已成交的订单ID集合, 触发成交回调 Args: filled_order: 已成交订单, 获取监控统计信息 Returns: 统计字典, 初始化订单监控器 Args: exchange: 交易所适配器 symbol: 交易对 poll_interval: 轮询间隔（秒）, 添加订单到监控列表 Args: order: 网格订单, 从监控列表移除订单 Args: order_id: 订单ID (+1 more)
 
 ### Community 175 - "DCA 即時圖表與回測子系統 最終稽核報告（C1–C8）"
 Cohesion: 0.10
@@ -1346,29 +1337,33 @@ Nodes (70): DcaCard(), DcaCardProps, BACKTEST_DISCLOSURES, CHART_TIMEFRAMES, Cha
 Cohesion: 0.16
 Nodes (7): get_exchange_stats_frequency(), get_exchange_stats_summary(), get_stats_config(), Any, 统计信息配置读取器 根据交易所类型和币种数量动态调整统计信息打印频率, 获取交易所的统计信息打印频率配置 Args: exchange_id: 交易所ID (如: hyperliquid, backpack, edgex)…, StatsConfigReader
 
-### Community 181 - "Event"
-Cohesion: 0.14
-Nodes (13): 发出事件 Args: event: 要发出的事件, ComponentStoppedEvent, Event, get_event_handler(), 简化的事件处理器 提供统一的事件处理机制，替代复杂的事件总线系统, HealthCheckEvent, ABC, Any (+5 more)
+### Community 181 - "ProcessManager"
+Cohesion: 0.12
+Nodes (10): ProcessInfo, ProcessManager, Deque, Load processes from JSON file and re-attach if possible., 解析 [STATS_JSON] 並更新 GridStateStore, Consume explicit grid engine acknowledgements from stdout/PM2 logs., Start a new process with the given script and config., Stop a running process. (+2 more)
 
 ### Community 182 - "DIContainer"
-Cohesion: 0.17
-Nodes (14): DIContainer, get_container(), Module, 依赖注入容器 基于 Python-injector 的依赖注入容器实现, Trading System 核心模块 新架构的核心模块，提供依赖注入和服务接口。 主要组件： - di: 依赖注入容器 - services:…, demo_both_strategy(), demo_custom_strategy(), demo_dynamic_subscription_changes() (+6 more)
+Cohesion: 0.09
+Nodes (19): DIContainer, Module, 依赖注入容器 基于 Python-injector 的依赖注入容器实现, Trading System 核心模块 新架构的核心模块，提供依赖注入和服务接口。 主要组件： - di: 依赖注入容器 - services:…, BaseService, IConfigurable, IMonitorable, IService (+11 more)
 
 ### Community 183 - "架構演進任務執行報告：P1 控制面即時化、日誌治理與進程隔離 (Control & Process Pool)"
 Cohesion: 0.12
 Nodes (15): 1. 任務背景與痛點回顧, 2.1 P1-1：Redis Streams 即時控制隊列與雙軌控制面, 2.2 P1-2：PM2 日誌輪轉與維護治理, 2.3 P1-3：主進程監督者與多進程 Worker 隔離架構, 2. 任務具體實施細節, 3.1 單元與整合測試套件 (28/28 PASSED), 3.2 P0 回歸驗證套件 (27/27 PASSED), 3.3 P1-1 即時指令隊列延遲實機驗證 (< 20ms 目標) (+7 more)
 
+### Community 184 - "Any"
+Cohesion: 0.14
+Nodes (8): Any, 处理直接WebSocket消息 根据文档，account_all_orders返回： { "channel":…, 处理market_stats更新 market_stats格式: { "market_id": 1, "index_price": "110687.2",…, 解析来自account_all_orders的订单数据 根据文档，Order JSON格式： { "order_index": INTEGER,…, 订单簿更新回调 Args: market_id: 市场ID order_book: 订单簿数据, 账户数据更新回调 根据Lighter WebSocket文档，account数据包含: - orders: {market_index: [Order]} -…, 解析WebSocket推送的Order JSON ⚠️ 根据Lighter官方Go结构文档，实际字段名是缩写形式： - "i": OrderIndex…, 将trade数据解析为OrderData（用于WebSocket订单成交通知） Lighter WebSocket中，交易成交数据在'trades'键中…
+
 ### Community 185 - "ArbitrageMonitorService"
-Cohesion: 0.11
-Nodes (8): ArbitrageMonitorService, datetime, Decimal, 验证 ticker 数据是否合理 Args: ticker: ticker 数据 exchange: 交易所名称 symbol: 交易对符号 Returns:…, 监控WebSocket连接健康状态 定期检查每个交易所的数据更新情况： - 🔧 启动后120秒内不检查（给足够时间接收首次数据） -…, 检查指定交易所和符号的数据是否过期 Args: exchange: 交易所名称 symbol: 交易对符号 current_time: 当前时间…, 输出连接健康状态日志 定期输出每个交易所的数据更新情况，帮助用户了解系统状态 Args: current_time: 当前时间, 重连指定交易所 重连流程： 1. 🔧 设置重连标志（防止并发） 2. 断开现有连接 3. 等待一段时间 4. 重新连接 5. 恢复所有订阅 6. 🔧…
+Cohesion: 0.16
+Nodes (3): ArbitrageMonitorService, Decimal, 验证 ticker 数据是否合理 Args: ticker: ticker 数据 exchange: 交易所名称 symbol: 交易对符号 Returns:…
 
 ### Community 186 - "ValueError"
-Cohesion: 0.21
-Nodes (18): reference_price(), GridBacktestSpec, Any, 將多種 K 線表達（dict / list / object 帶 close）轉成標準 dicts： ``{"ts": int, "open":…, to_candles(), ValueError, build_spec_from_request(), Any (+10 more)
+Cohesion: 0.14
+Nodes (23): GridBacktestSpec, _build_stress_candles(), _normalize_candles(), Any, 正規化為 simulator 使用的 ``{ts, open, high, low, close, volume}`` 格式。, 把 (已正規化) K 線轉成線性單向移動的合成 K 線。, 執行壓力情境掃描（唯讀、deterministic）。, run_stress() (+15 more)
 
 ### Community 187 - "PriceLockManager"
-Cohesion: 0.15
-Nodes (8): 价格锁定模块 提供价格锁定功能，防止在有利方向脱离时过早平仓, PriceLockManager, Decimal, 检查是否应该解锁 当价格回归到网格范围内时解锁 Args: current_price: 当前价格 lower_price: 网格下限…, 重置价格锁定管理器状态 在网格重置时调用，清除锁定状态, 价格锁定管理器 功能： 1. 检查价格是否达到锁定阈值 2. 管理锁定/解锁状态 3. 判断是否应该锁定而不是重置网格, 判断是否应该锁定而不是重置网格 Args: current_price: 当前价格 direction: 脱离方向 ("up" 或 "down")…, 检查价格是否达到锁定阈值 做多：价格 >= 阈值 做空：价格 <= 阈值
+Cohesion: 0.13
+Nodes (9): 价格锁定模块 提供价格锁定功能，防止在有利方向脱离时过早平仓, PriceLockManager, Decimal, 价格锁定管理器 功能： 1. 监控价格是否超过锁定阈值 2. 在有利方向脱离时，如果超过阈值则冻结网格（不平仓、不重置） 3. 监控价格回归，自动解除冻结, 检查是否应该解锁 当价格回归到网格范围内时解锁 Args: current_price: 当前价格 lower_price: 网格下限…, 重置价格锁定管理器状态 在网格重置时调用，清除锁定状态, 价格锁定管理器 功能： 1. 检查价格是否达到锁定阈值 2. 管理锁定/解锁状态 3. 判断是否应该锁定而不是重置网格, 判断是否应该锁定而不是重置网格 Args: current_price: 当前价格 direction: 脱离方向 ("up" 或 "down")… (+1 more)
 
 ### Community 188 - "Web UI 部署與 Release 稽核清單"
 Cohesion: 0.29
@@ -1379,8 +1374,8 @@ Cohesion: 0.10
 Nodes (19): 1. 確認補單失敗模式, 2. 追蹤 `_get_open_grid_ids_from_exchange` 二次確認邏輯, 3. 定位 3 個根本原因, Fix 1 — `binance_websocket.py`: `initialize()` 加入 User Stream 連接, Fix 2 — `grid_engine_impl.py`: `_refresh_active_window_once` 改用交易所真實掛單, Fix 3 — `grid_engine_impl.py`: `_get_open_grid_ids_from_exchange` 容差 ±1→±2 tick, Fix 4 — `grid_engine_impl.py`: 批量下單節流閾值 5s → 15s, Work Log — 2026-05-02 (+11 more)
 
 ### Community 190 - "RegimeFilter"
-Cohesion: 0.11
-Nodes (16): ClientTimeout, 風險閘門 (regime gate) 決策結果 pts(t) = [ BTC 收盤 > BTC 50 日 SMA ] + [ 宇宙中站上 50 日 SMA…, RegimeDecision, ClientSession, 依三個元件量測值計算 pts 並產出決策。 任一元件為 None（資料缺漏）時該元件保守計 0 分，並標記 degraded。, 抓取閘門所需的三個元件量測值。 回傳 dict：btc_above_ma50 / breadth_pct / funding_pctile /…, 自建 session 的 collect 便利包裝, 抓取日線收盤價（剔除尚未收盤的進行中 K 線），最舊 → 最新 (+8 more)
+Cohesion: 0.10
+Nodes (16): ClientTimeout, ClientSession, 依三個元件量測值計算 pts 並產出決策。 任一元件為 None（資料缺漏）時該元件保守計 0 分，並標記 degraded。, 抓取閘門所需的三個元件量測值。 回傳 dict：btc_above_ma50 / breadth_pct / funding_pctile /…, 自建 session 的 collect 便利包裝, 抓取日線收盤價（剔除尚未收盤的進行中 K 線），最舊 → 最新, 宇宙中站上 50 日 SMA 的比例（%）。覆蓋率 < 50% 視為缺漏 (None)。, 全市場（宇宙）資金費率當前值在過去 N 日的百分位 (0~100)。 定義與研究重建一致： * 每檔幣的「日值」= 該日 3 次 8 小時結算之和； *… (+8 more)
 
 ### Community 191 - "Professional Multi-Phase Development & Implementation Plan"
 Cohesion: 0.11
@@ -1422,9 +1417,9 @@ Nodes (17): 1. 排除殭屍線程／殘留進程, 1. 測試隔離, 2. 跨進程�
 Cohesion: 0.11
 Nodes (17): 0. 這個分頁回答什麼問題, 1. 進入回測分頁, 2.1 參數, 2.2 三種執行, 2.3 讀懂爆倉警示, 2.4 網格回測的限制（務必閱讀）, 2. 網格回測, 3.1 來源 (+9 more)
 
-### Community 202 - "TestIsCircuitOpen"
-Cohesion: 0.13
-Nodes (9): _make_engine(), 測試 _is_circuit_open 時間邏輯, 測試 BalanceMonitor 與 engine 熔斷器的雙向協作, 建立最小化 BalanceMonitor 實例, Bug A 驗證：update_balance() 收到 -1003 例外時， 必須呼叫 engine._parse_and_set_circuit，將…, Bug B 驗證：當 engine 熔斷器已開啟時， update_balance() 必須在入口直接 return，不呼叫…, 建立最小化的 GridEngineImpl 實例（mock exchange adapter）, TestBalanceMonitorCircuitPropagation (+1 more)
+### Community 202 - "IPositionTracker"
+Cohesion: 0.10
+Nodes (14): IPositionTracker, ABC, Decimal, 获取性能指标 Returns: 网格性能指标, 获取交易历史 Args: limit: 返回记录数 Returns: 交易记录列表, 同步初始持仓（系统启动时从交易所获取） Args: position: 初始持仓数量（正数=多仓，负数=空仓） entry_price: 平均入场价格, 持仓跟踪器接口 跟踪网格系统的持仓和盈亏, 记录成交订单 Args: order: 成交订单 (+6 more)
 
 ### Community 203 - "Grader Agent"
 Cohesion: 0.12
@@ -1454,9 +1449,9 @@ Nodes (31): 1.1 全域稽核裁決等級, 1. 執行總裁決與終局評級 (Exe
 Cohesion: 0.12
 Nodes (16): 1. 範圍與風險, 2. 檢核結果, 3.1 前端（`web_ui/frontend`）, 3.2 Python 鏡像契約, 3.3 全量後端 CI（含本階段新增回歸測試）, 3.4 本階段新增回歸測試（監督者層，Phase 5 live 驗證驅動）, 3.5 Live 驗證（本沙箱實跑，2026-08-26 07:14–07:22 UTC）, 3. 測試證據 (+8 more)
 
-### Community 210 - "run_stress"
-Cohesion: 0.21
-Nodes (11): _build_stress_candles(), _normalize_candles(), Any, core/services/grid/backtest/stress.py —— 壓力情境爆倉檢查 對同一組「歷史開局價格」合成單向壓力 K…, 正規化為 simulator 使用的 ``{ts, open, high, low, close, volume}`` 格式。, 把 (已正規化) K 線轉成線性單向移動的合成 K 線。, 執行壓力情境掃描（唯讀、deterministic）。, run_stress() (+3 more)
+### Community 210 - "GridStateStore"
+Cohesion: 0.15
+Nodes (7): DcaSnapshotTests, skipUnless, DCA batch snapshot tests (Phase 4 audit 4.5 / 4.6 / 4.7)., _yaml(), GridStateStore, Any, In-process cache over the durable runtime repository (P2-3: + Redis hot cache).
 
 ### Community 211 - "🔍 Binance REST API 調用分析"
 Cohesion: 0.12
@@ -1469,10 +1464,6 @@ Nodes (5): Any, Decimal, 将allMids数据转换为TickerData, 将l2Book数据转
 ### Community 213 - "services/backtest/metrics.py"
 Cohesion: 0.19
 Nodes (14): 跨策略共同回測工具（與 DCA 網格共用）。, buy_hold_return_pct(), compute_metrics_from_equity(), _direction(), max_drawdown_pct(), max_value(), min_value(), Any (+6 more)
-
-### Community 214 - "TestAuditLoggerSelfHealing"
-Cohesion: 0.11
-Nodes (8): isolate_repositories(), fixture, Reset repository singletons before and after every test to guarantee test…, _reset_all_singletons(), Verify get_pnl_summary aggregates active grid state correctly, 操作稽核日誌（data/grid_audit.db）的可用性 —— 「稽核功能」本身。, TestAuditLoggerSelfHealing, 測試隔離用：清空 per-root 實例註冊表與失敗計數。
 
 ### Community 215 - "DCA 機器人 Phase 4 稽核報告 — 後端 API 層"
 Cohesion: 0.12
@@ -1504,15 +1495,15 @@ Nodes (15): 0. 修復總覽, 1. 逐項修復細節, 2. 測試與證據清單, 3.
 
 ### Community 222 - "KlineService"
 Cohesion: 0.04
-Nodes (47): Global pytest configuration and fixtures for grid-trading-console., Unit tests for Phase C1: K-line repository, service, and API endpoint. Tests…, 1.4 P0: Given 10 equidistant bars with 2 removed, count_gaps returns 2; 0 when…, 1.5 P0: Complete cache must trigger exactly 0 external fetch calls., 1.6 P0: Requesting 20000 1m bars on miss -> calls <= MAX_PAGES, warnings non-…, 1.7 P0: Same symbol/timeframe in paper mode produces identical values and…, 1.8 P0: Mock 429 error -> stale if cache exists, unavailable if no cache; never…, 1.9 P1: prune() deletes rows older than 180 days based on fetched_at. (+39 more)
+Nodes (41): Global pytest configuration and fixtures for grid-trading-console., Unit tests for Phase C1: K-line repository, service, and API endpoint. Tests…, 1.4 P0: Given 10 equidistant bars with 2 removed, count_gaps returns 2; 0 when…, 1.5 P0: Complete cache must trigger exactly 0 external fetch calls., 1.6 P0: Requesting 20000 1m bars on miss -> calls <= MAX_PAGES, warnings non-…, 1.7 P0: Same symbol/timeframe in paper mode produces identical values and…, 1.8 P0: Mock 429 error -> stale if cache exists, unavailable if no cache; never…, 1.9 P1: prune() deletes rows older than 180 days based on fetched_at. (+33 more)
 
-### Community 223 - "GridResetManager"
-Cohesion: 0.19
-Nodes (10): GridResetManager, Decimal, 执行本金保护重置（平仓后重置并重新初始化本金）, 网格重置管理器 职责： 1. 统一网格重置工作流 2. 处理本金保护重置 3. 处理止盈重置 4. 处理价格脱离重置 5. 消除重复的重置逻辑, 通用网格重置方法（用于止损保护等场景） Args: reason: 重置原因（用于日志） current_price: 当前价格（用于重新计算价格区间）…, 执行价格移动网格重置 Args: current_price: 当前价格 direction: 脱离方向 ("up" 或 "down"), 通用重置工作流（消除90%重复代码） 流程： 1. 取消所有订单（带验证） 2. 平仓（如果需要） 3. 清空状态 4. 更新价格区间（如果是价格移动网格）…, 初始化首批網格訂單(首次啟動用,與 _generic_reset_workflow 不同) 流程: 1. 初始化執行引擎(設定 engine.config… (+2 more)
+### Community 223 - "get_logger"
+Cohesion: 0.04
+Nodes (50): get_logger(), GridState, 网格交易系统协调器 核心协调逻辑： 1. 初始化网格系统 2. 处理订单成交事件 3. 自动挂反向订单 4. 异常处理和暂停恢复 🔥…, GridResetManager, Decimal, 网格重置管理器 统一处理所有网格重置场景（本金保护、止盈、价格脱离）, 执行本金保护重置（平仓后重置并重新初始化本金）, 网格重置管理器 职责： 1. 统一网格重置工作流 2. 处理本金保护重置 3. 处理止盈重置 4. 处理价格脱离重置 5. 消除重复的重置逻辑 (+42 more)
 
 ### Community 225 - "ISymbolConversionService"
-Cohesion: 0.08
-Nodes (17): 符号转换服务实现 统一处理所有交易所的符号格式转换，消除架构冗余, ISymbolConversionService, ABC, Any, Enum, 符号转换服务接口 统一处理所有交易所的符号格式转换，消除架构冗余, 验证标准格式符号是否有效 Args: symbol: 标准格式符号 Returns: 是否有效, 验证交易所格式符号是否有效 Args: symbol: 交易所格式符号 exchange: 交易所名称 Returns: 是否有效 (+9 more)
+Cohesion: 0.07
+Nodes (21): 符号转换服务实现 统一处理所有交易所的符号格式转换，消除架构冗余, 符号管理模块 提供统一的符号管理功能： - 符号格式转换（标准格式 ↔ 交易所格式） - 交易所交易对获取和缓存 - 重叠交易对计算 - 订阅符号列表管理, ISymbolConversionService, ABC, Any, Enum, 符号转换服务接口 统一处理所有交易所的符号格式转换，消除架构冗余, 验证标准格式符号是否有效 Args: symbol: 标准格式符号 Returns: 是否有效 (+13 more)
 
 ### Community 226 - "Frontend Grid UI Optimization Spec"
 Cohesion: 0.12
@@ -1530,21 +1521,21 @@ Nodes (14): estimate_tokens(), extract_by_module(), extract_by_prefix(), extract
 Cohesion: 0.20
 Nodes (14): build_exclude_args(), build_manifest(), classify_module(), main(), parse_diff_stats(), Classify a file path into a logical module group., Run a git command and return stdout., Resolve a git ref to its full SHA. (+6 more)
 
-### Community 230 - "EventHandler"
-Cohesion: 0.12
-Nodes (12): AsyncEventCallback, inject, EventHandler, EventSubscription, Any, 发布事件 Args: event: 事件对象、事件数据字典或事件类型字符串 data: 事件数据（当event为字符串时使用）, 安全执行回调函数 Args: subscription: 订阅记录 event_data: 事件数据, 发出事件（兼容旧的接口） Args: event_type: 事件类型 data: 事件数据 (+4 more)
+### Community 230 - "modules.py"
+Cohesion: 0.04
+Nodes (47): AsyncEventCallback, inject, 数据聚合器模块 统一收集和处理所有交易所的实时数据，使用依赖注入的ExchangeManager和简化的事件处理, ConfigModule, DataModule, EventModule, ExchangeModule, MonitoringModule (+39 more)
 
 ### Community 231 - "公開前安全審查報告（Public Release Audit）— 2026-10-21"
 Cohesion: 0.09
 Nodes (21): 0. 狀態板（先看這裡）, 1. 範圍與方法, 2. 發現總表, 3. 各項詳述, 4. 本分支已執行的變更, 5. 尚待擁有者執行的步驟（依序）, 6. 歷史重寫的實測結果（AI 在本機鏡像上驗證，2026-10-21）, 7. 驗證指令（任何人可重跑） (+13 more)
 
 ### Community 232 - "PositionMonitor"
-Cohesion: 0.08
-Nodes (17): PositionMonitor, Decimal, 單次查詢並更新持倉（給 coordinator 監控迴圈呼叫）, 查询并更新持仓数据（核心方法） Args: is_initial: 是否是初始同步 is_event_triggered: 是否是事件触发（而非定时查询）…, 持仓监控管理器（纯REST API） 职责： 1. 定时REST查询（30秒间隔） 2. 事件触发REST查询（5秒去重） 3. REST失败保护（暂停订单）…, 初始化持仓监控器 Args: engine: 执行引擎 tracker: 持仓跟踪器 config: 网格配置 coordinator:…, 處理限頻/BAN錯誤，智能解析解封時間 Args: error_msg: 錯誤訊息字符串, 检测持仓异常（防止持仓失控） Args: new_position: 新的持仓数量 (+9 more)
+Cohesion: 0.09
+Nodes (14): PositionMonitor, Decimal, 單次查詢並更新持倉（給 coordinator 監控迴圈呼叫）, 查询并更新持仓数据（核心方法） Args: is_initial: 是否是初始同步 is_event_triggered: 是否是事件触发（而非定时查询）…, 持仓监控管理器（纯REST API） 职责： 1. 定时REST查询（30秒间隔） 2. 事件触发REST查询（5秒去重） 3. REST失败保护（暂停订单）…, 初始化持仓监控器 Args: engine: 执行引擎 tracker: 持仓跟踪器 config: 网格配置 coordinator:…, 處理限頻/BAN錯誤，智能解析解封時間 Args: error_msg: 錯誤訊息字符串, 检测持仓异常（防止持仓失控） Args: new_position: 新的持仓数量 (+6 more)
 
 ### Community 233 - "CapitalProtectionManager"
-Cohesion: 0.13
-Nodes (10): CapitalProtectionManager, Decimal, 检查抵押品是否回本 Args: current_collateral: 当前抵押品余额 Returns:…, 本金保护管理器 功能： 1. 记录初始本金（首次获取的抵押品余额） 2. 监控价格，判断是否触发本金保护 3. 触发后检查抵押品是否>=本金 4.…, 获取盈亏金额 Args: current_collateral: 当前抵押品余额 Returns: 盈亏金额（正数为盈利，负数为亏损）, 获取盈亏率 Args: current_collateral: 当前抵押品余额 Returns: 盈亏率（百分比）, 获取状态摘要（用于UI显示） Args: current_collateral: 当前抵押品余额 Returns: 状态摘要字典, 重置本金保护管理器状态 在网格重置时调用，清除激活状态但保留初始本金 注意：初始本金会在重置后重新初始化，不在这里清零 (+2 more)
+Cohesion: 0.11
+Nodes (12): CapitalProtectionManager, Decimal, 本金保护管理器 当价格移动到网格特定百分比位置时，触发本金保护模式。 检查抵押品余额是否回本，如果回本则重置网格。, 检查抵押品是否回本 Args: current_collateral: 当前抵押品余额 Returns:…, 本金保护管理器 功能： 1. 记录初始本金（首次获取的抵押品余额） 2. 监控价格，判断是否触发本金保护 3. 触发后检查抵押品是否>=本金 4.…, 获取盈亏金额 Args: current_collateral: 当前抵押品余额 Returns: 盈亏金额（正数为盈利，负数为亏损）, 获取盈亏率 Args: current_collateral: 当前抵押品余额 Returns: 盈亏率（百分比）, 获取状态摘要（用于UI显示） Args: current_collateral: 当前抵押品余额 Returns: 状态摘要字典 (+4 more)
 
 ### Community 234 - "🔴 Live Production Audit & Deliverables Report"
 Cohesion: 0.13
@@ -1563,8 +1554,8 @@ Cohesion: 0.13
 Nodes (14): 0. 自動化驗證（已完成，可直接執行）, 1. 前置, 2.1 備份, 2.2 建立並啟動 1 台 grid（PAPER）＋ 1 台 DCA（PAPER）, 2.3 產生成交並記錄基線, 2.4 停止引擎（保留資料）, 2.5 「小改動」, 2.6 重啟並驗證「不歸 0」 (+6 more)
 
 ### Community 238 - "IVolumeMakerService"
-Cohesion: 0.10
-Nodes (14): 刷量交易服务模块 提供自动化刷量交易功能，通过双向挂单快速刷交易量, IVolumeMakerService, ABC, 刷量交易服务接口定义 定义刷量交易的核心服务接口, 初始化刷量服务 Args: config: 刷量配置 Returns: bool: 初始化是否成功, 获取统计数据 Returns: VolumeMakerStatistics: 统计数据, 检查是否正在运行 Returns: bool: 是否正在运行, 检查是否已暂停 Returns: bool: 是否已暂停 (+6 more)
+Cohesion: 0.12
+Nodes (6): IVolumeMakerService, 初始化刷量服务 Args: config: 刷量配置 Returns: bool: 初始化是否成功, 获取统计数据 Returns: VolumeMakerStatistics: 统计数据, 检查是否正在运行 Returns: bool: 是否正在运行, 检查是否已暂停 Returns: bool: 是否已暂停, 获取状态文本 Returns: str: 状态文本描述
 
 ### Community 239 - "📝 Output Template (報告輸出格式)"
 Cohesion: 0.14
@@ -1591,16 +1582,16 @@ Cohesion: 0.25
 Nodes (3): EdgeXAdapterDemo, main(), ExchangeConfig
 
 ### Community 245 - "OKXBase"
-Cohesion: 0.15
-Nodes (4): OKXBase, Any, Decimal, 设置遗留符号映射（已弃用） @deprecated: 建议使用统一的符号转换服务
+Cohesion: 0.11
+Nodes (7): OKXBase, Any, Decimal, 设置遗留符号映射（已弃用） @deprecated: 建议使用统一的符号转换服务, ExchangeConfig, OKXStreamType, Enum
 
 ### Community 246 - "幣安拉盤潛力幣信號系統 — 開發計畫"
 Cohesion: 0.14
 Nodes (13): 一、對標定位, 七、風險與注意, 三、三階段偵測設計, 九、版本紀錄, 二、目錄結構, 五、共用元件(不重複造輪), 八、整合點, 六、開發里程碑 (+5 more)
 
-### Community 247 - "Any"
-Cohesion: 0.29
-Nodes (4): Any, 处理市场数据消息 Args: data: WebSocket消息数据 is_futures: 是否为期货/永续合约数据, 处理行情数据 Args: stream_name: 流名称 data: ticker数据 is_futures: 是否为期货/永续合约数据, 安全调用回调函数（支持单个回调或回调列表）
+### Community 247 - "sync_version.py"
+Cohesion: 0.15
+Nodes (15): Single source of truth for the application version. The repository root VERSION…, Return a normalized version or raise when it is not semver-like., Read the repository VERSION file, failing closed when it is missing., read_version(), validate_version(), _apply_lock(), _apply_package(), _check_field() (+7 more)
 
 ### Community 248 - "DcaFormWizardContractTests"
 Cohesion: 0.24
@@ -1614,17 +1605,13 @@ Nodes (8): DcaWizardSourceContractTests, Phase 6 檔案級契約（稽核 6.2/6.
 Cohesion: 0.23
 Nodes (12): aggregate_results(), calculate_stats(), generate_benchmark(), generate_markdown(), load_run_results(), main(), Path, Aggregate run results into summary statistics. Returns run_summary with stats… (+4 more)
 
-### Community 251 - "_FakeBasketLedger"
-Cohesion: 0.16
-Nodes (4): _FakeAdapter, _FakeBasketLedger, 只實作 execute_stop_loss 會用到的介面，並記錄是否被呼叫。, TestStopLossSafety
-
 ### Community 252 - "2. 觸發規則規格（可直接實作）"
 Cohesion: 0.14
 Nodes (13): 1. 驗證結果一覽（該規避 vs 不該規避）, 2. 觸發規則規格（可直接實作）, 3. 每日檢查流程（偽程式碼）, 4. 參數與門檻來源, 5. 實作位置建議, 6. 上線順序建議, CoinFull Prime 自動規避下單時機（觸發規則規格書）, T1｜風險關閉停單（核心，優先實作） (+5 more)
 
-### Community 253 - "TestBinanceFastAdapter"
-Cohesion: 0.13
-Nodes (6): 測試原生 WebSocket 行情分發與解析, 測試 ExchangeFactory 正確註冊並能產出 BinanceFastAdapter, 測試原生 C-accelerated HMAC-SHA256 簽名正確性, 量化驗收：測量內部下單參數打包與簽名耗時 DoD 要求：內部準備耗時由 15ms 降至 < 2ms (實測通常 < 0.05ms), 測試原生 Binance JSON 直轉 OrderData 模型, TestBinanceFastAdapter
+### Community 253 - "Decimal"
+Cohesion: 0.16
+Nodes (10): Decimal, OrderSide, 获取订单成交信息（支持REST和WebSocket两种方式） 方式选择（通过配置 fill_price_method）： - "websocket":…, 从 REST API 查询订单成交信息（延迟较高但稳定） 策略： 1. 查询历史订单（get_order_history）- 包含已完全成交的订单 2.…, 等待价格稳定（支持 WebSocket 和 REST API 两种方式） 根据配置 orderbook_method 选择： - "websocket":…, 使用 WebSocket 订单簿等待价格稳定（推荐方式） Returns: (bid_price, ask_price, quantity_ratio) 或…, 使用 REST API 轮询订单簿等待价格稳定（兼容方式） 支持可选的买卖单数量对比反转检测 Returns: (bid_price, ask_price,…, 市价平仓（带重试和严格确认） Returns: (close_price, close_amount) 或 None（平仓失败） (+2 more)
 
 ### Community 254 - "DCA 機器人雙軌稽核工作流報告（Phase 1–7 全案）"
 Cohesion: 0.15
@@ -1654,21 +1641,17 @@ Nodes (12): 1. Objectives & Goals, 2. Technical Architecture & Component Design,
 Cohesion: 0.15
 Nodes (12): Fix 1 — `grid_engine_impl.py`：新增 API 熔斷器輔助方法, Fix 2 — `grid_engine_impl.py`：`place_batch_orders` 重試迴圈短路（Bug #2）, Fix 3 — `grid_engine_impl.py`：`_active_window_refresh_loop` 加入熔斷守衛（Bug #4）, Fix 4 — `balance_monitor.py`：`_balance_monitor_loop` 加入熔斷守衛（Bug #5）, Work Log — 2026-05-03, 事故背景, 修復內容, 修改文件清單 (+4 more)
 
-### Community 261 - "load_dca_config"
-Cohesion: 0.12
-Nodes (15): dca_account_mode_from_yaml(), load_dca_config(), 回傳 DCA 檔案的 account_mode；未標註時為 'unknown'（不得視為 paper）。, YAML dict → DcaConfig（僅載入，不做 I/O）。, 取得 dca 設定區段；支援扁平 dict。, _section(), DcaConfigLoaderTests, 扁平 dict 相容（無 dca: 外層鍵）。 (+7 more)
-
 ### Community 262 - "TestCoinFullPrimeUnifiedAccounting"
-Cohesion: 0.19
-Nodes (4): _rank_result(), CoinFull Prime 記帳孤島是否已收斂至 canonical ledger。, 0.3.6 鏡像檔（含 entries 明細）必須可無損還原回 DB —— 災復路徑。 DB 為唯一真相源，但鏡像不得只是「名單」：當 DB 遺失/重建時，…, TestCoinFullPrimeUnifiedAccounting
+Cohesion: 0.12
+Nodes (7): _FakeAdapter, _FakeOrderResult, _rank_result(), CoinFull Prime 記帳孤島是否已收斂至 canonical ledger。, 0.3.6 鏡像檔（含 entries 明細）必須可無損還原回 DB —— 災復路徑。 DB 為唯一真相源，但鏡像不得只是「名單」：當 DB 遺失/重建時，…, 最小交易所適配器：name 含 'paper' 以通過合約市場預檢（免觸網）。, TestCoinFullPrimeUnifiedAccounting
 
 ### Community 263 - "Scripts 脚本目录"
 Cohesion: 0.15
 Nodes (12): `deployment/` - 部署脚本, `migration/` - 迁移脚本, Scripts 脚本目录, 使用说明, 停止系统, 启动系统, 工具脚本, 工具脚本 (+4 more)
 
 ### Community 264 - "VolumeMakerStatistics"
-Cohesion: 0.11
-Nodes (10): 初始化Lighter刷量服务 Args: signal_adapter: 信号交易所适配器（Backpack） execution_adapter:…, 初始化刷量服务 Args: exchange_adapter: 交易所适配器, VolumeMakerStatistics, Layout, Panel, 刷量交易终端界面 显示内容： 1. 运行状态 2. 轮次统计 3. 交易量统计 4. 盈亏统计 5. 最近成交记录, 初始化终端界面 Args: service: 刷量服务, VolumeMakerTerminalUI (+2 more)
+Cohesion: 0.16
+Nodes (7): 初始化Lighter刷量服务 Args: signal_adapter: 信号交易所适配器（Backpack） execution_adapter:…, Decimal, VolumeMakerStatistics, Layout, Panel, 刷量交易终端界面 显示内容： 1. 运行状态 2. 轮次统计 3. 交易量统计 4. 盈亏统计 5. 最近成交记录, VolumeMakerTerminalUI
 
 ### Community 265 - "martingale_calculator.py"
 Cohesion: 0.27
@@ -1676,11 +1659,15 @@ Nodes (9): get_bool_input(), get_decimal_input(), get_int_input(), main(), Marti
 
 ### Community 266 - "ScalpingManager"
 Cohesion: 0.05
-Nodes (20): Decimal, 判断是否应该退出剥头皮模式 Args: current_price: 当前价格 current_grid_index: 当前价格所在的网格索引…, 剥头皮管理器 功能： 1. 监控价格，判断是否触发剥头皮模式 2. 计算止盈价格和止盈订单 3. 动态更新止盈订单（持仓变化时） 4. 判断是否退出剥头皮模式, 更新持仓信息 Args: position: 当前持仓数量（正数=做多，负数=做空） average_cost: 平均持仓成本价（用于日志显示）…, 计算止盈订单（基于初始本金和当前抵押品计算精确止盈价格） Args: current_price: 当前价格 reserve_amount:…, 更新止盈订单为交易所返回的真实订单 Args: real_order: 交易所返回的真实订单（包含真实订单ID）, 判断当前止盈订单是否已过时（持仓数量发生变化） Args: current_position: 当前持仓数量 Returns: 止盈订单是否需要更新, 获取触发剥头皮时需要取消的订单类型 Returns: "buy" 或 "sell" (+12 more)
+Nodes (26): Decimal, 剥头皮管理器 负责管理剥头皮模式的触发、止盈订单、退出逻辑, 判断是否应该退出剥头皮模式 Args: current_price: 当前价格 current_grid_index: 当前价格所在的网格索引…, 剥头皮管理器 功能： 1. 监控价格，判断是否触发剥头皮模式 2. 计算止盈价格和止盈订单 3. 动态更新止盈订单（持仓变化时） 4. 判断是否退出剥头皮模式, 更新持仓信息 Args: position: 当前持仓数量（正数=做多，负数=做空） average_cost: 平均持仓成本价（用于日志显示）…, 计算止盈订单（基于初始本金和当前抵押品计算精确止盈价格） Args: current_price: 当前价格 reserve_amount:…, 初始化剥头皮管理器 Args: config: 网格配置, 更新止盈订单为交易所返回的真实订单 Args: real_order: 交易所返回的真实订单（包含真实订单ID） (+18 more)
 
 ### Community 267 - "allocate_capital"
-Cohesion: 0.22
-Nodes (6): allocate_capital(), Decimal, core/services/grid/backtest/allocation.py —— 初始資金 → 每格下單量分配 純函式、零 I/O、零交易所呼叫。…, 計算每格 base 數量與可掛滿格數。 ``per_grid_capital_percent`` 為整數百分比（如 Decimal("1") 代表 1%）。, AllocateCapitalTests, Tests for grid backtest capital allocation (pure functions).
+Cohesion: 0.15
+Nodes (14): allocate_capital(), Decimal, core/services/grid/backtest/allocation.py —— 初始資金 → 每格下單量分配 純函式、零 I/O、零交易所呼叫。…, 計算每格 base 數量與可掛滿格數。 ``per_grid_capital_percent`` 為整數百分比（如 Decimal("1") 代表 1%）。, reference_price(), GridAllocation, GridBacktestResult, core/services/grid/backtest/models.py —— 網格回測資料契約模型 約束： - 全數值以標準型別（int / float… (+6 more)
+
+### Community 268 - "EdgeXSubscriptionDemo"
+Cohesion: 0.24
+Nodes (3): EdgeXSubscriptionDemo, main(), EdgeX交易所订阅模式系统演示脚本 EdgeX交易所特点： - 只支持永续合约，没有现货 - 支持主流币种的USDT永续合约 -…
 
 ### Community 269 - "DCA 圖表與回測 Phase C8 工作紀錄（端到端驗收、文件與稽核）"
 Cohesion: 0.17
@@ -1714,17 +1701,17 @@ Nodes (11): 1.1 交付物, 1.2 承重性質, 1.3 殘餘風險（使用者必須�
 Cohesion: 0.17
 Nodes (11): 1. 模式摘要, 2. 環境變數, 3. PostgreSQL 建置, 4. Redis 快取與事件, 5. 備份 / 災難恢復, 6. 監控指標, 7. 回滾, 8. 部署驗證證據（2026-08-31 稽核沙箱實證） (+3 more)
 
-### Community 277 - "BaseService"
-Cohesion: 0.18
-Nodes (6): BaseService, IConfigurable, IMonitorable, IService, ABC, Any
+### Community 277 - "test_dca_indicators.py"
+Cohesion: 0.15
+Nodes (11): first_valid_index(), 序列中首個非 None 值的索引；全 None 時回傳 None。, MacdConditionTests, PriceChangeTriggerTests, DCA 指標引擎測試（Phase 1 稽核 1.5 / 1.5b / 1.5c / 1.5d / 1.5e / 1.6 / 1.7 / 1.8 / 1.9 /…, 稽核 1.6：暖機期首個有效索引 + 暖機期內不觸發, 在 MACD 序列中尋找最後一次穿越（帶邊際），回傳截斷到穿越當棒的 closes。, 稽核 1.5d：MACD 三種 condition × long/short 全覆蓋 雙速數列（慢趨勢 40 棒 → 急趨勢 10 棒）確保… (+3 more)
 
 ### Community 278 - "DcaDetailSourceContractTests"
 Cohesion: 0.17
 Nodes (7): DcaDetailSourceContractTests, Phase 7 檔案級契約（詳情工作台 + 分頁隔離延伸）。, 7 六分頁：階梯 / 訂單 / 成交 / 事件 / 指標 / 設定。, 詳情頁使用 Phase 7 新端點（stats/ladder/orders/fills/events）。, 分頁隔離（5.2 延伸）：詳情元件不呼叫 grid/dashboard 端點。, G-4：階梯表不自算階梯數學（不出現 multiplier / 冪運算）。, 7.1：armed 詳情頁明示監控中且訂單分頁為空。
 
 ### Community 279 - "GridOrder"
-Cohesion: 0.01
-Nodes (179): get_logger(), 本金保护管理器 当价格移动到网格特定百分比位置时，触发本金保护模式。 检查抵押品余额是否回本，如果回本则重置网格。, 初始化本金保护管理器 Args: config: 网格配置, GridCoordinator, GridState, 网格交易系统协调器 核心协调逻辑： 1. 初始化网格系统 2. 处理订单成交事件 3. 自动挂反向订单 4. 异常处理和暂停恢复 🔥…, 批量订单成交回调 (如交易所支持批量推送或網格補掛), 🔥 處理重置期間緩存的立即成交訂單 在 `grid_reset_manager` 或重置流程釋放 `_resetting` 鎖後，於 `finally`… (+171 more)
+Cohesion: 0.03
+Nodes (46): GridCoordinator, 批量订单成交回调 (如交易所支持批量推送或網格補掛), 🔥 處理重置期間緩存的立即成交訂單 在 `grid_reset_manager` 或重置流程釋放 `_resetting` 鎖後，於 `finally`…, 網格健康自檢 1. 比對交易所 PENDING 訂單 與 本地狀態 2. 防漏掛、補單（健康檢查補單）, 恢復歷史網格狀態（重啟時從持久化存儲恢復累計成交與盈虧）, Cancel open orders and stop the engine. Positions are left open., 獲取網格統計資料(給 `run_multiple_grids.py` 週期性統計彙報使用) 職責: 1. 更新當前價格到 state(用…, 网格协调器 负责组织和调度网格引擎、策略、状态与风控监控 (+38 more)
 
 ### Community 280 - "[0.3.2] — 2026-09-08"
 Cohesion: 0.50
@@ -1773,10 +1760,6 @@ Nodes (10): cleanup_port(), log_debug(), log_error(), log_info(), log_warn(), ma
 ### Community 292 - "TestBackfillBotIds"
 Cohesion: 0.25
 Nodes (4): _load_module(), P1-1: backfill script adds metadata.bot_id to existing grid/dca YAML., 最小侵入：插入 metadata 區塊但保留既有註解與格式。, TestBackfillBotIds
-
-### Community 293 - "symbol_cache_service.py"
-Cohesion: 0.18
-Nodes (9): 符号缓存服务实现 提供符号缓存的核心功能实现，包括： 1. 一次性获取各交易所交易对 2. 计算重叠交易对（使用符号转换服务） 3. 缓存管理 4. 性能优化, 符号管理模块 提供统一的符号管理功能： - 符号格式转换（标准格式 ↔ 交易所格式） - 交易所交易对获取和缓存 - 重叠交易对计算 - 订阅符号列表管理, ABC, 符号缓存服务接口 定义符号缓存管理的核心接口，支持： - 一次性获取和缓存交易对 - 计算重叠交易对 - 为各交易所提供固定的符号列表, 初始化符号缓存（只在启动时调用一次） Args: exchange_ids: 交易所ID列表 config: 重叠配置 Returns: bool:…, SymbolOverlapConfig, SymbolAnalysisResult, SymbolCacheData (+1 more)
 
 ### Community 294 - "test_frontend_format_contract.py"
 Cohesion: 0.25
@@ -1850,9 +1833,9 @@ Nodes (8): get_local_ip(), is_cloudflare(), main(), parse_ip_port(), Check if th
 Cohesion: 0.13
 Nodes (14): 1. 任務背景與架構演進目標回顧, 2.1 P3-1：控制面與執行面 IPC 通訊協議設計, 2.2 P3-2：Go 撮合與風控微引擎 PoC 原型驗證, 2. 任務具體實施細節, 3.1 Go 原生基準測試 (Benchmark Suite), 3.2 Go 100 併發模擬網格壓力測試 (DoD 核心驗證), 3.3 Python -> UDS -> Go 端到端 100 併發壓測驗收, 3.4 Python-to-Go IPC 整合測試套件 (5/5 PASSED) (+6 more)
 
-### Community 312 - "BaseLogger"
-Cohesion: 0.19
-Nodes (3): BaseLogger, ErrorLogger, Exception
+### Community 312 - "EntryEvaluator"
+Cohesion: 0.16
+Nodes (9): OhlcvProvider, TriggerSeriesFn, EntryEvaluator, IndicatorConfig, Number, TriggerSeriesFn, 回傳每個指標的 IndicatorResult（UI 指標面板用；immediate 模式為空）。, 入場評估器。 series_fns 依指標設定型別對應逐棒判定函式，僅供測試注入（mock）； 正式環境使用預設實作，immediate 模式下保證不被觸碰。 (+1 more)
 
 ### Community 313 - "[0.3.9] — 2026-09-23"
 Cohesion: 0.67
@@ -1888,7 +1871,7 @@ Nodes (6): CycleDetector, Decimal, CycleDetector - 兼容性桩模块 历史:此
 
 ### Community 323 - "SubscriptionManager"
 Cohesion: 0.12
-Nodes (9): BatchSubscriptionConfig, DataType, DiscoveryConfig, Any, Enum, 初始化订阅管理器 Args: exchange_config: 交易所配置字典 symbol_cache_service: 符号缓存服务（动态模式需要）…, SubscriptionInfo, SubscriptionManager (+1 more)
+Nodes (6): BatchSubscriptionConfig, DiscoveryConfig, Any, 初始化订阅管理器 Args: exchange_config: 交易所配置字典 symbol_cache_service: 符号缓存服务（动态模式需要）…, SubscriptionInfo, SubscriptionManager
 
 ### Community 325 - "martin_grid_calculator.py"
 Cohesion: 0.36
@@ -1974,9 +1957,9 @@ Nodes (6): 1. Process CPU & Memory Usage, 2. Untracked Files Cleanup, 3. File De
 Cohesion: 0.43
 Nodes (3): detect_domain(), Auto-detect the most relevant domain from query. Matches are weighted by…, TestDomainDetection
 
-### Community 346 - ".generate"
-Cohesion: 0.14
-Nodes (9): _filter_anti_patterns_for_mode(), Drop "avoid dark mode" advice once dark mode is the resolved answer., Execute searches across multiple domains., Select best matching result based on priority keywords., Extract results list from search result dict., Generate complete design system recommendation. variance/motion/density are…, Bucket a 1-10 dial value into its tier config. Returns None if value is None., _resolve_dial() (+1 more)
+### Community 346 - "_filter_anti_patterns_for_mode"
+Cohesion: 0.43
+Nodes (3): _filter_anti_patterns_for_mode(), Drop "avoid dark mode" advice once dark mode is the resolved answer., TestAntiPatternGating
 
 ### Community 347 - "DCA 機器人設定目錄 (`config/dca/`)"
 Cohesion: 0.29
@@ -1994,13 +1977,17 @@ Nodes (6): 1. 範圍與風險, 2. 檢核結果（摘要）, 3. 測試證據, 4. 
 Cohesion: 0.29
 Nodes (6): 1. 私鑰 (Private Key) 與 API Key 處理機制, 2. 外部網路連線與後門檢查, 3. 依賴套件 (Dependencies), 4. 程式碼混淆與動態執行, 🛡️ 專案安全性與源碼審查報告, 💡 總結與安全建議
 
-### Community 351 - "IConfigurationService"
+### Community 351 - "implementations/config_service.py"
 Cohesion: 0.17
-Nodes (6): ExchangeConfig, IConfigurationService, ABC, Any, 配置服务接口 定义配置管理功能的标准接口, SymbolConfig
+Nodes (7): 配置服务实现 实现配置管理功能，整合监控配置、交易所配置等 🔥 新增：内部使用ConfigManager统一配置源, ExchangeConfig, IConfigurationService, ABC, Any, 配置服务接口 定义配置管理功能的标准接口, SymbolConfig
 
 ### Community 352 - "Phase 3 災難恢復 SOP（facts + 事件完整重建）"
 Cohesion: 0.29
 Nodes (6): 1. 資料分類（真相源 vs 投影）, 2. 標準恢復流程（投影損毀/誤刪）, 3. PostgreSQL 完整災難（資料目錄遺失）, 4. 演練證據（2026-08-31，沙箱實證）, 5. 退出碼與健康判讀（replay_bot.py）, Phase 3 災難恢復 SOP（facts + 事件完整重建）
+
+### Community 353 - "SubscriptionModeDemo"
+Cohesion: 0.25
+Nodes (3): main(), 交易所订阅模式系统演示脚本 这个脚本展示了如何使用新的订阅模式系统： 1. 硬编码模式 - 使用预定义交易对 2. 动态模式 - 自动发现交易对 3.…, SubscriptionModeDemo
 
 ### Community 354 - "convert_account_index.py"
 Cohesion: 0.62
@@ -2034,17 +2021,17 @@ Nodes (15): 1.1 策略理念, 1.2 本地直連架構（選擇一）優勢, 3.1 �
 Cohesion: 0.40
 Nodes (4): ema_seq(), macd_sig_last(), GBM 隨機遊走，波動度接近真實加密貨幣 15m K 線。, realistic()
 
-### Community 363 - ".info"
-Cohesion: 0.19
-Nodes (3): ExchangeLogger, Any, TradingLogger
+### Community 363 - "._connect_futures_stream"
+Cohesion: 0.15
+Nodes (5): _is_ws_closed(), 啟動期貨行情流持久 watchdog 背景任務：每隔 futures_watchdog_check_interval 秒檢查一次， 若…, 期貨行情流 watchdog 主迴圈（持久運行）, 跨 websockets 版本的「連線是否已關閉」檢查 背景: `websockets` 從 10.x 開始逐步棄用…, 订阅行情数据（支持现货和永续合约） Args: symbol: 交易对符号，如 "BTC/USDT" (现货) 或 "HYPE/USDT:USDT" (永续)…
 
 ### Community 364 - "graphify reference: query, path, explain"
 Cohesion: 0.33
 Nodes (5): For /graphify explain, For /graphify path, graphify reference: query, path, explain, Step 0 — Constrained query expansion (REQUIRED before traversal), Step 1 — Traversal
 
 ### Community 365 - "AGENTS.md"
-Cohesion: 0.25
-Nodes (7): Dual-Stage Audit Standard (雙軌稽核自動化標準), graphify, Mistake Classes & Structural Enforcement Table (錯誤類別與結構守門對照表), Project Snapshot (截至 2026-09-16), Public Repository Hygiene (公開 repo 衛生守則，2026-10-21), Service Restart & Live Verification (修改後重啟與運行驗證標準), Unified Accounting Path Policy (統一記帳路徑政策，0.3.6 / P4-1)
+Cohesion: 0.22
+Nodes (8): Dual-Stage Audit Standard (雙軌稽核自動化標準), graphify, Mistake Classes & Structural Enforcement Table (錯誤類別與結構守門對照表), Project Snapshot (截至 2026-09-16), Public Repository Hygiene (公開 repo 衛生守則，2026-10-21), Service Restart & Live Verification (修改後重啟與運行驗證標準), Unified Accounting Path Policy (統一記帳路徑政策，0.3.6 / P4-1), Version Single Source (版本單一來源，2026-10-21)
 
 ### Community 366 - "Log Analysis Skill"
 Cohesion: 0.40
@@ -2067,8 +2054,8 @@ Cohesion: 0.40
 Nodes (4): Common Issues & Solutions, Exchange WebSocket Adapters Location, WebSocket Debug Skill, When to Activate
 
 ### Community 372 - "arbitrage_monitor_impl.py"
-Cohesion: 0.10
-Nodes (19): 套利监控服务实现 实现多交易所实时价差和资金费率监控功能。, 套利监控服务模块 提供多交易所价差和资金费率监控功能。, IArbitrageMonitorService, ABC, Decimal, 套利监控服务接口 定义套利监控服务的抽象接口。, 启动监控服务 Returns: 是否启动成功, 获取当前所有套利机会 Returns: 套利机会列表 (+11 more)
+Cohesion: 0.11
+Nodes (16): 套利监控服务实现 实现多交易所实时价差和资金费率监控功能。, 套利监控服务模块 提供多交易所价差和资金费率监控功能。, IArbitrageMonitorService, ABC, 套利监控服务接口 定义套利监控服务的抽象接口。, 启动监控服务 Returns: 是否启动成功, 获取当前所有套利机会 Returns: 套利机会列表, 获取统计信息 Returns: 统计信息字典 (+8 more)
 
 ### Community 373 - "3. 診斷發現與修復（逐項含前後證據）"
 Cohesion: 0.15
@@ -2102,13 +2089,17 @@ Nodes (5): Bug #9 — WebSocket `'ClientConnection' object has no attribute 'clo
 Cohesion: 0.40
 Nodes (4): envFile, fs, parsedEnv, path
 
-### Community 381 - "LighterVolumeMakerApp"
-Cohesion: 0.23
-Nodes (5): LighterVolumeMakerApp, main(), ExchangeConfig, 加载交易所配置 Args: exchange_name: 交易所名称（backpack、hyperliquid 或 lighter）, 初始化应用 Args: config_file: 配置文件路径
+### Community 381 - "volume_maker_service_impl.py"
+Cohesion: 0.11
+Nodes (19): 小时级盈亏统计模块 每小时独立统计交易数据，整点生成CSV报告, Lighter市价刷量交易服务实现（基于Backpack信号） 架构： - 信号源：Backpack（监控价格稳定、订单簿条件） -…, 刷量交易服务实现 核心功能： 1. 监控订单簿价格稳定 2. 同时挂买1和卖1订单 3. 其中一个成交后立即取消另一个 4. 市价平仓持仓 5. 循环执行, 刷量交易服务模块 提供自动化刷量交易功能，通过双向挂单快速刷交易量, ABC, 刷量交易服务接口定义 定义刷量交易的核心服务接口, AdvancedConfig, LoggingConfig (+11 more)
 
 ### Community 382 - "sync_configs.sh"
 Cohesion: 0.70
 Nodes (4): backup_file(), print_help(), sync_configs.sh script, sync_file()
+
+### Community 383 - "TestBotEventStream"
+Cohesion: 0.17
+Nodes (6): emit_fill_event(), emit_reset_checkpoint(), P3-1: non-blocking bot event emitter. Trading and the request path must never…, Emit a ``fill`` event from a TradeFill (idempotent by fill_id)., Emit a reset/take_profit/stop_loss checkpoint (P3-1 + P1-4 audit).…, TestBotEventStream
 
 ### Community 384 - "graphify reference: add a URL and watch a folder"
 Cohesion: 0.50
@@ -2207,20 +2198,16 @@ Cohesion: 0.14
 Nodes (13): 1. 核心量化指標卡, 1. 標的池過濾與宇宙定義 (Universe Selection), 1. 空頭端「軋空不對稱性 (Short Leg Asymmetry)」缺陷與解決方案, 2. 多因子打分與標準化 (Multi-Factor Scoring), 2. 資金費率收益 (Carry) 擴大化探索, 2. 逐週收益與現金流總表, 3. 投資組合構建與倉位管理 (Portfolio Construction), 3. 風險閘門 (Regime Gate) 的精細化分級 (+5 more)
 
 ### Community 416 - "compute_next_rebalance_run"
-Cohesion: 0.18
-Nodes (8): compute_next_rebalance_run(), datetime, 自 config 讀取排程參數（未設定時用稽核建議預設：週四 00:05 UTC 每週一次）, 排程背景協程 (常態 0.0% CPU 休眠，具備失敗自動退避重試與服務重啟補跑機制), 計算下次換倉的 UTC 時刻（固定於 00:{execution_minute} UTC）。 * rebalance_days ==…, date, 排程：每週四 UTC 00:05（Python weekday: Mon=0 ... Thu=3）, TestSchedulerNextRun
+Cohesion: 0.36
+Nodes (4): compute_next_rebalance_run(), 計算下次換倉的 UTC 時刻（固定於 00:{execution_minute} UTC）。 * rebalance_days ==…, 排程：每週四 UTC 00:05（Python weekday: Mon=0 ... Thu=3）, TestSchedulerNextRun
 
 ### Community 426 - "RsiConfig"
-Cohesion: 0.29
-Nodes (7): RSI（§4.3.1）。condition: level（預設）/ cross_in / cross_out, RsiConfig, EntryEvaluatorTests, 稽核 1.11：immediate 恆 True 且完全不呼叫任何指標函式。, 以兩種指標型別精確驗證 AND / OR。, 稽核 1.10：抗插針——僅成立 2 根不得觸發，連續 3 根才觸發。, _series_mock()
+Cohesion: 0.20
+Nodes (9): RSI（§4.3.1）。condition: level（預設）/ cross_in / cross_out, RsiConfig, EntryEvaluatorTests, 稽核 1.11：immediate 恆 True 且完全不呼叫任何指標函式。, 以兩種指標型別精確驗證 AND / OR。, 稽核 1.10：抗插針——僅成立 2 根不得觸發，連續 3 根才觸發。, _series_mock(), InsufficientDataTests (+1 more)
 
-### Community 474 - "indicator_trigger_series"
-Cohesion: 0.22
-Nodes (9): IndicatorType, Enum, indicator_trigger_series(), _indicator_type(), IndicatorConfig, Number, 產生單一指標的逐棒判定序列（已收線部分）。, InsufficientDataTests (+1 more)
-
-### Community 475 - "macd.py"
-Cohesion: 0.29
-Nodes (11): ema_series(), evaluate(), macd_series(), Number, MACD（指數平滑異同移動平均，§4.3.2） 計算式： EMA(x, n)：k = 2/(n+1)，種子 = 前 n 根的 SMA，之後遞迴 MACD…, 逐棒判定序列（供 EntryEvaluator 的 confirm_bars 使用）。, 評估最後一根已收線 K 棒上的 MACD 狀態。value 固定為 histogram。, EMA 序列（種子為前 period 根的 SMA）。索引 < period−1 處為 None。 種子定義影響數值，屬 §4.3.2 凍結規格，禁止更改。 (+3 more)
+### Community 475 - "MacdConfig"
+Cohesion: 0.15
+Nodes (18): MacdConfig, MACD（§4.3.2）。condition: cross（預設）/ hist_sign / zero_cross, ema_series(), evaluate(), macd_series(), Number, MACD（指數平滑異同移動平均，§4.3.2） 計算式： EMA(x, n)：k = 2/(n+1)，種子 = 前 n 根的 SMA，之後遞迴 MACD…, 逐棒判定序列（供 EntryEvaluator 的 confirm_bars 使用）。 (+10 more)
 
 ### Community 476 - "CoinFull Prime v3.0 量化策略重構工程規格說明書與全輪次實證稽核手冊"
 Cohesion: 0.15
@@ -2238,29 +2225,25 @@ Nodes (4): Backtester, CFG, DataFrame, Scale on the strategy's own recent realis
 Cohesion: 0.29
 Nodes (5): BTScore, pair(), exp8: (1) execution TIMING (launch weekday / phase, condition-gated launch,…, run(), run_s()
 
-### Community 482 - ".start_configured_monitoring"
-Cohesion: 0.19
-Nodes (6): SymbolOverlapConfig, 监控交易所连接状态变化，自动处理重连后的订阅, 基于配置启动监控 - 使用符号缓存服务，支持动态重连, 🔥 已移除：使用新配置管理器启动监控（此方法已被统一配置系统替代）, SubscriptionStatus, SubscriptionSummary
+### Community 483 - "rsi.py"
+Cohesion: 0.29
+Nodes (10): evaluate(), Number, RSI（相對強弱指標，§4.3.1） 計算式（Wilder 平滑）： Δ_i = close_i − close_{i−1} 初始（第 period…, 回傳與輸入等長的 RSI 序列；索引 < period 處為 None（暖機期）。 序列長度 ≤ period 時全為 None。, 單一 K 棒上的 RSI 判定；前一棒無有效值時穿越類條件為 False。, 逐棒判定序列（供 EntryEvaluator 的 confirm_bars 使用）。, 評估最後一根已收線 K 棒上的 RSI 狀態。, rsi_series() (+2 more)
 
-### Community 483 - ".build_config"
-Cohesion: 0.23
-Nodes (6): Any, API 邊界 float → 精確字串（核心層使用 Decimal，避免 binary 殘差）。, 移除指標 dict 中為 None 的欄位（避免覆蓋核心層預設值）。, 把 API 參數映射成 load_dca_config 接受的扁平 dict。, 把 API 參數轉成 DcaConfig（會完整驗證）。, 生成 YAML 配置檔。 Args: params: API 請求體 JSON（已通過 validate_params） existing_bot_id:…
+### Community 484 - "validate_direction"
+Cohesion: 0.13
+Nodes (27): Band, drop_unclosed(), IndicatorResult, Number, 技術指標共用基礎定義（§4.3.0 資料管線） - IndicatorResult：所有指標評估的統一回傳型別 - drop_unclosed：運算約定 1…, 單一指標在「最後一根已收線 K 棒」上的評估結果。 value 主數值（完整精度；UI 顯示時才四捨五入到 2 位，運算約定 7） triggered…, 運算約定 1：只使用已收線 K 棒。 last_bar_closed=False 時丟棄序列末端（未收線）那一根； 回傳全新的 float…, 方向僅接受 'long' / 'short'；其餘拋明確異常。 (+19 more)
 
-### Community 484 - "indicators/__init__.py"
-Cohesion: 0.11
-Nodes (31): Band, drop_unclosed(), first_valid_index(), IndicatorResult, Number, 技術指標共用基礎定義（§4.3.0 資料管線） - IndicatorResult：所有指標評估的統一回傳型別 - drop_unclosed：運算約定 1…, 單一指標在「最後一根已收線 K 棒」上的評估結果。 value 主數值（完整精度；UI 顯示時才四捨五入到 2 位，運算約定 7） triggered…, 運算約定 1：只使用已收線 K 棒。 last_bar_closed=False 時丟棄序列末端（未收線）那一根； 回傳全新的 float… (+23 more)
-
-### Community 485 - "._last_api_error_code"
-Cohesion: 0.22
-Nodes (4): Decimal, 挂止盈订单，并验证成功 Args: max_attempts: 最大尝试次数 skip_frequency_check: 是否跳过频率限制检查 -…, 获取预留数量（仅现货模式） Returns: 预留BTC数量，如果不是现货模式或没有预留管理器则返回0, setter
-
-### Community 487 - "Module"
-Cohesion: 0.18
-Nodes (6): ConfigModule, DataModule, EventModule, ExchangeModule, MonitoringModule, Module
+### Community 487 - "ReflectionEngine"
+Cohesion: 0.33
+Nodes (5): Any, Path, 列出所有待覆盤的決策檔案（支援 decisions/call_xxx/ 結構與根目錄 *.json）, 獲取或建立下一次調用的決策目錄：decisions/call_{N:03d}_{YYYYMMDD_HHMMSS}/, ReflectionEngine
 
 ### Community 488 - "CoinFull Prime — Top-79 真實交易對回測：資料需求與執行方案"
 Cohesion: 0.12
 Nodes (15): 0. 為什麼需要這個回測, 1. 執行可行性與實測結果（2026-09-16 實測通過）, 2.1 K 線（1d）, 2.2 資金費率（8h 結算）, 2.3 宏觀（選擇性，供 IC 輔助分析）, 2.4 總量, 2. 資料需求, 3. 執行步驟（本機，Python 3.10+、numpy、pandas） (+7 more)
+
+### Community 489 - "._monitor_connections"
+Cohesion: 0.28
+Nodes (5): datetime, 监控WebSocket连接健康状态 定期检查每个交易所的数据更新情况： - 🔧 启动后120秒内不检查（给足够时间接收首次数据） -…, 检查指定交易所和符号的数据是否过期 Args: exchange: 交易所名称 symbol: 交易对符号 current_time: 当前时间…, 输出连接健康状态日志 定期输出每个交易所的数据更新情况，帮助用户了解系统状态 Args: current_time: 当前时间, 重连指定交易所 重连流程： 1. 🔧 设置重连标志（防止并发） 2. 断开现有连接 3. 等待一段时间 4. 重新连接 5. 恢复所有订阅 6. 🔧…
 
 ### Community 491 - "10. 優化與降低虧損計畫（Roadmap）★"
 Cohesion: 0.33
@@ -2269,6 +2252,10 @@ Nodes (6): 10.1 第 1 週：立即修正（低風險、高效益）, 10.2 建議
 ### Community 492 - "二、新版三大策略方案之描述性條列式規格說明"
 Cohesion: 0.17
 Nodes (12): 1. 策略核心哲學, 1. 策略核心哲學, 1. 策略核心哲學, 2.2 方案 2：v3.0 Opt B（非對稱 BTC+ETH 雙主流對沖策略）, 2.3 方案 3：v3.0 Opt C（非對稱 BTC 對沖 + 週內動態硬止損 -12% 【最推薦生產方案】）, 2.4 補充方案：v3.0 Opt D（極端微盤/彩票幣黑名單過濾機制）, 2. 靜態參數配置清單, 2. 靜態參數配置清單 (+4 more)
+
+### Community 493 - ".get_exchange_info"
+Cohesion: 0.29
+Nodes (3): 建立连接 Returns: 是否连接成功, 健康检查（ExchangeInterface标准方法） Returns: Dict: 健康状态信息, 获取交易所信息 Returns: ExchangeInfo对象
 
 ### Community 494 - "4. 因子研究（找出「為什麼」）"
 Cohesion: 0.33
@@ -2310,9 +2297,9 @@ Nodes (9): 1. 廢除單日動能，改採多時距平滑趨勢, 2. 資費因子�
 Cohesion: 0.40
 Nodes (4): Answer, Outcome, Q: 目前的coinfullprime機器人並沒有完善的交易記錄在前端呈現, 目前是使用什麼方式做紀錄的? /graphify, Source Nodes
 
-### Community 507 - "_coerce_decimal"
-Cohesion: 0.25
-Nodes (6): _coerce_decimal(), _coerce_enum(), Decimal, 把 str/int/Decimal 強制轉為 Decimal；失敗時登記中文錯誤並回傳原值。, 允許以字串指定 enum；失敗時登記中文錯誤並回傳 enum 首個成員。, DecimalLike
+### Community 507 - "_monotonic_regression"
+Cohesion: 0.33
+Nodes (5): _monotonic_metrics(), _monotonic_regression(), _num(), DEF-06: 驗證 NaN 與 Inf 數值注入無法穿透單調計數防線, DEF-06: 驗證負數計數器無法寫入單調計數器
 
 ### Community 508 - "[0.3.0] — 2026-09-01"
 Cohesion: 0.25
@@ -2330,9 +2317,9 @@ Nodes (8): _csv_complete(), discover_symbols(), _extract(), _fetch_one(), http_g
 Cohesion: 0.21
 Nodes (5): 稽核 1.12：合法轉移全覆蓋 + 非法轉移拋 InvalidDcaTransition（INV-5）, draft → armed → triggering → averaging → completed → cooling → armed, 進入 triggering 前必須鎖定方向（INV-6 程式錯誤防護）。, G-5：無部位時均價為 None，不得為 0。, StateMachineTests
 
-### Community 514 - "CycleResult"
-Cohesion: 0.31
-Nodes (6): 小时级盈亏统计模块 每小时独立统计交易数据，整点生成CSV报告, CycleResult, CycleStatus, Decimal, Enum, 刷量交易系统终端界面 使用Rich库实现实时监控界面
+### Community 514 - "DcaStatistics"
+Cohesion: 0.38
+Nodes (5): DcaStatistics, Decimal, DCA 統計模型（對齊 GridStatistics 的 to_display_dict 契約） 供 runtime_repository /…, 單台 DCA 機器人的顯示層統計。 欄位語意與 GridStatistics.to_display_dict() 對齊（§2 複用…, _to_float()
 
 ### Community 515 - "🎨 文件命名规则"
 Cohesion: 0.50
@@ -2343,8 +2330,8 @@ Cohesion: 0.40
 Nodes (4): CoinFull Prime 稽核重建腳本, 執行, 檔案, 注意
 
 ### Community 517 - ".__init__"
-Cohesion: 0.12
-Nodes (9): Any, ExchangeConfig, 将ExchangeConfig转换为字典 如果ExchangeConfig中没有Lighter特有的配置，则从lighter_config.yaml加载…, 建立连接 Returns: 是否连接成功, 健康检查（ExchangeInterface标准方法） Returns: Dict: 健康状态信息, 获取交易所信息 Returns: ExchangeInfo对象, 订阅用户数据流（订单更新、持仓变化等） 这是ExchangeInterface标准方法，网格系统使用此方法监控订单成交 Args: callback:…, 订阅订单更新 Args: callback: 数据回调函数 (+1 more)
+Cohesion: 0.19
+Nodes (6): Any, ExchangeConfig, 将ExchangeConfig转换为字典 如果ExchangeConfig中没有Lighter特有的配置，则从lighter_config.yaml加载…, 订阅用户数据流（订单更新、持仓变化等） 这是ExchangeInterface标准方法，网格系统使用此方法监控订单成交 Args: callback:…, 订阅订单更新 Args: callback: 数据回调函数, 设置杠杆倍数（ExchangeInterface标准方法） Args: symbol: 交易对符号 leverage: 杠杆倍数 Returns: Dict:…
 
 ### Community 518 - "四、盈虧微觀歸因與統計分佈檢驗 (Micro-PnL Attribution & Statistical Distribution)"
 Cohesion: 0.25
@@ -2362,9 +2349,9 @@ Nodes (9): 1. 部署步驟, 2. 啟動後狀態, 3. Live 對帳發現, 4. 修復�
 Cohesion: 0.50
 Nodes (4): 🔍 故障排查, 问题1：无法获取价格, 问题2：模板文件不存在, 问题3：同步脚本不存在
 
-### Community 522 - "GridFillMark"
-Cohesion: 0.22
-Nodes (3): GridFillMark, Any, 成交標記（供前端圖表標記，與 DCA TradeMark 風格一致）。
+### Community 522 - "GridCycleRecord"
+Cohesion: 0.20
+Nodes (3): GridCycleRecord, Any, 單一網格完成循環（每個 cell 空倉 → 持倉 → 空倉 記為一輪）。
 
 ### Community 523 - ".create_order"
 Cohesion: 0.36
@@ -2375,8 +2362,8 @@ Cohesion: 0.22
 Nodes (8): Arena (並行方案競爭與精華嫁接), Phase A: Frame (定義任務契約與評分規約), Phase B: Fan out (平行發散執行), Phase C: Cross-judge (交叉裁決), Phase D: Pick a base (挑選基準), Phase E: Graft (精華嫁接), Phase F: Verify (驗證), 執行流程 (6 大階段)
 
 ### Community 525 - "BinanceWebSocket"
-Cohesion: 0.10
-Nodes (10): BinanceWebSocket, _is_ws_closed(), 一次性 watchdog：訂閱後 30 秒內未收到任何 user stream 訊息則重連, 啟動期貨行情流持久 watchdog 背景任務：每隔 futures_watchdog_check_interval 秒檢查一次， 若…, 期貨行情流 watchdog 主迴圈（持久運行）, 跨 websockets 版本的「連線是否已關閉」檢查 背景: `websockets` 從 10.x 開始逐步棄用…, 处理现货直接流消息（每个交易对独立连接） Args: stream_name: 流名称，如 'btcusdt@ticker' ws: WebSocket连接, Binance WebSocket连接和数据流处理 (+2 more)
+Cohesion: 0.11
+Nodes (9): BinanceWebSocket, Any, 一次性 watchdog：訂閱後 30 秒內未收到任何 user stream 訊息則重連, 处理现货直接流消息（每个交易对独立连接） Args: stream_name: 流名称，如 'btcusdt@ticker' ws: WebSocket连接, 处理市场数据消息 Args: data: WebSocket消息数据 is_futures: 是否为期货/永续合约数据, 处理行情数据 Args: stream_name: 流名称 data: ticker数据 is_futures: 是否为期货/永续合约数据, Binance WebSocket连接和数据流处理, Helper to append a callback without overwriting existing ones. (+1 more)
 
 ### Community 526 - "5. 建議新配置（v2 + 風險閘門）"
 Cohesion: 0.40
@@ -2390,21 +2377,17 @@ Nodes (8): 6.1 完整 CI（零回歸證明）, 6.2 新增測試（59 項，全�
 Cohesion: 0.83
 Nodes (3): _check_file(), main(), _read_rows()
 
-### Community 529 - ".provide_symbol_cache_service"
-Cohesion: 0.40
-Nodes (3): singleton, SymbolModule, provider
-
 ### Community 530 - "[0.2.0-beta] — 2026-08-31"
 Cohesion: 0.50
 Nodes (4): [0.2.0-beta] — 2026-08-31, Added, Fixed, Security & Safety
 
 ### Community 531 - "GridBacktestSimulator"
-Cohesion: 0.16
-Nodes (10): GridCycleRecord, 單一網格完成循環（每個 cell 空倉 → 持倉 → 空倉 記為一輪）。, GridBacktestSimulator, Decimal, 開啟一格倉位。不足保證金時回傳 False（不成交）。, 資金感知網格回測模擬器（deterministic、唯讀）。, GridBacktestResult, Tests for GridBacktestSimulator (capital-aware grid playback). (+2 more)
+Cohesion: 0.18
+Nodes (9): GridFillMark, 成交標記（供前端圖表標記，與 DCA TradeMark 風格一致）。, GridBacktestSimulator, Decimal, 開啟一格倉位。不足保證金時回傳 False（不成交）。, 資金感知網格回測模擬器（deterministic、唯讀）。, GridBacktestResult, SimulatorTests (+1 more)
 
-### Community 532 - "_code_without_docstrings_and_comments"
-Cohesion: 0.28
-Nodes (7): _code_without_docstrings_and_comments(), _collect_py_files(), unittest.mock patch 目標也必須是套件拼法，否則會 patch 到別份模組。, All Python files owned by the backend / engine / tests., Strip docstrings and ``#`` comments so prose never trips the grep., Grep contract: the top-level import spelling is forbidden everywhere., TestBackendImportContract
+### Community 532 - ".get_ohlcv"
+Cohesion: 0.40
+Nodes (3): datetime, 获取K线数据（ExchangeInterface标准方法） Args: symbol: 交易对符号 timeframe: 时间框架（如'1m', '5m',…, 获取历史订单（ExchangeInterface标准方法） Args: symbol: 交易对符号 since: 开始时间（暂不支持） limit:…
 
 ### Community 533 - "exp15_universe79.py"
 Cohesion: 0.43
@@ -2412,7 +2395,7 @@ Nodes (6): build_gates(), main(), DataFrame, Series, Production-faithful regime 
 
 ### Community 534 - "D"
 Cohesion: 0.04
-Nodes (58): build_ladder(), LadderLevel, LadderPlan, Decimal, quantize_price(), quantize_quantity(), DCA 安全單階梯數學（§4.5 凍結公式） 所有運算使用 Decimal（prec ≥ 28，localcontext 隔離，不污染全域精度）。…, 完整階梯試算結果（levels 含基礎單 index=0）。 (+50 more)
+Nodes (55): build_ladder(), LadderLevel, LadderPlan, Decimal, quantize_price(), quantize_quantity(), DCA 安全單階梯數學（§4.5 凍結公式） 所有運算使用 Decimal（prec ≥ 28，localcontext 隔離，不污染全域精度）。…, 完整階梯試算結果（levels 含基礎單 index=0）。 (+47 more)
 
 ### Community 535 - "三策略統一記帳層稽核與修復報告（Grid / DCA / CoinFull Prime）"
 Cohesion: 0.33
@@ -2424,7 +2407,7 @@ Nodes (6): 4.1 分層與單一埠, 4.2 資料模型, 4.3 冪等與一致性規�
 
 ### Community 537 - "StrategyLedger"
 Cohesion: 0.03
-Nodes (37): BaseException, BasketEntry, Phase 4 (P4-1): 多標的策略的「受管持倉籃子」單一成分。 統一記帳層以本結構取代…, AccountingHealth, Any, 三策略共用的統一記帳門面（thread-safe 單例）。 使用方式:: from…, 底層 LedgerRepository。 未注入 repository 時 **每次動態解析**…, 底層 canonical LedgerStore。 容錯：注入物件可以是 ``LedgerRepository``（有 ``.store``）或直接是… (+29 more)
+Nodes (33): BaseException, AccountingHealth, Any, 三策略共用的統一記帳門面（thread-safe 單例）。 使用方式:: from…, 底層 LedgerRepository。 未注入 repository 時 **每次動態解析**…, 底層 canonical LedgerStore。 容錯：注入物件可以是 ``LedgerRepository``（有 ``.store``）或直接是…, 實際使用的帳本後端：``postgresql`` / ``sqlite``。, 記帳健康度（供 API / 稽核工具 / 策略狀態卡片使用）。 (+25 more)
 
 ### Community 538 - "[0.3.10] — 2026-10-18"
 Cohesion: 0.50
@@ -2442,9 +2425,9 @@ Nodes (7): 1. 原版 Baseline (v2.1) 持倉與結算 (期初: 1000.00 U | 當週
 Cohesion: 0.27
 Nodes (3): Decimal, OrderSide, OrderType
 
-### Community 543 - "TestParseAndSetCircuit"
-Cohesion: 0.20
-Nodes (5): 測試 _parse_and_set_circuit 解析邏輯, -2015 應設定永久熔斷（inf），回傳 '-2015, -1003 含 banned until 時間戳，應設定定時熔斷, -1003 未含時間戳，應預設 120 秒熔斷, TestParseAndSetCircuit
+### Community 543 - ".get_current_funding_rates"
+Cohesion: 0.40
+Nodes (3): Decimal, 获取当前价格 Args: symbol: 交易对符号 Returns: {exchange: price}, 获取当前资金费率 Args: symbol: 交易对符号 Returns: {exchange: funding_rate}
 
 ### Community 544 - "CoinFull Prime v3 P1 修復工作紀錄（2026-10-21）"
 Cohesion: 0.40
@@ -2458,17 +2441,9 @@ Nodes (8): 4. Consider（值得評估項）, C-1 止損與換倉沒有共用互�
 Cohesion: 0.25
 Nodes (8): 1. 修復內容, C-1 止損與換倉共用互斥鎖, C-2 Opt D fail-closed, C-3 restricted_symbols 配置, C-4 資金費率 Carry 與 equity snapshot, C-5 持倉 reconciliation, C-6 配置缺失 fail-closed + v3 預設, C-7 加碼前保證金上限
 
-### Community 547 - "run_coinfull_prime.py"
-Cohesion: 0.67
-Nodes (3): main(), print_rankings_table(), 終端美化輸出 Top 8 多與 Bottom 8 空
-
 ### Community 549 - "需偵測並掃除的模式 (Patterns to Detect & Eliminate)"
 Cohesion: 0.29
 Nodes (6): 1. 內容油水 (Content Slop), 2. AI 詞彙庫 (AI Vocabulary), 3. 排版與標點過度 (Stylistic Overuse), 4. 機器人對話贅詞 (Chatbot Fluff), Unslop (去 AI 油水與技術寫作品質標準), 需偵測並掃除的模式 (Patterns to Detect & Eliminate)
-
-### Community 550 - "VolumeMakerApp"
-Cohesion: 0.24
-Nodes (4): main(), ExchangeConfig, 初始化应用 Args: config_file: 配置文件路径, VolumeMakerApp
 
 ### Community 551 - "0. 執行摘要"
 Cohesion: 0.50
@@ -2539,8 +2514,8 @@ Cohesion: 0.33
 Nodes (3): BTS, exp9: exact momentum/funding form used by the recommended config (score =…, rep()
 
 ### Community 570 - "DcaCoordinator"
-Cohesion: 0.06
-Nodes (27): DcaCoordinator, Decimal, Exception, COOLING → ARMED 前的倫位/階梯重置（稽核 2.17b：無殘留掛單、可換向）。, 任何未捕捉的例外只能讓自己死亡（R-1），絕不向上蔓延。, 下一張將成交的安全單價（Phase 5 卡片「下一張安全單價格」）。 - long：取未成交槽位中**最高**價（最接近現價、最先成交） -…, 當前在世掛單的顯示層快照（詳情「訂單」tab）。 僅回傳交易所端仍活躍（PLACED/PARTIAL）的追蹤單，含 role 標記。, 歷史成交的顯示層快照（詳情「成交」tab）；累積跨輪。 (+19 more)
+Cohesion: 0.05
+Nodes (32): DcaCoordinator, Decimal, Exception, COOLING → ARMED 前的倫位/階梯重置（稽核 2.17b：無殘留掛單、可換向）。, 從持久化快照恢復歷史累計數據與持倉狀態（重啟持久化）, 任何未捕捉的例外只能讓自己死亡（R-1），絕不向上蔓延。, 下一張將成交的安全單價（Phase 5 卡片「下一張安全單價格」）。 - long：取未成交槽位中**最高**價（最接近現價、最先成交） -…, 當前在世掛單的顯示層快照（詳情「訂單」tab）。 僅回傳交易所端仍活躍（PLACED/PARTIAL）的追蹤單，含 role 標記。 (+24 more)
 
 ### Community 571 - "Benchmark Checklist (基準測試與回測效能 7 問)"
 Cohesion: 0.40
@@ -2566,21 +2541,13 @@ Nodes (4): [0.3.6] — 2026-09-16, Added, Changed, Fixed
 Cohesion: 0.40
 Nodes (4): Make Operations Idempotent (操作冪等性架構原則), 核心設計理念, 為什麼這在量化交易中是生死線？, 自我檢驗 3 問 (The Idempotency Test)
 
-### Community 577 - "TestPlaceBatchOrdersCircuitBreaker"
-Cohesion: 0.27
-Nodes (6): 測試 place_batch_orders 重試迴圈的熔斷短路行為, 模擬 place_order 一律丟出指定 error_msg 的情境， 執行 place_batch_orders，回傳 place_order…, -2015 出現後，重試迴圈在第 1 輪重試解析到錯誤後立即 break。 呼叫次序： [初始批次] place_order × 1 → 失敗，記入…, -1003 出現後，首輪下單即解析到 IP BAN，立即觸發熔斷並放棄重試。, 一般錯誤（非 -2015/-1003）應允許重試，place_order 被呼叫 1 + max_retries 次, TestPlaceBatchOrdersCircuitBreaker
-
-### Community 578 - ".batch_subscribe_mixed"
-Cohesion: 0.22
-Nodes (3): 批量订阅ticker数据（支持硬编码和动态两种模式） Args: symbols: 要订阅的交易对符号列表（None时使用配置文件中的设置）…, 批量订阅订单簿数据（支持硬编码和动态两种模式） Args: symbols: 要订阅的交易对符号列表（None时使用配置文件中的设置） depth:…, 批量订阅混合数据类型（支持任意组合） Args: symbols: 要订阅的交易对符号列表（None时使用配置文件中的设置） ticker_callback:…
+### Community 578 - ".__init__"
+Cohesion: 0.67
+Nodes (3): Any, 將多種 K 線表達（dict / list / object 帶 close）轉成標準 dicts： ``{"ts": int, "open":…, to_candles()
 
 ### Community 579 - "7. 宏觀風險閘門 (Regime Gate) 稽核"
 Cohesion: 0.40
 Nodes (5): 7.1 Spec 定義 vs 實作, 7.2 純函數與資料層分離, 7.3 與 Round 明細一致性, 7.4 風險, 7. 宏觀風險閘門 (Regime Gate) 稽核
-
-### Community 580 - "basic_mesa_demo.py"
-Cohesion: 0.70
-Nodes (4): demo_complete_workflow(), demo_exchange_integration(), demo_mesa_engine_basic(), main()
 
 ### Community 581 - "❓ 常见问题"
 Cohesion: 0.40
@@ -2634,10 +2601,6 @@ Nodes (3): Separate Before Serializing Shared State (先隔離共享狀態，再
 Cohesion: 0.50
 Nodes (4): 同步示例, 启用自动同步, 工作流程, 🔄 自动同步功能
 
-### Community 594 - "coinfull_reconcile_repair.py"
-Cohesion: 0.60
-Nodes (4): _backup_sqlite(), _collect(), main(), Path
-
 ### Community 595 - "[0.0.5] — 2026-08-27"
 Cohesion: 0.67
 Nodes (3): [0.0.5] — 2026-08-27, Added, Changed
@@ -2666,41 +2629,25 @@ Nodes (6): 1. 修復內容, A-1 止損 dry-run / adapter 缺失不得改帳本, 
 Cohesion: 0.33
 Nodes (6): 2. 回歸測試, 3. 執行證據, 4. Blast Radius, 5. 營運注意, CoinFull Prime v3 P0 修復工作紀錄（2026-10-21）, Ledger audit 仍未 HEALTHY
 
-### Community 605 - "UILogHandler"
-Cohesion: 0.32
-Nodes (4): deque, LogRecord, UI日志处理器 - 将日志捕获到队列中供UI显示 关键特性： - 线程安全（使用deque） - 固定大小队列（自动淘汰旧日志） - 简化格式（移除冗余信息）, UILogHandler
-
-### Community 606 - "test_dca_indicators.py"
-Cohesion: 0.16
-Nodes (12): PriceChangeTriggerTests, DCA 指標引擎測試（Phase 1 稽核 1.5 / 1.5b / 1.5c / 1.5d / 1.5e / 1.6 / 1.7 / 1.8 / 1.9 /…, 稽核 1.6：暖機期首個有效索引 + 暖機期內不觸發, 稽核 1.8：未收線 K 棒被丟棄（n 根 vs n+1 根尾棒未收線結果一致）, 持續陰跌序列（RSI 低檔、hist < 0）。, 稽核 1.5d：RSI 三種 condition × long/short 全覆蓋（測試數列已用掃描法定標）, 稽核 1.5d：Price Change long/short 語意, RsiConditionTests (+4 more)
+### Community 606 - "RsiConditionTests"
+Cohesion: 0.39
+Nodes (5): 持續陰跌序列（RSI 低檔、hist < 0）。, 稽核 1.5d：RSI 三種 condition × long/short 全覆蓋（測試數列已用掃描法定標）, RsiConditionTests, _sawtooth_down(), _sawtooth_up()
 
 ### Community 607 - "build_panel79.py"
 Cohesion: 0.53
 Nodes (5): fetch_macro(), load_funding_symbol(), load_klines_symbol(), main(), Concatenate one symbol's monthly Vision 1d klines CSVs -> daily bars (UTC).
 
-### Community 608 - "migrate_configs.py"
-Cohesion: 0.39
-Nodes (7): load_defaults(), main(), migrate_config(), 驗證遷移前後 GridConfig 等價性, 遷移單個配置文件 Args: config_path: 配置文件路徑 dry_run: 是否只顯示結果不寫入 verify: 是否驗證等價性 Returns:…, _values_equal(), _verify_equivalence()
-
-### Community 609 - ".create_order"
-Cohesion: 0.50
-Nodes (3): Decimal, OrderSide, OrderType
-
-### Community 610 - "run_single_dca_task"
-Cohesion: 0.22
-Nodes (8): auto_fill_dca_precision(), Logger, 若 YAML 未指定 quantity_precision / price_decimals，嘗試從 adapter 的 ccxt `markets`…, _emit_dca_lifecycle(), Path, 併發啟動並運行單個 DCA 機器人（Phase 3）。 R-1 task 隔離（稽核 3.15）：頂層 except 捕捉所有非 CancelledError…, run_single_dca_task(), 測試 DCA 精度自動填入相容不帶斜線的符號（例如 牛来USDT）
+### Community 608 - "create_grid_config"
+Cohesion: 0.24
+Nodes (11): create_grid_config(), load_grid_defaults(), 載入全局網格默認配置 優先級：代碼硬編碼默認值 ← defaults.yaml ← 個別幣對 YAML Returns: defaults.yaml 中…, 创建网格配置对象 🔥 重構（2026-05）：參數分層加載 優先級：代碼默認值 ← defaults.yaml ← 個別幣對 YAML Args:…, load_defaults(), main(), migrate_config(), 驗證遷移前後 GridConfig 等價性 (+3 more)
 
 ### Community 611 - "[0.3.7] — 2026-09-17"
 Cohesion: 0.67
 Nodes (3): [0.3.7] — 2026-09-17, Added, Fixed
 
-### Community 612 - "SSLAdapter"
-Cohesion: 0.50
-Nodes (3): 自定义 SSL 适配器 - 禁用 SSL 验证以兼容 Python 3.13, SSLAdapter, HTTPAdapter
-
-### Community 616 - "MacdConfig"
-Cohesion: 0.14
-Nodes (8): MacdConfig, MACD（§4.3.2）。condition: cross（預設）/ hist_sign / zero_cross, DefaultsTests, MacdConditionTests, 稽核 1.5e：§4.3 表格預設值逐欄位對上, 在 MACD 序列中尋找最後一次穿越（帶邊際），回傳截斷到穿越當棒的 closes。, 稽核 1.5d：MACD 三種 condition × long/short 全覆蓋 雙速數列（慢趨勢 40 棒 → 急趨勢 10 棒）確保…, _truncate_at_flip()
+### Community 616 - "BollingerConfig"
+Cohesion: 0.12
+Nodes (8): BollingerConfig, Bollinger Bands（§4.3.3）。condition: touch（預設）/ break / return, BollingerConditionTests, DefaultsTests, 稽核 1.5e：§4.3 表格預設值逐欄位對上, 稽核 1.8：未收線 K 棒被丟棄（n 根 vs n+1 根尾棒未收線結果一致）, 稽核 1.5d：BB 三種 condition × long/short 全覆蓋（數列已掃描定標）, UnclosedBarTests
 
 ### Community 620 - "query_account_simple.py"
 Cohesion: 0.67
@@ -2711,19 +2658,19 @@ Cohesion: 0.67
 Nodes (3): [0.3.1] — 2026-09-05, Added, Fixed
 
 ## Knowledge Gaps
-- **2554 isolated node(s):** `pre-commit.sh script`, `pre-edit.sh script`, `SymbolInfo`, `fs`, `path` (+2549 more)
+- **2558 isolated node(s):** `pre-commit.sh script`, `pre-edit.sh script`, `SymbolInfo`, `fs`, `path` (+2553 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **65 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **67 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `ExchangeConfig` connect `TickerData` to `ArbitrageMonitorApp`, `ExchangeManager`, `EdgeXSubscriptionDemo`, `run_scanner.py`, `OrderData`, `GridOrder`, `CoinFullPrimeService`, `PortfolioRebalancer`, `VolumeMakerApp`, `PriceAlertServiceImpl`, `ExchangeInterface`, `ExchangeAdapterDemo`, `UILogHandler`, `KlineService`, `SubscriptionModeDemo`, `run_multiple_grids.py`, `EdgeXAdapterDemo`, `TestBinanceFastAdapter`, `LighterVolumeMakerApp`?**
-  _High betweenness centrality (0.061) - this node is a cross-community bridge._
-- **Why does `get_logger()` connect `GridOrder` to `TradeFill`, `RedisStateCache`, `DcaOrder`, `TickerData`, `logging/__init__.py`, `SpotReserveManager`, `LedgerRepository`, `SQLAlchemyLedgerStore`, `BinanceRest`, `Decimal`, `DcaOrderExecutor`, `redis_support.py`, `SymbolConversionService`, `GridTerminalUI`, `DIContainer`, `ExchangeInterface`, `BaseLogger`, `LedgerConsistencyAuditor`, `TradingCoreClient`, `ReplayDriver`, `WebSocketManager`, `backfill_coinfull_prime_side_files`, `ISymbolConversionService`, `PositionMonitor`, `run_multiple_grids.py`, `StopLossMonitor`, `BalanceMonitor`?**
-  _High betweenness centrality (0.061) - this node is a cross-community bridge._
-- **Why does `GridConfig` connect `GridOrder` to `CapitalProtectionManager`, `BinanceRest`, `run_multiple_grids.py`, `TickerData`, `GridEngineImpl`, `OrderData`, `PriceLockManager`, `IPositionTracker`, `TakeProfitManager`, `Decimal`?**
-  _High betweenness centrality (0.037) - this node is a cross-community bridge._
+- **Why does `ExchangeConfig` connect `ExchangeConfig` to `ArbitrageMonitorApp`, `ExchangeManager`, `EdgeXSubscriptionDemo`, `run_scanner.py`, `OrderData`, `PaperExchangeAdapter`, `GridOrder`, `CoinFullPrimeService`, `PortfolioRebalancer`, `GridState`, `run_multiple_grids.py`, `TickerData`, `PriceAlertServiceImpl`, `ExchangeInterface`, `ExchangeAdapter`, `KlineService`, `SubscriptionModeDemo`, `EdgeXAdapterDemo`, `volume_maker_service_impl.py`?**
+  _High betweenness centrality (0.068) - this node is a cross-community bridge._
+- **Why does `get_logger()` connect `get_logger` to `TradeFill`, `ledger_store.py`, `ScalpingManager`, `DcaOrderExecutor`, `OrderData`, `logging/__init__.py`, `GridEngineImpl`, `SpotReserveManager`, `GridOrder`, `GridConfig`, `GridState`, `run_multiple_grids.py`, `SymbolConversionService`, `GridTerminalUI`, `OrderMonitor`, `OrderHealthChecker`, `PositionTrackerImpl`, `DIContainer`, `LedgerConsistencyAuditor`, `PriceLockManager`, `IGridEngine`, `TradingCoreClient`, `RuntimeSnapshotRepository`, `ReplayDriver`, `WebSocketManager`, `backfill_coinfull_prime_side_files`, `ISymbolConversionService`, `PositionMonitor`, `CapitalProtectionManager`, `ReserveMonitor`, `volume_maker_service_impl.py`, `StopLossMonitor`, `BalanceMonitor`, `TakeProfitManager`, `TestBotEventStream`?**
+  _High betweenness centrality (0.057) - this node is a cross-community bridge._
+- **Why does `RuntimeSnapshotRepository` connect `RuntimeSnapshotRepository` to `AuditLogger`, `TradeFill`, `BotRecord`, `TestCoinFullPrimeUnifiedAccounting`, `WebUiHttpContractTests`, `ledger_store.py`, `dca.py`, `grids.py`, `DcaOrderExecutor`, `GridOrder`, `StrategyLedger`, `LedgerRepository`, `PortfolioRebalancer`, `run_multiple_grids.py`, `DcaOrder`, `HermesGridClient`, `main.py`, `ProcessManager`, `GridCommandRepository`, `DcaCoordinator`, `TradingCoreClient`, `DcaHttpContractTests`, `GridStateStore`, `TestAuditLoggerSelfHealing`, `KlineService`, `get_logger`, `DcaYAMLGenerator`, `TestMonotonicGuard`?**
+  _High betweenness centrality (0.039) - this node is a cross-community bridge._
 - **Are the 10 inferred relationships involving `OrderData` (e.g. with `ExchangeAdapter` and `ExchangeConfig`) actually correct?**
   _`OrderData` has 10 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 7 inferred relationships involving `TickerData` (e.g. with `ExchangeAdapter` and `ExchangeConfig`) actually correct?**

@@ -1065,8 +1065,8 @@
     "semantic_hash": ""
   },
   "web_ui/backend/main.py": {
-    "mtime": 1792588395.3219652,
-    "ast_hash": "9cb824c7627595cdd5e122378f646154",
+    "mtime": 1792597828.071926,
+    "ast_hash": "e1d5479b8fec2d58ace313691f5763b4",
     "semantic_hash": ""
   },
   "web_ui/backend/models.py": {
@@ -1120,13 +1120,13 @@
     "semantic_hash": "aad27ae666a14635e4faf66246deb4dd"
   },
   "web_ui/frontend/package.json": {
-    "mtime": 1792596825.378923,
-    "ast_hash": "9a261e194dec60d5bb58bb64a5cf182b",
+    "mtime": 1792597850.993926,
+    "ast_hash": "bc52c43be21b30ec57f1768e00c065f7",
     "semantic_hash": ""
   },
   "web_ui/frontend/src/App.tsx": {
-    "mtime": 1792590880.3335207,
-    "ast_hash": "281830c25be12357c842f839608b48d9",
+    "mtime": 1792597834.0979261,
+    "ast_hash": "ef0a430b6960e190574decd8c0ec5079",
     "semantic_hash": ""
   },
   "web_ui/frontend/src/components/Dashboard.tsx": {
@@ -1165,9 +1165,9 @@
     "semantic_hash": "70bdd0a673bcfc0e828080b306e7c680"
   },
   "web_ui/frontend/vite.config.ts": {
-    "mtime": 1787739469.4687684,
-    "ast_hash": "7eccd03eec30a27b61127a03d5867f88",
-    "semantic_hash": "7eccd03eec30a27b61127a03d5867f88"
+    "mtime": 1792597831.215926,
+    "ast_hash": "87ff9cfca081e401fedb12ae0c071d11",
+    "semantic_hash": ""
   },
   ".agents/hooks/pre-commit.sh": {
     "mtime": 1786618842.4140816,
@@ -1570,8 +1570,8 @@
     "semantic_hash": "c4fbd009bcb7eadb17101e96cab93d2c"
   },
   "AGENTS.md": {
-    "mtime": 1792588915.8445148,
-    "ast_hash": "0c52bdde9af5ebdd433f4900d1eb1848",
+    "mtime": 1792597851.0049262,
+    "ast_hash": "a34dee8f25ff384499956e91b6c3eece",
     "semantic_hash": ""
   },
   "README.md": {
@@ -2040,8 +2040,8 @@
     "semantic_hash": ""
   },
   "scripts/ci.sh": {
-    "mtime": 1792587532.5329626,
-    "ast_hash": "41bb4a1867ef56901a9cd7bb06cacf9e",
+    "mtime": 1792597871.331926,
+    "ast_hash": "ec38a9aa7094bf2d59d1d5b5121cda05",
     "semantic_hash": ""
   },
   "scripts/publish_private_repo.sh": {
@@ -4217,6 +4217,26 @@
   "web_ui/frontend/tests/coinfull.test.ts": {
     "mtime": 1792590059.9115183,
     "ast_hash": "cceb981f7ae73c26614a8263fa598f91",
+    "semantic_hash": ""
+  },
+  "core/version.py": {
+    "mtime": 1792597815.644926,
+    "ast_hash": "162d8d5b76c461e77db88144d2227ddb",
+    "semantic_hash": ""
+  },
+  "scripts/sync_version.py": {
+    "mtime": 1792597822.973926,
+    "ast_hash": "e422e6d01d25b18d9ad4d6aa91ce7319",
+    "semantic_hash": ""
+  },
+  "tests/test_version_consistency.py": {
+    "mtime": 1792597859.9929261,
+    "ast_hash": "02b146eb315d7b9220b026df7be40c37",
+    "semantic_hash": ""
+  },
+  "web_ui/frontend/src/vite-env.d.ts": {
+    "mtime": 1792597834.089926,
+    "ast_hash": "62f9f6bc4c280b79695ad10ef416425f",
     "semantic_hash": ""
   }
 }
