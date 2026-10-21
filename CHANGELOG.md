@@ -4,6 +4,11 @@
 詳細歷史工程記錄請參閱 [CHANGELOG_LEGACY.md](file:///root/grid-trading-console/CHANGELOG_LEGACY.md)。
 ## [Unreleased]
 
+## [0.3.15] — 2026-10-22
+
+### Security
+- 修補 Dependabot 依賴告警：`source-map-js` 1.2.2（CVE-2026-93749）、`brace-expansion` 5.0.12、`vite` 8.3.5（launch-editor advisories）、`pytest` 9.0.3 + `pytest-asyncio` 1.4.0 + `pytest-cov` 7.1.0（CVE-2025-71176）。
+
 ## [0.3.14] — 2026-10-21
 
 ### Security
