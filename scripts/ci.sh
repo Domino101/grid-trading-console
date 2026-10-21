@@ -64,8 +64,12 @@ TEST_MODULES=(
   tests.test_coinfull_prime_quant
   tests.test_coinfull_prime_rebalance
   tests.test_coinfull_prime_regime
+  tests.test_coinfull_prime_p0_safety
+  tests.test_coinfull_prime_p1_safety
+  tests.test_coinfull_prime_p1b_safety
   tests.test_unified_ledger_accounting
   tests.test_ledger_consistency_audit
+  tests.test_ledger_legacy_repair
   tests.test_accounting_path_policy
 )
 

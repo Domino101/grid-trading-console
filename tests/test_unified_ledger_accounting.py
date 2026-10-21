@@ -114,7 +114,17 @@ class UnifiedLedgerTestCase(unittest.TestCase):
     def make_service(self):
         from core.services.coinfull_prime.service import CoinFullPrimeService
 
-        service = CoinFullPrimeService(config_path=str(self.root / "strategy_config.yaml"))
+        # C-6 之後 load_config 對缺失檔案 fail-closed；測試提供最小合法配置。
+        config_path = self.root / "strategy_config.yaml"
+        if not config_path.exists():
+            config_path.write_text(
+                "portfolio:\n"
+                "  total_capital_usdt: 1000.0\n"
+                "  leverage: 1.0\n"
+                "  dry_run: true\n",
+                encoding="utf-8",
+            )
+        service = CoinFullPrimeService(config_path=str(config_path))
         # 鏡像檔一律寫進測試 data 目錄，避免污染 repo/data
         service._get_data_dir = lambda: self.data_dir  # type: ignore[method-assign]
         service._get_scheduler_state_file = lambda: self.data_dir / "coinfull_prime_scheduler.json"  # type: ignore[method-assign]

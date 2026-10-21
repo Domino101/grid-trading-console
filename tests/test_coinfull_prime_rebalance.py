@@ -334,12 +334,27 @@ class TestCoinFullPrimeRebalancer(unittest.TestCase):
         )
 
         async def run_stop_loss():
+            from decimal import Decimal
+            from types import SimpleNamespace
+            from unittest.mock import AsyncMock, MagicMock
+
             # 觸發止損：市價暴跌至 8.5 (-15.0%，觸發 -12% 硬止損)
+            adapter = MagicMock()
+            adapter.name = "binance_testnet"
+            adapter._market_info = {}
+            adapter.create_order = AsyncMock(return_value=SimpleNamespace(
+                filled=Decimal("100"),
+                average=8.5,
+                price=8.5,
+                id="SLTEST123",
+                fee={"cost": 0.0, "currency": "USDT"},
+            ))
             res = await self.rebalancer.execute_stop_loss(
                 symbol="CRASHCOIN",
                 account_id=account_id,
                 current_price=8.5,
-                dry_run=True,
+                exchange_adapter=adapter,
+                dry_run=False,
                 reason="intra_week_stop_loss"
             )
 
@@ -361,6 +376,7 @@ class TestCoinFullPrimeRebalancer(unittest.TestCase):
             sl_fills = [f for f in fills if f.role == "stop_loss"]
             self.assertGreaterEqual(len(sl_fills), 1)
             self.assertEqual(sl_fills[-1].side, "sell")
+            self.assertEqual(sl_fills[-1].exchange_order_id, "SLTEST123")
             self.assertAlmostEqual(sl_fills[-1].realized_pnl, -150.0, places=2)
 
             # 檢驗 bot_events 表有記錄 stop_loss 事件

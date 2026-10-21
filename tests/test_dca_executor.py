@@ -147,6 +147,16 @@ class ExecutorCancelAndQueryTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(ok)
         self.assertEqual(outcome.order.status, DcaOrderStatus.PLACED)
 
+    async def test_cancel_unknown_order_2011_treated_as_cancelled(self):
+        ex, fake = _executor()
+        outcome = await ex.place_limit(DcaOrderRole.TAKE_PROFIT, "sell", D("2600"), D("0.008"), leg="long")
+        async def _mock_cancel(order_id, symbol):
+            raise RuntimeError('binance {"code":-2011,"msg":"Unknown order sent."}')
+        fake.cancel_order = _mock_cancel
+        ok = await ex.cancel(outcome.order)
+        self.assertTrue(ok)
+        self.assertEqual(outcome.order.status, DcaOrderStatus.CANCELLED)
+
     async def test_cancel_unplaced_order_is_noop_true(self):
         ex, fake = _executor()
         flag = [True]

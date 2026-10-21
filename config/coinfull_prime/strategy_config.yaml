@@ -17,6 +17,9 @@ universe:
   exclude_tradfi: true       # 排除非加密合約 (美股、股票、指數 ETF、大宗商品等 TradFi，維持純加密中性)
   min_24h_volume_usdt: 50000000.0  # Opt D 質量初篩：24h 成交額 >= 5000 萬 USDT (排除極端微盤垃圾幣)
   max_7d_atr_pct: 0.20             # Opt D 波動過濾：7 日平均真實振幅 ATR/Price <= 20%
+  # 人工審核黑名單：精確 symbol（大小寫不敏感），不是交易所 tag 資料源。
+  # 交易所沒有穩定的 MEME/AI_AGENT tag，需由人工填入並記錄審核理由。
+  restricted_symbols: []
   exclude_stables:
     - "USDCUSDT"
     - "FDUSDUSDT"

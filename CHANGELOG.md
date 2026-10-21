@@ -4,6 +4,8 @@
 詳細歷史工程記錄請參閱 [CHANGELOG_LEGACY.md](file:///root/grid-trading-console/CHANGELOG_LEGACY.md)。
 ## [Unreleased]
 
+## [0.3.14] — 2026-10-21
+
 ### Security
 - **公開前安全審查與淨化 (Public Release Audit, 2026-10-21)**：完整報告見 `docs/PUBLIC_RELEASE_AUDIT_20261021.md`。
   - 剔除自上游木馬 fork 帶入、藏於 `core/` 的兩個 LuaJIT loader 惡意壓縮檔（`crypto_open_trading_v2.8.zip`、`crypto-trading-open_3.0.zip`）。
@@ -15,10 +17,42 @@
   - `AGENTS.md` 新增「Public Repository Hygiene」守則；README 新增 `config/exchanges` 使用方式與「授權與來源」段落。
 
 ### Fixed
+- **CoinFull Prime P0 資金安全修復 (Stop-Loss / Basket / Degraded / Hedge / Lifecycle)**：
+  - **A-1 止損帳本越權**：`PortfolioRebalancer.execute_stop_loss()` 在 `dry_run=True` 或 `exchange_adapter=None` 時不再呼叫 `apply_basket_fill()`；只有交易所回報 `filled>0` 才結算，部分成交只結算實際數量。`fill_id` 優先使用交易所 order id，不再依賴秒級時間戳。
+  - **A-2 名單同步孤兒倉**：`CoinFullPrimeService.save_active_basket()` 改用 `close_missing=False`，平倉結算唯一由 `apply_basket_fill()` 擁有；`partial/failed/skipped/hedge_blocked/degraded_hold` 不再同步新名單；只登記「已持有或本次 entry 成交」的目標，避免 quantity=0 幽靈成分。`execute_rebalance()` 的「部分成交 + 部分跳過」改判為 `partial`，不再誤標 `completed`。
+  - **A-3 資料缺漏仍換倉**：`trigger_once()` 在 `RegimeDecision.degraded=True` 時直接 hold（`status=degraded_hold`），不建立新倉、不因不完整的 pts=0 全平。
+  - **A-4 對沖腿被保護造成裸多**：benchmark/dual 對沖標的若在 `protected_symbols`，`execute_rebalance()` 在建立任何多頭前回傳 `hedge_blocked`；`_execute_rebalance_with_retry()` 不再重試，等待人工解除衝突。
+  - **A-5 停止排程即失去止損**：新增 `_stop_loss_running` 與 `_start_stop_loss_daemon()`；`stop_scheduler(disable=True)` 在仍有 active 多頭時保留 -12% 守護，只有程序關閉（`disable=False`）或已無多頭才取消。
+  - 新增 `tests/test_coinfull_prime_p0_safety.py`（12 項，含 mirror 復活回歸）與調整 `tests/test_coinfull_prime_rebalance.py` 止損結算測試（改用實盤 adapter mock，非 dry-run）。
+- **CoinFull Prime P1 資金安全、Opt D fail-closed 與 Carry/對帳 (2026-10-21)**：
+  - **C-1 止損/換倉互斥**：`check_and_trigger_stop_losses()` 與 `trigger_once()` 共用 `_rebalance_lock`；換倉進行中跳過止損，下一輪 5 秒 tick 重查。
+  - **C-6 配置 fail-closed**：`load_config()` 在檔案缺失、解析失敗或空配置時拋出 `RuntimeError`，拒絕以預設值啟動；`CoinFullPrimeQuant` 預設改為 v3（momentum 0.60 / funding 0.40、benchmark、blend、smooth、top 80、50M、ATR 20%、overheat penalty）。
+  - **C-7 加碼保證金上限**：`scale>1.0` 時以 USDT 可用保證金 95% 封頂；餘額不足或 adapter 缺失時降回 1.0x，避免 1.15x 加碼擠掉基礎倉位。
+  - **C-2 Opt D fail-closed**：成交量/ATR 全域資料缺漏時 `compute_ranks()` 回 `failed`；個別 symbol ATR 缺值直接排除；回補不再放寬 ATR；無合格多頭或無合格空頭時拒絕建立裸方向倉。`trigger_once()` 遇到 `ranking_failed` 直接 hold，不把空名單交給 `execute_rebalance()` 造成全平。
+  - **C-3 restricted_symbols**：新增 `universe.restricted_symbols` 配置（精確 symbol 人工黑名單）；`restricted_tags` 僅保留舊別名，不再假裝有交易所 tag 過濾。
+  - **C-4 資金費率 Carry / equity**：新增 `sync_funding_income()`，以 ccxt `fetch_income(FUNDING_FEE)` 將資金費率寫入 `trade_fills`（`side=funding`、`role=funding`、`realized_pnl=income`），以 `tranId` 作穩定 `fill_id`；snapshot 新增 `funding_income_usdt`、`account.equity_usdt`、`account.free_margin_usdt`。新增 `POST /api/v1/coinfull-prime/funding/sync`；前端成交流水把 funding 列顯示為「資金費率 Carry」，不再誤認為一般買賣。
+  - **C-5 持倉 reconciliation**：新增 `reconcile_positions()`，比對交易所持倉與 `bot_baskets`，回報 `missing_on_exchange`、`quantity_mismatch`、`unmanaged_on_exchange`、`protected_on_exchange`；只寫 `reconcile` 事件與 critical log，不自動平倉。新增 `POST /api/v1/coinfull-prime/reconcile`。
+  - 新增 `tests/test_coinfull_prime_p1_safety.py`（18 項）與 `tests/test_coinfull_prime_p1b_safety.py`（7 項），並加入 `scripts/ci.sh`。
 - **網格幽靈訂單自動清理與零掛單自愈恢復 (Grid Ghost Orders Purge & Zero-Order Self-Healing)**：
   - 修復 `GridEngineImpl._sync_orders_from_exchange` 與活躍窗口，在每次成功取得交易所掛單時主動比對並清理本地不存在的幽靈掛單，支援 15 秒在途單保護與 ID/client_id 交叉比對。
   - 修復 `OrderHealthChecker` 在交易所零掛單時跳過不自愈的缺陷，主動強制清除本機幽靈快取並呼叫 `_refresh_active_window_once` 重建活躍窗口。
   - 於 `tests/_grid_guard.py` 授權清單登記，並新增 `tests/test_grid_ghost_orders_recovery.py` 回歸測試。
+
+### Changed
+- **版本號全域對齊**：同步 `VERSION`、`web_ui/frontend/package.json`、`package-lock.json` 根版本、`web_ui/backend/main.py` 與 `CHANGELOG.md` 至 `v0.3.14`。
+
+### Fixed
+- **CoinFull Prime legacy ledger 修復**：新增 `tools/coinfull_legacy_repair.py`（預設 dry-run，SQLite 先備份）。
+  - L6：14 筆舊 `daily_rebalance` 補上 `legacy:{type}:{bot}:{id}` dedupe_key，重跑冪等。
+  - L5：由 `trade_fills` 補齊 `coinfull_prime:paper` 缺少的 26 筆 canonical fill 事件。
+  - L2：註冊 legacy `coinfull_prime`（archived）身分，收斂 12 筆舊 orphan events。
+  - 修復後 CoinFull Prime 的 L6/L5 為 0；全域 L2 仍有其他 bot/測試資料（約 139–141 筆，會隨測試執行變動），未在此工具範圍。
+- **CoinFull Prime 0.3.14 部署與 live 對帳修復**：
+  - `load_active_basket()` 只有整個帳號完全沒有 basket 列時才允許鏡像回填；已有 closed 列時不再復活 stale 鏡像。
+  - `_export_basket_mirror(account_id)` 在該帳號無 active 成分時移除 key，避免重啟後把已平倉／對帳關閉的成分復活。
+  - `web_ui/backend/main.py` 啟動時先 `await CoinFullPrimeService.initialize()` 再 `restore_scheduler()`，讓 config 缺失在 startup fail-closed，狀態不再 `initialized=false`。
+  - `sync_funding_income()` 增加 ccxt `fetch_ledger(..., {"incomeType": "FUNDING_FEE"})` fallback（ccxt 4.4.30 binance 無 `fetch_income`）；重跑以既有 fill_id 去重，第二次 recorded=0。
+  - 新增 `tools/coinfull_reconcile_repair.py`（dry-run 預設）：只關閉 missing_on_exchange 與 zero_quantity 成分，保留 realized_pnl，不捏造損益；已套用 binance_live 6 筆殘留，reconcile 轉為 ok。
 
 ## [0.3.13] — 2026-10-19
 

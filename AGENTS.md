@@ -87,3 +87,6 @@ Rule:
 | **MC-5: 避碰過寬誤鎖 BTC 對沖** | 掃描已歸檔或非幣安歷史機器人，誤將主權對沖幣 `BTC` 排除下單 | 架構 (Level 1) | 嚴格收斂掃描作用域：僅掃描目標交易所 (`binance`) 且處於活躍目錄 (`active`) 的現役機器人。 |
 | **MC-6: 繞過統一記帳直連 SQLite** | 策略或 API 層直接 `sqlite3.connect()`，PostgreSQL 生產模式產生幽靈資料源 | 靜態 AST 檢查 (Level 2) | `tests/test_accounting_path_policy.py` 在 CI 靜態掃描所有連線與 import，違法直連直接爆紅。 |
 | **MC-7: 隨意更動網格核心** | 修改其他業務時隨意更動 `core/services/grid/`，導致相依策略崩潰 | CI 守門測試 (Level 3) | `tests/_grid_guard.py::GRID_DIFF_ALLOWLIST` 白名單；未授權更動直接擋下 CI。 |
+| **MC-8: 停止事件/名單同步越權改帳** | 止損在 dry-run 或 adapter 缺失時仍 `apply_basket_fill`；名單同步 `close_missing=True` 把平倉失敗部位標 closed，形成孤兒倉 | 架構 (Level 1) + 測試 (Level 3) | 止損僅在交易所 `filled>0` 且非 dry-run 時結算；`save_active_basket` 固定 `close_missing=False`；partial/failed 不同步名單；`tests.test_coinfull_prime_p0_safety` 守門。 |
+| **MC-9: 資料/配置缺漏 fail-open** | ATR/成交量抓取失敗仍放行；配置檔缺失退回 v2 預設；`compute_ranks` failed 的空名單被 `execute_rebalance` 當成全平 | 架構 (Level 1) + 測試 (Level 3) | Opt D 缺值 fail-closed；`load_config` 缺失/空檔 raise；`ranking_failed` 直接 hold；`tests.test_coinfull_prime_p1_safety` 守門。 |
+| **MC-10: 鏡像回填復活已平倉成分** | active basket 為空時 `load_active_basket` 無條件回填 stale 鏡像，把已對帳關閉的成分復活成幽靈持倉 | 架構 (Level 1) + 測試 (Level 3) | 只有整個帳號完全沒有 basket 列才允許回填；`_export_basket_mirror` 在無 active 時移除帳號 key；`tests.test_coinfull_prime_p0_safety::TestBasketMirrorResurrection` 守門。 |

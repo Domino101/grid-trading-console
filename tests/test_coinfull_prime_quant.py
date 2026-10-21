@@ -23,7 +23,10 @@ class TestCoinFullPrimeQuant(unittest.TestCase):
                 "short_count": 2,
                 "total_capital_usdt": 1000.0,
                 "leverage": 1.0
-            }
+            },
+            # 這組測試驗證 v2 basket 對稱空頭；v3 預設是 benchmark，需顯式指定。
+            "hedge": {"mode": "basket"},
+            "universe": {"min_24h_volume_usdt": 0.0, "max_7d_atr_pct": 0.0},
         }
         self.quant = CoinFullPrimeQuant(self.config)
 
@@ -198,7 +201,8 @@ class TestCoinFullPrimeQuant(unittest.TestCase):
                 "mode": "benchmark",
                 "symbol": "BTCUSDT",
                 "weight": 0.50
-            }
+            },
+            "universe": {"min_24h_volume_usdt": 0.0, "max_7d_atr_pct": 0.0},
         }
         quant = CoinFullPrimeQuant(cfg)
         features = [
@@ -240,7 +244,8 @@ class TestCoinFullPrimeQuant(unittest.TestCase):
                     "BTCUSDT": 0.25,
                     "ETHUSDT": 0.25
                 }
-            }
+            },
+            "universe": {"min_24h_volume_usdt": 0.0, "max_7d_atr_pct": 0.0},
         }
         quant = CoinFullPrimeQuant(cfg)
         features = [
@@ -263,7 +268,7 @@ class TestCoinFullPrimeQuant(unittest.TestCase):
         # 驗證 24h 成交額門檻初篩
         cfg = {
             "portfolio": {"long_count": 2, "short_count": 1, "total_capital_usdt": 1000.0},
-            "universe": {"min_24h_volume_usdt": 50000000.0},
+            "universe": {"min_24h_volume_usdt": 50000000.0, "max_7d_atr_pct": 0.0},
             "hedge": {"mode": "benchmark", "symbol": "BTCUSDT", "weight": 0.50}
         }
         quant = CoinFullPrimeQuant(cfg)

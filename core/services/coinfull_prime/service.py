@@ -116,6 +116,8 @@ class CoinFullPrimeService(BaseService):
         self._stop_loss_task: Optional[asyncio.Task] = None
         self._stopping_symbols: Set[str] = set()
         self._is_running = False
+        # 止損守護與排程分離：排程停止（使用者操作）不等於止損停止。
+        self._stop_loss_running = False
         self.scheduler_dry_run: bool = saved_state.get("dry_run", False)
         self.scheduler_capital: Optional[float] = saved_state.get("capital")
         self.scheduler_leverage: Optional[float] = saved_state.get("leverage")
@@ -125,6 +127,7 @@ class CoinFullPrimeService(BaseService):
         elif self.scheduler_capital is not None and float(self.scheduler_capital) > 0:
             self.scheduler_balance_pct = None
         self._last_account_balances: Dict[str, float] = {}
+        self._last_positions_ok: bool = True
         self._rebalance_lock = asyncio.Lock()
 
     def get_external_bot_symbols(self, account_mode: Optional[str] = None) -> Set[str]:
@@ -228,8 +231,18 @@ class CoinFullPrimeService(BaseService):
         bot_id = self._basket_bot_id(account_id)
         entries = ledger.load_basket(bot_id, account_id=account_id, active_only=True)
         if not entries:
-            if self._backfill_side_files(reason="basket_empty"):
-                entries = ledger.load_basket(bot_id, account_id=account_id, active_only=True)
+            # 只有「整個帳號完全沒有 basket 列」才算 DB 遺失，允許從鏡像回填。
+            # 若已有 closed 列，代表「目前沒有 active 部位」是合法狀態；
+            # 此時回填 stale 鏡像會把已平倉／對帳關閉的成分復活成幽靈持倉。
+            try:
+                all_entries = ledger.load_basket(bot_id, account_id=account_id, active_only=False)
+            except Exception:
+                all_entries = []
+            if not all_entries:
+                if self._backfill_side_files(reason="basket_empty"):
+                    entries = ledger.load_basket(bot_id, account_id=account_id, active_only=True)
+            else:
+                return set()
         if entries:
             return {PortfolioRebalancer._normalize_symbol(e.symbol) for e in entries if e.symbol}
 
@@ -257,6 +270,21 @@ class CoinFullPrimeService(BaseService):
             self._basket_bot_id(account_id), account_id=account_id, active_only=True
         )
 
+    @staticmethod
+    def _should_sync_basket(rank_result: Any, report: Any, is_dry_run: bool) -> bool:
+        """只有「非 dry-run 且換倉完全成功」才同步新名單。
+
+        partial/failed/skipped/hedge_blocked 都可能留下未平掉的舊部位；
+        此時同步名單會讓失敗部位被誤標為 closed，下一輪被當成外部部位跳過。
+        """
+        return bool(
+            not is_dry_run
+            and rank_result
+            and getattr(rank_result, "status", "") == "success"
+            and getattr(rank_result, "long_list", None)
+            and getattr(report, "status", "") == "completed"
+        )
+
     def save_active_basket(self, account_id: str, symbols: List[str], sides: Optional[Dict[str, str]] = None):
         """持久化受管持倉籃子：先寫 canonical ledger，再寫檔案鏡像（best-effort）。"""
         clean_symbols = sorted({PortfolioRebalancer._normalize_symbol(s) for s in symbols if s})
@@ -279,7 +307,10 @@ class CoinFullPrimeService(BaseService):
                 for sym in clean_symbols
             ]
             if entries:
-                ledger.save_basket(bot_id, account_id, entries, close_missing=True)
+                # P4-1：名單同步只新增/更新，不得關閉任何既有成分。
+                # 平倉結算的唯一擁有者是 apply_basket_fill；若在這裡 close_missing=True，
+                # 平倉失敗的舊部位會被標成 closed，下一輪被視為外部部位跳過，形成孤兒倉。
+                ledger.save_basket(bot_id, account_id, entries, close_missing=False)
             logger.info(f"💾 已將專屬持倉籃子寫入 canonical ledger ({account_id}): {clean_symbols}")
         except Exception as ex:
             logger.error(f"持久化專屬持倉籃子至 ledger 失敗: {ex}")
@@ -318,9 +349,21 @@ class CoinFullPrimeService(BaseService):
                 ],
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }
-        if not mirror:
-            return
         path = self._basket_file()
+        if account_id:
+            # 單一帳號匯出時保留其他帳號，並在該帳號已無 active 成分時移除 key。
+            existing: Dict[str, Any] = {}
+            if path.exists():
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        existing = json.load(f) or {}
+                except Exception:
+                    existing = {}
+            if mirror:
+                existing.update(mirror)
+            else:
+                existing.pop(account_id, None)
+            mirror = existing
         path.parent.mkdir(parents=True, exist_ok=True)
         temp_file = path.with_suffix(".tmp")
         with open(temp_file, "w", encoding="utf-8") as f:
@@ -347,19 +390,24 @@ class CoinFullPrimeService(BaseService):
             return False
 
     def load_config(self) -> Dict[str, Any]:
-        """加載 YAML 策略配置檔"""
+        """加載 YAML 策略配置檔；缺失或解析失敗時 fail-closed，拒絕啟動。
+
+        不可在配置缺失時退回 CoinFullPrimeQuant 的預設值：那會讓服務在
+        scheduler 非 dry-run 的情況下，用錯誤的參數交易。啟動失敗比錯策略安全。
+        """
         cfg_file = Path(self.config_path)
-        if cfg_file.exists():
-            try:
-                with open(cfg_file, "r", encoding="utf-8") as f:
-                    self.config = yaml.safe_load(f) or {}
-                if "exclude_tradfi" in self.config.get("universe", {}):
-                    self.exclude_tradfi = bool(self.config["universe"]["exclude_tradfi"])
-            except Exception as e:
-                logger.error(f"讀取 CoinFull Prime 設定檔失敗: {e}，將使用預設值")
-                self.config = {}
-        else:
-            self.config = {}
+        if not cfg_file.exists():
+            raise RuntimeError(f"CoinFull Prime 設定檔不存在，拒絕啟動: {cfg_file}")
+        try:
+            with open(cfg_file, "r", encoding="utf-8") as f:
+                loaded = yaml.safe_load(f)
+        except Exception as e:
+            raise RuntimeError(f"讀取 CoinFull Prime 設定檔失敗，拒絕啟動: {cfg_file}: {e}") from e
+        if not isinstance(loaded, dict) or not loaded:
+            raise RuntimeError(f"CoinFull Prime 設定檔為空或格式錯誤，拒絕啟動: {cfg_file}")
+        self.config = loaded
+        if "exclude_tradfi" in self.config.get("universe", {}):
+            self.exclude_tradfi = bool(self.config["universe"]["exclude_tradfi"])
         return self.config
 
     def register_bot_identity(self, account_id: str = "paper", status: Optional[str] = None):
@@ -595,8 +643,10 @@ class CoinFullPrimeService(BaseService):
         target_acc = account_id or self.selected_account or "paper"
         adapter = await self.get_adapter(target_acc)
         if not adapter or target_acc == "paper":
+            self._last_positions_ok = False
             return []
 
+        self._last_positions_ok = False
         try:
             raw_positions = await adapter.get_positions()
             results = []
@@ -675,8 +725,10 @@ class CoinFullPrimeService(BaseService):
                     "role": role
                 })
             results.sort(key=lambda x: x["notional_usdt"], reverse=True)
+            self._last_positions_ok = True
             return results
         except Exception as e:
+            self._last_positions_ok = False
             logger.warning(f"取得持倉清單失敗 ({target_acc}): {e}", exc_info=True)
             return []
 
@@ -706,7 +758,7 @@ class CoinFullPrimeService(BaseService):
             raise RuntimeError("CoinFull Prime 換倉管線正在執行中，請稍候再試")
 
         async with self._rebalance_lock:
-            return await self._trigger_once_locked(
+            result = await self._trigger_once_locked(
                 dry_run=dry_run,
                 account_id=account_id,
                 capital=capital,
@@ -715,6 +767,12 @@ class CoinFullPrimeService(BaseService):
                 ignore_crash_defer=ignore_crash_defer,
                 exclude_tradfi=exclude_tradfi
             )
+        # 換倉鎖釋放後做唯讀對帳；不自動平倉，只寫 reconcile 事件與 critical log。
+        try:
+            await asyncio.wait_for(self.reconcile_positions(account_id=account_id), timeout=30)
+        except Exception as ex:
+            logger.warning(f"持倉對帳失敗（不影響換倉結果）: {ex}")
+        return result
 
     async def _trigger_once_locked(
         self,
@@ -731,8 +789,12 @@ class CoinFullPrimeService(BaseService):
         batch_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         logger.info(f"⚡ 手動/排程觸發 CoinFull Prime 全管線運行 (帳號: {target_acc}, batch={batch_id})...")
 
-        # 1. 取得目標適配器
+        # 1. 取得目標適配器，並同步資金費率現金流（paper 會自動跳過）
         adapter = await self.get_adapter(target_acc)
+        try:
+            await self.sync_funding_income(target_acc, adapter=adapter)
+        except Exception as ex:
+            logger.warning(f"資金費率同步失敗（不影響換倉）: {ex}")
 
         # 2. 計算動態本金規模 (若指定 balance_pct 則依帳戶可用保證金計算)
         effective_capital = capital
@@ -827,7 +889,39 @@ class CoinFullPrimeService(BaseService):
         effective_capital_val = effective_capital if effective_capital and float(effective_capital) > 0 \
             else self.rebalancer.total_capital
 
-        # 5. T2 崩跌日延後換倉（最多連續 max_defers 次；若同時 pts=0 則 T1 平倉優先）
+        # 5. 資料缺漏 → 不換倉（Master Spec 守則六）。
+        # degraded 的 pts 可能是 0，也可能是 1/2；無論分數，資料不完整時只維持現有部位，
+        # 不建立新倉，也不因不完整的 pts=0 而全平。
+        if decision.degraded:
+            logger.warning(
+                "⛔ 風險閘門資料缺漏 (degraded)：本次不換倉，保留現有部位；"
+                f" reasons={'; '.join((decision.reasons or [])[:3])}"
+            )
+            rank_result = UniverseRankResult(
+                universe_size=len(universe),
+                status="success",
+                message="regime data degraded: hold existing positions",
+            )
+            report = RebalanceReport(
+                dry_run=is_dry_run,
+                exchange=target_acc,
+                total_capital_usdt=effective_capital_val,
+                leverage=self.rebalancer.leverage,
+                status="degraded_hold",
+                error="regime data degraded; hold existing positions",
+                gate_pts=decision.pts,
+                gate_scale=decision.scale,
+                gate_allow_new_entries=False,
+                gate_force_flatten=False,
+            )
+            self.last_rank_result = rank_result
+            self.last_rebalance_report = report
+            self.last_run_timestamp = datetime.now(timezone.utc).isoformat()
+            self.selected_account = target_acc
+            self._persist_run_snapshot(target_acc, decision, report)
+            return rank_result, report
+
+        # 6. T2 崩跌日延後換倉（最多連續 max_defers 次；若同時 pts=0 則 T1 平倉優先）
         if decision.crash_defer and not ignore_crash_defer and not decision.force_flatten:
             if self._defer_count < self.regime_filter.crash_defer_max:
                 self._defer_count += 1
@@ -867,7 +961,17 @@ class CoinFullPrimeService(BaseService):
                 self._pending_defer_until = None
                 self.save_scheduler_state()
 
-        # 6. T1 風險關閉 → 強制平倉（不重新算分）；否則正常算分
+        # 6.5 加碼前檢查可用保證金。1.15x 在 1x 槓桿、balance_pct=100 時
+        # 會需要 115% 名義保證金；不足時只保留 1.0x，不讓加碼單把基礎倉位擠掉。
+        if not decision.force_flatten and decision.scale > 1.0:
+            decision = await self._cap_scale_by_free_margin(
+                adapter=adapter,
+                account_id=target_acc,
+                effective_capital=effective_capital_val,
+                decision=decision,
+            )
+
+        # 7. T1 風險關閉 → 強制平倉（不重新算分）；否則正常算分
         if decision.force_flatten:
             rank_result = UniverseRankResult(
                 universe_size=len(universe),
@@ -887,7 +991,29 @@ class CoinFullPrimeService(BaseService):
         self.last_rank_result = rank_result
         self._last_rank_result_exclude_tradfi = should_exclude_tradfi
 
-        # 7. 執行換倉調度 (帶入專屬持倉籃子隔離、外部機器人絕對保護與風險閘門參數)
+        # 7.5 排名失敗（成交量/ATR 缺漏、無合格多空標的）→ 不換倉。
+        # 若把空名單交給 execute_rebalance，calculate_diff 會把現有受管部位全部平掉。
+        if rank_result.status != "success":
+            logger.error(f"⛔ 量化排名失敗，本次不換倉: {rank_result.message}")
+            report = RebalanceReport(
+                dry_run=is_dry_run,
+                exchange=target_acc,
+                total_capital_usdt=effective_capital_val,
+                leverage=self.rebalancer.leverage,
+                status="ranking_failed",
+                error=rank_result.message or "ranking failed",
+                gate_pts=decision.pts,
+                gate_scale=decision.scale,
+                gate_allow_new_entries=decision.allow_new_entries,
+                gate_force_flatten=decision.force_flatten,
+            )
+            self.last_rebalance_report = report
+            self.last_run_timestamp = datetime.now(timezone.utc).isoformat()
+            self.selected_account = target_acc
+            self._persist_run_snapshot(target_acc, decision, report)
+            return rank_result, report
+
+        # 8. 執行換倉調度 (帶入專屬持倉籃子隔離、外部機器人絕對保護與風險閘門參數)
         rebalance_report = await self.rebalancer.execute_rebalance(
             rank_result=rank_result,
             exchange_adapter=adapter,
@@ -908,19 +1034,39 @@ class CoinFullPrimeService(BaseService):
         self.last_run_timestamp = datetime.now(timezone.utc).isoformat()
         self.selected_account = target_acc
 
-        # 8. 更新並持久化專屬持倉籃子 (僅在實際實盤換倉時登記新籃子，Dry-Run 絕不覆蓋帳本狀態)
-        if not is_dry_run and rank_result and rank_result.status == "success" and rank_result.long_list:
+        # 9. 更新並持久化專屬持倉籃子 (僅在實際實盤換倉且完全成功時登記新籃子)
+        # partial/failed 代表可能有舊部位未平掉；此時同步名單會把失敗部位誤標為 closed。
+        if self._should_sync_basket(rank_result, rebalance_report, is_dry_run):
             ranked_items = list(rank_result.long_list) + list(rank_result.short_list)
-            new_basket_symbols = [x.symbol for x in ranked_items]
+            # 只登記「真的有部位」的目標：已持有或本次 entry 成交。
+            # 避免把因低於最小名義而未成交的標的以 quantity=0 登記成 active 幽靈成分。
+            held_symbols = {
+                PortfolioRebalancer._normalize_symbol(e.symbol)
+                for e in self.load_basket_entries(target_acc)
+                if float(getattr(e, "quantity", 0.0) or 0.0) > 0
+            }
+            filled_symbols = {
+                PortfolioRebalancer._normalize_symbol(o.symbol)
+                for o in (rebalance_report.orders or [])
+                if getattr(o, "status", "") == "filled" and not getattr(o, "reduce_only", False)
+            }
+            tracked_symbols = held_symbols | filled_symbols
+            new_basket_symbols = [
+                x.symbol for x in ranked_items
+                if PortfolioRebalancer._normalize_symbol(x.symbol) in tracked_symbols
+            ]
             basket_sides = {
                 PortfolioRebalancer._normalize_symbol(x.symbol): ("short" if x.side == "short" else "long")
                 for x in ranked_items
+                if PortfolioRebalancer._normalize_symbol(x.symbol) in tracked_symbols
             }
-            self.save_active_basket(target_acc, new_basket_symbols, sides=basket_sides)
+            if new_basket_symbols:
+                self.save_active_basket(target_acc, new_basket_symbols, sides=basket_sides)
             self._stopping_symbols.clear()
 
-        # 9. 成功執行一次換倉 → 若非失敗則重置 T2 延後計數；並落地每日快照（權益/PnL 可追蹤）
-        if getattr(rebalance_report, "status", "") not in ("failed",):
+        # 10. 只有完全成功的換倉才重置 T2 延後計數。
+        # partial/skipped/hedge_blocked 不代表本週換倉完成，不應清除 defer 狀態或持久化為已執行。
+        if getattr(rebalance_report, "status", "") in ("completed", "completed_dry_run"):
             self._defer_count = 0
             self._pending_defer_until = None
             self.save_scheduler_state()
@@ -1026,6 +1172,298 @@ class CoinFullPrimeService(BaseService):
             out.append(payload)
         return out
 
+    async def sync_funding_income(
+        self,
+        account_id: str,
+        adapter: Optional[ExchangeInterface] = None,
+        since_ms: Optional[int] = None,
+        limit: int = 1000,
+    ) -> int:
+        """從交易所 income 端點同步資金費率現金流到 canonical ledger。
+
+        - 只處理 FUNDING_FEE；每筆以 tranId 作為穩定 fill_id，重跑為冪等 no-op。
+        - 寫入 trade_fills（side=funding, role=funding, realized_pnl=income），
+          讓 Carry 能被 get_fills 加總與事件溯源回放。
+        - paper 帳號直接跳過；live/testnet 需 adapter 具備 ccxt exchange.fetch_income。
+        """
+        target_acc = (account_id or self.selected_account or "paper").lower()
+        if target_acc == "paper":
+            return 0
+        if adapter is None:
+            adapter = await self.get_adapter(target_acc)
+        if not adapter:
+            logger.warning(f"資金費率同步：{target_acc} 無可用 adapter，跳過")
+            return 0
+
+        rest = getattr(adapter, "_rest", None)
+        ccxt_ex = getattr(rest, "exchange", None) or getattr(adapter, "exchange", None)
+        if ccxt_ex is None:
+            logger.info(f"資金費率同步：{target_acc} adapter 沒有 ccxt exchange，跳過")
+            return 0
+        if hasattr(ccxt_ex, "fetch_income"):
+            fetch_fn = lambda: ccxt_ex.fetch_income(  # noqa: E731
+                "USDT", since_ms, limit, {"incomeType": "FUNDING_FEE"}
+            )
+        elif hasattr(ccxt_ex, "fetch_ledger"):
+            # ccxt 4.4.30 的 binance 沒有 fetch_income，但 fetch_ledger 會打
+            # /fapi/v1/income 並保留 info.incomeType= FUNDING_FEE。
+            fetch_fn = lambda: ccxt_ex.fetch_ledger(  # noqa: E731
+                "USDT", since_ms, limit, {"incomeType": "FUNDING_FEE"}
+            )
+        else:
+            logger.info(f"資金費率同步：{target_acc} adapter 不支援 fetch_income/fetch_ledger，跳過")
+            return 0
+
+        bot_id = self._basket_bot_id(target_acc)
+        ledger = self._ledger()
+        try:
+            ledger.ensure_bot(
+                bot_id=bot_id,
+                strategy_type="coinfull_prime",
+                symbol="BASKET_16",
+                exchange=target_acc,
+                account_mode="live" if "live" in target_acc else "paper",
+                status="running" if self._is_running else "idle",
+                config_path=self.config_path,
+            )
+        except Exception as ex:
+            logger.warning(f"資金費率同步：ensure_bot 失敗 ({target_acc}): {ex}")
+            return 0
+
+        try:
+            cursor = ledger.get_state(bot_id, "funding_sync_cursor") or {}
+            cursor_ms = int(cursor.get("since_ms", 0) or 0) if isinstance(cursor, dict) else 0
+        except Exception:
+            cursor_ms = 0
+        if since_ms is None:
+            since_ms = max(cursor_ms, int((time.time() - 7 * 86400) * 1000))
+        since_ms = max(int(since_ms or 0), 0)
+
+        loop = asyncio.get_running_loop()
+        try:
+            records = await asyncio.wait_for(
+                loop.run_in_executor(None, fetch_fn),
+                timeout=20,
+            )
+        except Exception as ex:
+            logger.warning(f"資金費率同步：fetch_income/fetch_ledger 失敗 ({target_acc}): {ex}")
+            return 0
+
+        if isinstance(records, dict):
+            records = records.get("data") or records.get("info") or []
+        if not isinstance(records, list):
+            return 0
+
+        from core.infrastructure.database.models import TradeFill
+
+        try:
+            existing_fill_ids = {f.fill_id for f in ledger.get_fills(bot_id, limit=100000)}
+        except Exception:
+            existing_fill_ids = set()
+
+        recorded = 0
+        max_ts_ms = since_ms
+        for rec in records:
+            if not isinstance(rec, dict):
+                continue
+            info = rec.get("info") if isinstance(rec.get("info"), dict) else {}
+            # info.incomeType 比 ccxt 的正規化 type 更精確（Binance 可能把 funding 標成 fee）。
+            income_type = str(info.get("incomeType") or rec.get("type") or "").upper()
+            if income_type and "FUNDING" not in income_type and "FUND" not in income_type:
+                continue
+            try:
+                income = float(rec.get("income") or info.get("income") or 0.0)
+            except (TypeError, ValueError):
+                continue
+            if abs(income) <= 0:
+                continue
+            raw_ts = rec.get("timestamp") or info.get("time") or 0
+            try:
+                ts_ms = int(raw_ts)
+            except (TypeError, ValueError):
+                ts_ms = 0
+            if ts_ms <= 0:
+                continue
+            ts = ts_ms / 1000.0
+            symbol = PortfolioRebalancer._normalize_symbol(
+                rec.get("symbol") or info.get("symbol") or "USDT"
+            ) or "USDT"
+            tran_id = str(rec.get("id") or info.get("tranId") or f"{symbol}:{ts_ms}")
+            fill_id = f"funding:{target_acc}:{tran_id}"
+            if fill_id in existing_fill_ids:
+                continue
+            currency = str(rec.get("currency") or info.get("asset") or "USDT")
+            fill = TradeFill(
+                fill_id=fill_id,
+                bot_id=bot_id,
+                # client_order_id 供 API 的 _infer_symbol 解析；fill_id 維持穩定冪等鍵。
+                client_order_id=f"funding_{target_acc}_{symbol}_{tran_id}",
+                exchange_order_id=None,
+                side="funding",
+                role="funding",
+                price=0.0,
+                quantity=0.0,
+                fee=0.0,
+                fee_currency=currency,
+                realized_pnl=round(income, 8),
+                executed_at=ts,
+            )
+            try:
+                if ledger.record_fill(fill):
+                    recorded += 1
+                    existing_fill_ids.add(fill_id)
+                max_ts_ms = max(max_ts_ms, ts_ms)
+            except Exception as ex:
+                logger.warning(f"資金費率同步：寫入 fill 失敗 ({fill_id}): {ex}")
+
+        if recorded > 0:
+            try:
+                ledger.set_state(
+                    bot_id,
+                    "funding_sync_cursor",
+                    {"since_ms": max_ts_ms, "updated_at": time.time()},
+                )
+            except Exception as ex:
+                logger.warning(f"資金費率同步：更新 cursor 失敗 ({target_acc}): {ex}")
+        logger.info(f"資金費率同步完成 ({target_acc}): recorded={recorded}, since_ms={since_ms}")
+        return recorded
+
+    def _funding_income_total(self, bot_id: str) -> float:
+        """由 canonical trade_fills 加總 role=funding 的已實現現金流。"""
+        try:
+            fills = self._ledger().get_fills(bot_id, limit=100000)
+            return round(
+                sum(float(getattr(f, "realized_pnl", 0.0) or 0.0) for f in fills
+                    if str(getattr(f, "role", "")).lower() == "funding"),
+                8,
+            )
+        except Exception as ex:
+            logger.debug(f"加總資金費率收益失敗 ({bot_id}): {ex}")
+            return 0.0
+
+    @staticmethod
+    async def _account_equity_from_adapter(adapter: Optional[ExchangeInterface]) -> Optional[Dict[str, float]]:
+        """讀取 USDT equity / free margin；失敗回 None，不影響換倉。"""
+        if not adapter:
+            return None
+        try:
+            balances = await adapter.get_balances()
+        except Exception:
+            return None
+        for b in balances or []:
+            currency = str(getattr(b, "currency", "") or getattr(b, "asset", "")).upper()
+            if currency == "USDT":
+                free = float(getattr(b, "free", 0.0) or 0.0)
+                total = float(getattr(b, "total", 0.0) or 0.0)
+                return {"equity_usdt": round(total, 8), "free_margin_usdt": round(free, 8)}
+        return None
+
+    async def reconcile_positions(
+        self,
+        account_id: Optional[str] = None,
+        adapter: Optional[ExchangeInterface] = None,
+    ) -> Dict[str, Any]:
+        """比對交易所持倉與 bot_baskets，寫入 reconcile 事件；不自動平倉。
+
+        - missing_on_exchange：帳本 active 有數量，但交易所沒有對應部位。
+        - quantity_mismatch：兩邊都有，但 signed quantity 差異超過 1%（至少 1e-8）。
+        - unmanaged_on_exchange：交易所有部位但不在本策略籃子，也未受外部機器人保護。
+        - protected_on_exchange：交易所部位屬於外部網格/DCA，預期存在。
+        """
+        target_acc = (account_id or self.selected_account or "paper").lower()
+        if target_acc == "paper":
+            return {"status": "skipped_paper", "account_id": target_acc}
+        if adapter is None:
+            adapter = await self.get_adapter(target_acc)
+        if not adapter:
+            return {"status": "skipped_no_adapter", "account_id": target_acc}
+
+        positions = await self.get_positions(target_acc)
+        if not getattr(self, "_last_positions_ok", True):
+            logger.warning(f"持倉對帳：{target_acc} 取得交易所持倉失敗，跳過本次對帳")
+            return {"status": "skipped_api_error", "account_id": target_acc}
+        entries = self.load_basket_entries(target_acc)
+        ledger_map = {PortfolioRebalancer._normalize_symbol(e.symbol): e for e in entries}
+        exchange_map = {
+            PortfolioRebalancer._normalize_symbol(p.get("symbol", "")): p
+            for p in positions
+            if p.get("symbol")
+        }
+
+        missing: List[str] = []
+        mismatch: List[Dict[str, Any]] = []
+        for sym, entry in ledger_map.items():
+            qty = float(getattr(entry, "quantity", 0.0) or 0.0)
+            if qty <= 0:
+                continue
+            pos = exchange_map.get(sym)
+            exchange_signed = float(pos.get("signed_size", 0.0)) if pos else 0.0
+            if not pos or abs(exchange_signed) < 1e-8:
+                missing.append(sym)
+                continue
+            ledger_signed = qty if str(getattr(entry, "side", "long")).lower() == "long" else -qty
+            tolerance = max(1e-8, abs(ledger_signed) * 0.01)
+            if abs(ledger_signed - exchange_signed) > tolerance:
+                mismatch.append({
+                    "symbol": sym,
+                    "ledger_qty": round(ledger_signed, 8),
+                    "exchange_qty": round(exchange_signed, 8),
+                })
+
+        unmanaged = [
+            p.get("symbol") for p in positions
+            if str(p.get("role", "")) == "unmanaged"
+        ]
+        protected = [
+            p.get("symbol") for p in positions
+            if str(p.get("role", "")) == "external_bot"
+        ]
+        status = "mismatch" if (missing or mismatch) else "ok"
+        payload: Dict[str, Any] = {
+            "account_id": target_acc,
+            "status": status,
+            "managed_count": sum(1 for e in entries if float(getattr(e, "quantity", 0.0) or 0.0) > 0),
+            "exchange_count": len(positions),
+            "missing_on_exchange": missing,
+            "quantity_mismatch": mismatch,
+            "unmanaged_on_exchange": unmanaged,
+            "protected_on_exchange": protected,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+        bot_id = self._basket_bot_id(target_acc)
+        try:
+            ledger = self._ledger()
+            ledger.ensure_bot(
+                bot_id=bot_id,
+                strategy_type="coinfull_prime",
+                symbol="BASKET_16",
+                exchange=target_acc,
+                account_mode="live" if "live" in target_acc else "paper",
+                status="running" if self._is_running else "idle",
+                config_path=self.config_path,
+            )
+            ledger.append_event(
+                bot_id,
+                event_type="reconcile",
+                payload=payload,
+                dedupe_key=f"reconcile:{target_acc}:{int(time.time())}",
+            )
+        except Exception as ex:
+            logger.warning(f"寫入 reconcile 事件失敗 ({target_acc}): {ex}")
+
+        if status == "mismatch":
+            logger.critical(
+                f"⛔ [持倉對帳] {target_acc} 不一致: missing={missing}, mismatch={mismatch}; "
+                "不自動平倉，請人工檢查"
+            )
+        else:
+            logger.info(
+                f"✅ [持倉對帳] {target_acc}: managed={payload['managed_count']}, "
+                f"exchange={payload['exchange_count']}, unmanaged={unmanaged}, protected={protected}"
+            )
+        return payload
+
     def _persist_run_snapshot(self, target_acc: str, decision: RegimeDecision, report: RebalanceReport):
         """落地每次換倉的權益/持倉快照。
 
@@ -1036,6 +1474,7 @@ class CoinFullPrimeService(BaseService):
         """
         bot_id = self._basket_bot_id(target_acc)
         ledger = self._ledger()
+        funding_income_total = self._funding_income_total(bot_id)
         basket_entries = []
         try:
             basket_entries = [
@@ -1095,6 +1534,8 @@ class CoinFullPrimeService(BaseService):
                 "entries": basket_entries,
             },
             "portfolio": None,
+            "account": None,
+            "funding_income_usdt": funding_income_total,
             "_monotonic_bypass": True,
         }
 
@@ -1120,6 +1561,13 @@ class CoinFullPrimeService(BaseService):
 
         # 交易所持倉補寫（非同步，不阻塞換倉主流程）；完成後以完整快照覆寫同一筆記錄
         async def _fill_portfolio():
+            try:
+                adapter = await self.get_adapter(target_acc)
+                account = await self._account_equity_from_adapter(adapter)
+                if account:
+                    line["account"] = account
+            except Exception as ex:
+                logger.debug(f"快照權益補寫失敗: {ex}")
             try:
                 positions = await self.get_positions(target_acc)
                 if positions:
@@ -1263,6 +1711,12 @@ class CoinFullPrimeService(BaseService):
                     leverage=self.scheduler_leverage,
                     balance_pct=self.scheduler_balance_pct
                 )
+                if report and getattr(report, "status", "") == "hedge_blocked":
+                    logger.critical(
+                        "⛔ 對沖腿受外部機器人保護，換倉已中止；不重試，等待人工解除衝突。"
+                        f" ({getattr(report, 'error', '')})"
+                    )
+                    return False
                 is_success = report and getattr(report, "status", "") in ("completed", "completed_dry_run")
                 # 預防性檢查：若訂單清單非空，但所有訂單全數 skipped 或 failed，視為需重試之異常
                 if is_success and getattr(report, "orders", None):
@@ -1342,6 +1796,88 @@ class CoinFullPrimeService(BaseService):
         finally:
             self._is_running = False
 
+    def _has_active_long_positions(self, account_id: Optional[str] = None) -> bool:
+        """是否仍有 active 多頭；用於決定停止排程時是否保留止損守護。"""
+        acc = account_id or self.selected_account or "paper"
+        try:
+            return any(
+                str(getattr(e, "side", "")).lower() == "long"
+                and float(getattr(e, "quantity", 0.0) or 0.0) > 0
+                and str(getattr(e, "status", "")).lower() == "active"
+                for e in self.load_basket_entries(acc)
+            )
+        except Exception as ex:
+            # 讀取失敗時保守保留守護，避免未知部位失去 -12% 保護。
+            logger.error(f"讀取 active 多頭失敗，保守保留止損守護 ({acc}): {ex}")
+            return True
+
+    async def _cap_scale_by_free_margin(
+        self,
+        adapter: Optional[ExchangeInterface],
+        account_id: str,
+        effective_capital: float,
+        decision: RegimeDecision,
+    ) -> RegimeDecision:
+        """加碼前以 USDT 可用保證金封頂 scale。
+
+        以 95% 可用保證金為預算；required = capital * leverage * scale。
+        無法取得餘額或 adapter 時保守降回 1.0x，避免加碼單把基礎倉位擠掉。
+        """
+        if decision.scale <= 1.0 or decision.force_flatten:
+            return decision
+        capital = float(effective_capital or 0.0)
+        leverage = float(getattr(self.rebalancer, "leverage", 1.0) or 1.0)
+        base_notional = capital * leverage
+        if base_notional <= 0:
+            return decision.model_copy(update={"scale": 1.0})
+        if not adapter:
+            logger.warning("加碼保證金檢查：無 adapter，scale 降回 1.0")
+            return decision.model_copy(update={"scale": 1.0})
+
+        try:
+            balances = await adapter.get_balances()
+        except Exception as ex:
+            logger.warning(f"加碼保證金檢查：讀取餘額失敗，scale 降回 1.0 ({account_id}): {ex}")
+            return decision.model_copy(update={"scale": 1.0})
+
+        free_usdt: Optional[float] = None
+        for b in balances or []:
+            currency = str(getattr(b, "currency", "") or getattr(b, "asset", "")).upper()
+            if currency == "USDT":
+                free_val = getattr(b, "free", None)
+                total_val = getattr(b, "total", None)
+                free_usdt = float(free_val if free_val is not None else (total_val or 0.0))
+                break
+        if free_usdt is None:
+            logger.warning(f"加碼保證金檢查：找不到 USDT 餘額，scale 降回 1.0 ({account_id})")
+            return decision.model_copy(update={"scale": 1.0})
+
+        budget = max(free_usdt, 0.0) * 0.95
+        required = base_notional * decision.scale
+        if required <= budget:
+            return decision
+
+        capped = max(1.0, min(decision.scale, budget / base_notional))
+        logger.warning(
+            f"加碼保證金不足：free={free_usdt:.2f} USDT, required={required:.2f}, "
+            f"scale {decision.scale}x -> {capped:.4f}x"
+        )
+        return decision.model_copy(update={"scale": round(capped, 4)})
+
+    def _start_stop_loss_daemon(self) -> bool:
+        """啟動止損守護（可獨立於排程器；重複呼叫不會產生第二個 task）。"""
+        if self._stop_loss_task and not self._stop_loss_task.done():
+            self._stop_loss_running = True
+            return True
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.warning("目前無 running event loop，無法啟動止損守護")
+            return False
+        self._stop_loss_running = True
+        self._stop_loss_task = loop.create_task(self._intra_week_stop_loss_loop())
+        return True
+
     async def _intra_week_stop_loss_loop(self):
         """週內事中動態硬止損守護程序 (v3.0 Circuit Breaker Daemon)
         
@@ -1349,7 +1885,7 @@ class CoinFullPrimeService(BaseService):
         立即發送市價 reduceOnly 平倉單並鎖定現金，防止單一黑天鵝造成永久性損傷。
         """
         logger.info("🛡️ [盤中動態硬止損守護] 已啟動...")
-        while self._is_running:
+        while self._stop_loss_running:
             try:
                 risk_cfg = self.config.get("risk_control", {}) or {}
                 sl_pct = float(risk_cfg.get("intra_week_stop_loss_pct", -0.12))
@@ -1367,7 +1903,26 @@ class CoinFullPrimeService(BaseService):
         logger.info("🛡️ [盤中動態硬止損守護] 已停止")
 
     async def check_and_trigger_stop_losses(self, sl_pct: float = -0.12) -> List[Dict[str, Any]]:
-        """檢查所有多頭部位，若浮虧達到門檻立即觸發止損"""
+        """檢查所有多頭部位，若浮虧達到門檻立即觸發止損。
+
+        與換倉共用同一把 _rebalance_lock：換倉進行中直接跳過本次檢查，
+        由下一個 5 秒 tick 在換倉結束後重查，避免同一標的被換倉單與 reduceOnly
+        止損單同時處理。
+        """
+        if self._rebalance_lock.locked():
+            logger.warning("換倉管線執行中，暫停本次止損檢查，換倉完成後下一輪重查")
+            return []
+        try:
+            await asyncio.wait_for(self._rebalance_lock.acquire(), timeout=0.05)
+        except asyncio.TimeoutError:
+            logger.warning("換倉管線剛取得鎖，暫停本次止損檢查")
+            return []
+        try:
+            return await self._check_and_trigger_stop_losses_locked(sl_pct=sl_pct)
+        finally:
+            self._rebalance_lock.release()
+
+    async def _check_and_trigger_stop_losses_locked(self, sl_pct: float = -0.12) -> List[Dict[str, Any]]:
         account_id = self.selected_account or "paper"
         entries = self.load_basket_entries(account_id)
         active_longs = [
@@ -1534,6 +2089,9 @@ class CoinFullPrimeService(BaseService):
                 self.scheduler_leverage = lev
                 self.scheduler_balance_pct = bp
                 self.scheduler_enabled = False
+                if self._has_active_long_positions(acc_id):
+                    logger.warning("排程為停用狀態，但偵測到 active 多頭；啟動獨立止損守護")
+                    self._start_stop_loss_daemon()
                 self._rearm_pending_defer()
         else:
             logger.info("ℹ️ 無 CoinFull Prime 歷史排程紀錄，以預設測試網環境啟動排程")
@@ -1577,14 +2135,12 @@ class CoinFullPrimeService(BaseService):
 
         if self._scheduler_task and not self._scheduler_task.done():
             logger.warning("排程已經在運行中，已即時更新配置參數")
-            if self._stop_loss_task is None or self._stop_loss_task.done():
-                self._stop_loss_task = asyncio.create_task(self._intra_week_stop_loss_loop())
+            self._start_stop_loss_daemon()
             self.save_scheduler_state()
             return
         self._is_running = True
         self._scheduler_task = asyncio.create_task(self._scheduler_loop())
-        if self._stop_loss_task is None or self._stop_loss_task.done():
-            self._stop_loss_task = asyncio.create_task(self._intra_week_stop_loss_loop())
+        self._start_stop_loss_daemon()
         self.save_scheduler_state()
 
     def set_scheduler_target(
@@ -1631,16 +2187,30 @@ class CoinFullPrimeService(BaseService):
         return self.get_status()
 
     def stop_scheduler(self, disable: bool = True):
-        """停止定時排程 (disable=False 代表服務重啟時的優雅關閉，不改變用戶設定的啟用狀態)"""
+        """停止定時排程 (disable=False 代表服務重啟時的優雅關閉，不改變用戶設定的啟用狀態)。
+
+        止損守護與排程解耦：使用者停止排程 (disable=True) 但仍有 active 多頭時，
+        保留 -12% 守護；只有程序關閉 (disable=False) 或已無多頭時才取消。
+        """
         if disable:
             self.scheduler_enabled = False
         self._is_running = False
         if self._scheduler_task:
             self._scheduler_task.cancel()
             self._scheduler_task = None
-        if self._stop_loss_task:
-            self._stop_loss_task.cancel()
-            self._stop_loss_task = None
+
+        keep_stop_loss = bool(disable and self._has_active_long_positions())
+        if keep_stop_loss:
+            self._stop_loss_running = True
+            logger.warning(
+                "⚠️ 排程已停止，但仍有 active 多頭；-12% 止損守護繼續運行。"
+                "若要完全停止，請先平倉或呼叫 stop_scheduler(disable=False)。"
+            )
+        else:
+            self._stop_loss_running = False
+            if self._stop_loss_task:
+                self._stop_loss_task.cancel()
+                self._stop_loss_task = None
         if disable:
             self.save_scheduler_state()
 
@@ -1738,6 +2308,7 @@ class CoinFullPrimeService(BaseService):
             "risk_control": {
                 "intra_week_stop_loss_pct": float(self.config.get("risk_control", {}).get("intra_week_stop_loss_pct", -0.12)),
                 "monitor_interval_seconds": float(self.config.get("risk_control", {}).get("monitor_interval_seconds", 5)),
+                "stop_loss_running": bool(self._stop_loss_running),
                 "stopping_symbols": sorted(list(self._stopping_symbols)),
             },
             "managed_symbols": sorted(list({e.symbol for e in active_basket})),

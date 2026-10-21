@@ -369,6 +369,46 @@ class StrategyLedger:
             logger.error(f"❌ [UnifiedLedger] 讀取 events 失敗 bot_id={bot_id}: {exc}")
             return []
 
+    # ── 歷史資料修復（僅供 tools/coinfull_legacy_repair.py 使用） ──────────
+    def count_legacy_event_dedupe_gaps(self, bot_prefix: str = "coinfull_prime") -> int:
+        """計算指定 bot 前綴下、可重跑事件仍缺 dedupe_key 的筆數。"""
+        try:
+            return int(self.store.count_legacy_event_dedupe_gaps(bot_prefix))
+        except Exception as exc:
+            logger.error(f"❌ [UnifiedLedger] 統計 legacy dedupe 缺口失敗: {exc}")
+            return 0
+
+    def backfill_legacy_event_dedupe_keys(self, bot_prefix: str = "coinfull_prime") -> int:
+        """為既有可重跑事件補上穩定 dedupe_key；只處理 NULL，重跑冪等。"""
+        with self._write("backfill_legacy_event_dedupe_keys"):
+            return int(self.store.backfill_legacy_event_dedupe_keys(bot_prefix))
+
+    def backfill_missing_fill_events(self, bot_id: str) -> int:
+        """由 trade_fills 補齊缺少的 canonical fill 事件（L5）；重跑冪等。"""
+        fills = self.get_fills(bot_id, limit=100000)
+        events = self.get_events(bot_id, limit=1000000)
+        existing_fill_ids = {
+            str((e.payload or {}).get("fill_id"))
+            for e in events
+            if e.event_type == "fill" and isinstance(e.payload, dict)
+        }
+        from core.infrastructure.database.event_fold import fill_event_payload
+
+        written = 0
+        for fill in fills:
+            if fill.fill_id in existing_fill_ids:
+                continue
+            seq = self.append_event(
+                bot_id,
+                event_type="fill",
+                payload=fill_event_payload(fill),
+                created_at=fill.executed_at,
+                dedupe_key=f"fill:{fill.fill_id}",
+            )
+            if seq is not None:
+                written += 1
+        return written
+
     # ── 快照 (bot_snapshots / bot_snapshot_history) ───────────────────────
     def save_snapshot(
         self,
@@ -504,6 +544,19 @@ class StrategyLedger:
                 bot_id, account_id, normalized, close_missing=close_missing
             )
         return touched
+
+    def close_basket_entry(
+        self,
+        bot_id: str,
+        account_id: str,
+        symbol: str,
+        reason: str = "reconcile_missing",
+    ) -> Optional[dict]:
+        """對帳修復專用：關閉交易所已不存在的籃子成分（不捏造 realized_pnl）。"""
+        with self._write("close_basket_entry"):
+            return self.store.close_basket_entry(
+                bot_id, account_id, symbol, reason=reason
+            )
 
     def load_basket(
         self,

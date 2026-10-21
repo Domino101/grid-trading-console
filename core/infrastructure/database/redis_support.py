@@ -48,7 +48,7 @@ def redis_enabled() -> bool:
     return bool(os.getenv("REDIS_URL"))
 
 
-def _redis_client() -> Any:
+def _redis_client(socket_timeout: Optional[float] = 2.0) -> Any:
     """Return a Redis client or None if REDIS_URL is absent / unavailable."""
     url = os.getenv("REDIS_URL")
     if not url:
@@ -58,12 +58,25 @@ def _redis_client() -> Any:
     except ImportError:  # pragma: no cover
         return None
     try:
-        client = redis.Redis.from_url(url, decode_responses=True, socket_timeout=2.0)
+        client = redis.Redis.from_url(
+            url,
+            decode_responses=True,
+            socket_timeout=socket_timeout,
+            socket_connect_timeout=3.0,
+            health_check_interval=30 if socket_timeout is None else 0,
+        )
         client.ping()
         return client
     except Exception as exc:
         logger.warning(f"⚠️ [Redis] 無法連線 REDIS_URL，自動降級回資料庫: {exc}")
         return None
+
+
+def get_redis_pubsub_client() -> Optional[Any]:
+    """Return a dedicated Redis client for pubsub without socket read timeout."""
+    if not redis_enabled():
+        return None
+    return _redis_client(socket_timeout=None)
 
 
 _CLIENT: Optional[Any] = None
@@ -215,11 +228,10 @@ class RedisEventBus:
 
     def subscribe(self, callback: Callable[[dict], None]) -> Optional[Dict[str, Any]]:
         """Return a subscription handle; caller must keep it referenced/close."""
-        client = get_redis()
-        if client is None:
+        if not redis_enabled():
             return None
 
-        holder: Dict[str, Any] = {"running": True, "pubsub": None}
+        holder: Dict[str, Any] = {"running": True, "pubsub": None, "client": None}
 
         def _connect(client_: Any) -> Any:
             pubsub = client_.pubsub()
@@ -245,12 +257,13 @@ class RedisEventBus:
                 pubsub = holder.get("pubsub")
                 try:
                     if pubsub is None:
-                        fresh = get_redis()
+                        fresh = get_redis_pubsub_client()
                         if fresh is None:
                             # Redis still down/disabled; keep waiting, bounded.
                             time.sleep(backoff)
                             backoff = min(backoff * 2, 30.0)
                             continue
+                        holder["client"] = fresh
                         pubsub = _connect(fresh)
                         backoff = 1.0
                         logger.info("✅ [Redis] 事件訂閱已（重）連")
@@ -265,6 +278,9 @@ class RedisEventBus:
                 except Exception as exc:
                     if not holder["running"]:
                         break
+                    # 若為 Socket 讀取逾時（無新事件），不中斷連線，繼續監聽
+                    if "Timeout reading from socket" in str(exc) or "timed out" in str(exc).lower():
+                        continue
                     logger.warning(f"⚠️ [Redis] 事件訂閱中斷，{backoff:.0f}s 後重連: {exc}")
                     try:
                         stale = holder.get("pubsub")
@@ -272,8 +288,14 @@ class RedisEventBus:
                             stale.close()
                     except Exception:
                         pass
+                    try:
+                        client_stale = holder.get("client")
+                        if client_stale is not None:
+                            client_stale.close()
+                    except Exception:
+                        pass
                     holder["pubsub"] = None
-                    reset_redis_client()
+                    holder["client"] = None
                     time.sleep(backoff)
                     backoff = min(backoff * 2, 30.0)
 
@@ -286,6 +308,12 @@ class RedisEventBus:
             if pubsub is not None:
                 try:
                     pubsub.close()
+                except Exception:
+                    pass
+            client_stale = holder.get("client")
+            if client_stale is not None:
+                try:
+                    client_stale.close()
                 except Exception:
                     pass
 

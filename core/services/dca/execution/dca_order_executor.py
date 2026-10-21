@@ -405,6 +405,18 @@ class DcaOrderExecutor(IDcaOrderExecutor):
             )
             return True
         except Exception as exc:
+            err_msg = str(exc)
+            if "-2011" in err_msg or "Unknown order" in err_msg or "Order does not exist" in err_msg:
+                order.mark_cancelled()
+                logger.warning(
+                    "撤單目標已不存在於交易所 (視為撤單成功)",
+                    extra={
+                        "symbol": self._symbol, "bot_id": self._bot_id,
+                        "action": "cancel_order", "result": "already_cancelled_or_filled",
+                        "client_order_id": order.client_order_id, "error": err_msg,
+                    },
+                )
+                return True
             logger.error(
                 "撤單失敗",
                 extra={

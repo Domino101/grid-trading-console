@@ -43,11 +43,13 @@ DEFAULT_FALLBACK_TRADFI_SYMBOLS: Set[str] = {
     "BTCDOMUSDT", "DEFIUSDT"
 }
 
+# v3.0 Opt C 預設權重：動能 0.60 / 資金費率 0.40，flow 與 liquidation 已移除。
+# 這裡必須是 v3 預設，避免服務在配置缺失時悄悄退回 v2 對稱小幣空頭。
 DEFAULT_WEIGHTS = {
-    "momentum": 0.35,
-    "flow": 0.35,
-    "funding": 0.20,
-    "liquidation": 0.10
+    "momentum": 0.60,
+    "flow": 0.0,
+    "funding": 0.40,
+    "liquidation": 0.0
 }
 
 
@@ -71,36 +73,43 @@ class CoinFullPrimeQuant:
         # 因子形式（v3.0 優化：docs/CoinFull_Prime_v3_Engineering_Spec_and_Optimization_Master.md）
         # momentum.mode: "day" = 24h 漲跌幅; "blend" = 多時距混合 (r7d, r14d, r30d)
         momentum_cfg = self.config.get("momentum", {}) or {}
-        self.momentum_mode = str(momentum_cfg.get("mode", "day")).lower()
+        self.momentum_mode = str(momentum_cfg.get("mode", "blend")).lower()
         blend_cfg = momentum_cfg.get("blend", {}) or {}
-        self.momentum_blend = {
-            "r1d": float(blend_cfg.get("r1d", 0.0 if "r14d" in blend_cfg else 0.5)),
-            "r7d": float(blend_cfg.get("r7d", 0.3)),
-            "r14d": float(blend_cfg.get("r14d", 0.0)),
-            "r30d": float(blend_cfg.get("r30d", 0.2)),
-        }
-        self.overheat_penalty = bool(momentum_cfg.get("overheat_penalty", False))
+        if blend_cfg:
+            # 向後相容：legacy 配置若只給 r1d/r7d/r30d，保留原有語意。
+            self.momentum_blend = {
+                "r1d": float(blend_cfg.get("r1d", 0.0 if "r14d" in blend_cfg else 0.5)),
+                "r7d": float(blend_cfg.get("r7d", 0.3)),
+                "r14d": float(blend_cfg.get("r14d", 0.0)),
+                "r30d": float(blend_cfg.get("r30d", 0.2)),
+            }
+        else:
+            # v3.0 預設：0*R1d + 0.5*R7d + 0.3*R14d + 0.2*R30d
+            self.momentum_blend = {"r1d": 0.0, "r7d": 0.5, "r14d": 0.3, "r30d": 0.2}
+        self.overheat_penalty = bool(momentum_cfg.get("overheat_penalty", True))
 
         # funding.mode: "spot" = 單點快照; "smooth" = 最近 N 次 8 小時結算平均
         funding_cfg = self.config.get("funding", {}) or {}
-        self.funding_mode = str(funding_cfg.get("mode", "spot")).lower()
+        self.funding_mode = str(funding_cfg.get("mode", "smooth")).lower()
         self.funding_settlements = int(funding_cfg.get("settlements", 9))
-        self.annual_max_long_pct = float(funding_cfg.get("annual_max_long_pct", 0.0))
-        self.annual_min_short_pct = float(funding_cfg.get("annual_min_short_pct", 0.0))
+        self.annual_max_long_pct = float(funding_cfg.get("annual_max_long_pct", 60.0))
+        self.annual_min_short_pct = float(funding_cfg.get("annual_min_short_pct", -40.0))
 
         # 非對稱空頭對沖配置 (v3.0 Opt C)
         hedge_cfg = self.config.get("hedge", {}) or {}
-        self.hedge_mode = str(hedge_cfg.get("mode", "basket")).lower()
+        self.hedge_mode = str(hedge_cfg.get("mode", "benchmark")).lower()
         self.short_hedge_symbol = str(hedge_cfg.get("symbol", "BTCUSDT"))
         self.short_hedge_weight = float(hedge_cfg.get("weight", 0.50))
         self.short_dual_weights = hedge_cfg.get("dual_weights", {"BTCUSDT": 0.25, "ETHUSDT": 0.25})
 
         # 質量與流動性初篩門檻 (v3.0 Opt D)
         univ_cfg = self.config.get("universe", {}) or {}
-        self.min_24h_volume_usdt = float(univ_cfg.get("min_24h_volume_usdt", 0.0))
-        self.max_7d_atr_pct = float(univ_cfg.get("max_7d_atr_pct", 0.0))
-        # RESTRICTED_TAGS: 人工黑名單 (MEME/AI_AGENT/LOW_LIQ 等，大小寫不敏感)
-        raw_tags = univ_cfg.get("restricted_tags", []) or univ_cfg.get("restricted_symbols", [])
+        self.min_24h_volume_usdt = float(univ_cfg.get("min_24h_volume_usdt", 50_000_000.0))
+        self.max_7d_atr_pct = float(univ_cfg.get("max_7d_atr_pct", 0.20))
+        # RESTRICTED_SYMBOLS: 人工審核的精確 symbol 黑名單（大小寫不敏感）。
+        # 交易所沒有穩定的 MEME/AI_AGENT tag 資料源，因此這裡不假裝有 tag 過濾；
+        # restricted_tags 僅保留為舊配置別名。
+        raw_tags = univ_cfg.get("restricted_symbols", []) or univ_cfg.get("restricted_tags", [])
         self.restricted_tags: Set[str] = {str(x).upper().strip() for x in raw_tags if str(x).strip()}
 
         self.latest_prices: Dict[str, float] = {}
@@ -226,6 +235,11 @@ class CoinFullPrimeQuant:
 
     async def fetch_features(self, session: aiohttp.ClientSession, symbols: List[str]) -> List[RawFeature]:
         """非同步批次獲取 79 幣的客觀合約微觀數據"""
+        # 每次重跑先清空，避免上一輪的成交量/ATR/價格在抓取失敗時被當成新資料。
+        self.latest_prices = {}
+        self.quote_volumes = {}
+        self.atr_pct_map = {}
+
         # 1. 資金費率全市場批次
         funding_map: Dict[str, float] = {}
         try:
@@ -534,6 +548,12 @@ class CoinFullPrimeQuant:
             hedge_symbols_to_exclude.update(self.short_dual_weights.keys())
 
         # 1. 篩選多頭候選 (初篩門檻：成交額/資費過熱/波動率/黑名單)
+        # Opt D 資料缺漏時 fail-closed：不能因為抓不到成交量/ATR 就默默放行。
+        if self.min_24h_volume_usdt > 0 and not getattr(self, "quote_volumes", None):
+            return UniverseRankResult(universe_size=n, status="failed", message="24h volume data unavailable; refusing to rank")
+        if self.max_7d_atr_pct > 0 and not getattr(self, "atr_pct_map", None):
+            return UniverseRankResult(universe_size=n, status="failed", message="7d ATR data unavailable; refusing to rank")
+
         long_candidates: List[RankedItem] = []
         for item in ranked_items:
             if item.symbol in hedge_symbols_to_exclude:
@@ -542,14 +562,14 @@ class CoinFullPrimeQuant:
             if self.restricted_tags and item.symbol.upper() in self.restricted_tags:
                 continue
             # 質量初篩：24h 成交額門檻
-            if self.min_24h_volume_usdt > 0 and getattr(self, "quote_volumes", None):
+            if self.min_24h_volume_usdt > 0:
                 vol = self.quote_volumes.get(item.symbol, 0.0)
                 if vol < self.min_24h_volume_usdt:
                     continue
-            # Opt D 波動過濾：7 日 ATR/Price
-            if self.max_7d_atr_pct > 0 and getattr(self, "atr_pct_map", None):
+            # Opt D 波動過濾：7 日 ATR/Price（缺值視為不合格）
+            if self.max_7d_atr_pct > 0:
                 atr = self.atr_pct_map.get(item.symbol)
-                if atr is not None and atr > self.max_7d_atr_pct:
+                if atr is None or atr > self.max_7d_atr_pct:
                     continue
             # 資費過熱過濾：年化資費上限 (+60%)
             if self.annual_max_long_pct > 0 and hasattr(item, "raw_params") and item.raw_params:
@@ -568,7 +588,7 @@ class CoinFullPrimeQuant:
                     continue
                 if self.restricted_tags and item.symbol.upper() in self.restricted_tags:
                     continue
-                if self.min_24h_volume_usdt > 0 and getattr(self, "quote_volumes", None):
+                if self.min_24h_volume_usdt > 0:
                     vol = self.quote_volumes.get(item.symbol, 0.0)
                     if vol < self.min_24h_volume_usdt:
                         continue
@@ -576,16 +596,24 @@ class CoinFullPrimeQuant:
                     ann_funding = item.raw_params.funding_rate_pct * 3 * 365
                     if ann_funding > self.annual_max_long_pct:
                         continue
-                # 回補階段放寬 ATR (記錄警告)
-                if self.max_7d_atr_pct > 0 and getattr(self, "atr_pct_map", None):
+                # 回補不再放寬 ATR：缺值或超標一律不納入。
+                if self.max_7d_atr_pct > 0:
                     atr = self.atr_pct_map.get(item.symbol)
-                    if atr is not None and atr > self.max_7d_atr_pct:
-                        logger.warning(f"[Opt D 回補] {item.symbol} ATR {atr:.2%} > {self.max_7d_atr_pct:.0%} 已放寬納入以滿足 {self.long_count} 檔需求")
+                    if atr is None or atr > self.max_7d_atr_pct:
+                        continue
                 long_candidates.append(item)
                 if len(long_candidates) >= self.long_count:
                     break
 
         long_list = long_candidates
+        if not long_list:
+            logger.warning("[Opt D] 無合格多頭標的，拒絕建立只有空頭的裸對沖")
+            return UniverseRankResult(universe_size=n, status="failed", message="no eligible long candidates after Opt D filters")
+        if len(long_list) < self.long_count:
+            logger.warning(
+                f"[Opt D] 合格多頭僅 {len(long_list)}/{self.long_count} 檔；"
+                "維持較低檔數，不放寬 ATR/成交額"
+            )
         long_weight_each = 1.0 / max(self.long_count, 1)
         long_notional_each = (effective_capital * effective_leverage * 0.5) * long_weight_each
 
@@ -679,10 +707,14 @@ class CoinFullPrimeQuant:
                     ann_funding_short = item.raw_params.funding_rate_pct * 3 * 365
                     if ann_funding_short < self.annual_min_short_pct:
                         continue
-                # ATR 過濾同步適用空頭
-                if self.max_7d_atr_pct > 0 and getattr(self, "atr_pct_map", None):
+                # 成交量與 ATR 過濾同步適用空頭（缺值視為不合格）
+                if self.min_24h_volume_usdt > 0:
+                    vol = self.quote_volumes.get(item.symbol, 0.0)
+                    if vol < self.min_24h_volume_usdt:
+                        continue
+                if self.max_7d_atr_pct > 0:
                     atr = self.atr_pct_map.get(item.symbol)
-                    if atr is not None and atr > self.max_7d_atr_pct:
+                    if atr is None or atr > self.max_7d_atr_pct:
                         continue
                 basket_candidates.append(item)
                 if len(basket_candidates) >= self.short_count:
@@ -693,6 +725,16 @@ class CoinFullPrimeQuant:
                 for item in reversed(ranked_items):
                     if item in basket_candidates or item.symbol in hedge_symbols_to_exclude:
                         continue
+                    if self.restricted_tags and item.symbol.upper() in self.restricted_tags:
+                        continue
+                    if self.min_24h_volume_usdt > 0:
+                        vol = self.quote_volumes.get(item.symbol, 0.0)
+                        if vol < self.min_24h_volume_usdt:
+                            continue
+                    if self.max_7d_atr_pct > 0:
+                        atr = self.atr_pct_map.get(item.symbol)
+                        if atr is None or atr > self.max_7d_atr_pct:
+                            continue
                     basket_candidates.append(item)
                     if len(basket_candidates) >= self.short_count:
                         break
@@ -702,6 +744,10 @@ class CoinFullPrimeQuant:
                 item.target_notional = round(short_notional_each, 2)
                 item.evaluations.overall_eval = f"強烈做空 (Bottom {idx + 1}) 🔻"
                 short_list.append(item)
+
+        if not short_list:
+            logger.warning("無合格空頭/對沖標的，拒絕建立只有多頭的裸方向倉")
+            return UniverseRankResult(universe_size=n, status="failed", message="no eligible short hedge candidates")
 
         # 3. 中間標的評估
         long_symbols = {x.symbol for x in long_list}

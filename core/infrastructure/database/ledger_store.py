@@ -106,6 +106,8 @@ class LedgerStore(typing.Protocol):
         dedupe_key: Optional[str] = None,
     ) -> int: ...
     def get_events(self, bot_id: str, since_seq: int = 0, limit: int = 100000) -> List["BotEvent"]: ...
+    def count_legacy_event_dedupe_gaps(self, bot_prefix: str = "coinfull_prime") -> int: ...
+    def backfill_legacy_event_dedupe_keys(self, bot_prefix: str = "coinfull_prime") -> int: ...
     def get_position(self, bot_id: str) -> Optional[BotPosition]: ...
     def update_position_occ(self, bot_id: str, position: BotPosition, expected_version: int) -> bool: ...
     def rehydrate_position_from_fills(self, bot_id: str) -> BotPosition: ...
@@ -119,6 +121,9 @@ class LedgerStore(typing.Protocol):
         now: Optional[float] = None,
     ) -> int: ...
     def get_basket(self, bot_id: str, account_id: Optional[str] = None, active_only: bool = True) -> List[BasketEntry]: ...
+    def close_basket_entry(
+        self, bot_id: str, account_id: str, symbol: str, reason: str = "reconcile_missing", now: Optional[float] = None
+    ) -> Optional[dict]: ...
     def apply_basket_fill(
         self,
         bot_id: str,
@@ -424,14 +429,24 @@ def _monotonic_regression(old: dict, new: dict) -> List[str]:
             continue
 
         # DEF-01: 數值倒退防護
-        # realized (淨實現收益) 允許在手續費增加或成交量增加 (表示真實交易產生虧損) 時下降；
-        # 但若無成交/手續費未增且 cycles 未增，或者 grid_profit (純套利利潤) 倒退，則屬異常抹除
-        if key == "realized":
+        # realized / grid_profit (收益指標) 允許在手續費增加、成交單數增加或 cycles 增加 (表示真實交易產生虧損) 時下降；
+        # 但若無新成交（手續費未增、cycles 未增且買賣單未增），則屬異常抹除
+        if key in ("realized", "grid_profit"):
             old_fees = old_m.get("fees") or 0.0
             new_fees = new_m.get("fees") or 0.0
             old_cycles = old_m.get("cycles") or 0.0
             new_cycles = new_m.get("cycles") or 0.0
-            if (new_fees > old_fees + 1e-9) or (new_cycles > old_cycles):
+            old_buy = old_m.get("buy") or 0.0
+            new_buy = new_m.get("buy") or 0.0
+            old_sell = old_m.get("sell") or 0.0
+            new_sell = new_m.get("sell") or 0.0
+            trading_activity = (
+                (new_fees > old_fees + 1e-9)
+                or (new_cycles > old_cycles)
+                or (new_buy > old_buy)
+                or (new_sell > old_sell)
+            )
+            if trading_activity:
                 continue
             if new_value < old_value - 1e-9:
                 regressed.append(key)
@@ -727,6 +742,48 @@ class SQLAlchemyLedgerStore:
                 except Exception as exc:  # seq race: retry with fresh max(seq)
                     last_error = exc
         raise LedgerStoreError(f"append_event failed after retries for {bot_id}/{event_type}: {last_error}")
+
+    # ── 歷史資料修復：可重跑事件缺 dedupe_key（L6） ────────────────────────
+    _LEGACY_DEDUPE_EVENT_TYPES = (
+        "daily_rebalance",
+        "weekly_rebalance",
+        "manual_rebalance",
+        "regime_gate",
+    )
+
+    def count_legacy_event_dedupe_gaps(self, bot_prefix: str = "coinfull_prime") -> int:
+        """COUNT 指定 bot 前綴下仍缺 dedupe_key 的可重跑事件。"""
+        with self._lock, self._ro() as conn:
+            row = conn.execute(
+                select(func.count()).select_from(bot_events).where(
+                    bot_events.c.bot_id.like(f"{bot_prefix}%"),
+                    bot_events.c.dedupe_key.is_(None),
+                    bot_events.c.event_type.in_(self._LEGACY_DEDUPE_EVENT_TYPES),
+                )
+            ).fetchone()
+        return int(row[0] or 0) if row else 0
+
+    def backfill_legacy_event_dedupe_keys(self, bot_prefix: str = "coinfull_prime") -> int:
+        """為既有可重跑事件補上 legacy:{type}:{bot}:{id}；只更新 NULL，重跑冪等。"""
+        with self._lock, self._begin() as conn:
+            rows = conn.execute(
+                select(
+                    bot_events.c.id,
+                    bot_events.c.bot_id,
+                    bot_events.c.event_type,
+                ).where(
+                    bot_events.c.bot_id.like(f"{bot_prefix}%"),
+                    bot_events.c.dedupe_key.is_(None),
+                    bot_events.c.event_type.in_(self._LEGACY_DEDUPE_EVENT_TYPES),
+                )
+            ).all()
+            for row in rows:
+                conn.execute(
+                    bot_events.update()
+                    .where(bot_events.c.id == row.id)
+                    .values(dedupe_key=f"legacy:{row.event_type}:{row.bot_id}:{row.id}")
+                )
+        return len(rows)
 
     def get_events(self, bot_id: str, since_seq: int = 0, limit: int = 100000) -> List["BotEvent"]:
         """Read the event stream in seq order (event-sourcing replay source)."""
@@ -1082,6 +1139,49 @@ class SQLAlchemyLedgerStore:
             )
             for r in rows
         ]
+
+    def close_basket_entry(
+        self,
+        bot_id: str,
+        account_id: str,
+        symbol: str,
+        reason: str = "reconcile_missing",
+        now: Optional[float] = None,
+    ) -> Optional[dict]:
+        """對帳修復：把交易所已不存在（或 quantity=0）的成分標 closed。
+
+        僅供 tools/coinfull_reconcile_repair.py 使用；正常平倉仍必須走
+        apply_basket_fill()。保留 entry_price / realized_pnl 供審計，不捏造損益。
+        """
+        ts = now if now is not None else time.time()
+        with self._lock, self._begin() as conn:
+            row = conn.execute(
+                select(bot_baskets).where(
+                    bot_baskets.c.bot_id == bot_id,
+                    bot_baskets.c.account_id == account_id,
+                    bot_baskets.c.symbol == symbol,
+                )
+            ).fetchone()
+            if row is None or str(row.status) != "active":
+                return None
+            info = {
+                "symbol": row.symbol,
+                "side": row.side,
+                "quantity": float(row.quantity or 0.0),
+                "entry_price": float(row.entry_price) if row.entry_price is not None else None,
+                "realized_pnl": float(row.realized_pnl or 0.0),
+                "reason": reason,
+            }
+            conn.execute(
+                bot_baskets.update()
+                .where(
+                    bot_baskets.c.bot_id == bot_id,
+                    bot_baskets.c.account_id == account_id,
+                    bot_baskets.c.symbol == symbol,
+                )
+                .values(quantity=0.0, notional_usdt=0.0, status="closed", updated_at=ts)
+            )
+        return info
 
     def apply_basket_fill(
         self,

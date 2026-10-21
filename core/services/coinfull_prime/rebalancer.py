@@ -40,6 +40,47 @@ class PortfolioRebalancer:
             clean = clean.split(":")[0]
         return clean.upper().replace("/", "").replace("-", "").replace("_", "").strip()
 
+    @classmethod
+    def _protected_sets(cls, protected_symbols: Optional[Set[str]]) -> Tuple[Set[str], Set[str]]:
+        """把外部保護名單正規化為完整代號與基礎幣種兩組集合。"""
+        clean_protected: Set[str] = set()
+        clean_protected_base: Set[str] = set()
+        for s in (protected_symbols or set()):
+            ns = cls._normalize_symbol(s)
+            if not ns:
+                continue
+            clean_protected.add(ns)
+            for quote in ["USDT", "USDC", "BUSD", "USD"]:
+                if ns.endswith(quote) and len(ns) > len(quote):
+                    clean_protected_base.add(ns[:-len(quote)])
+        return clean_protected, clean_protected_base
+
+    @classmethod
+    def _is_protected_symbol(
+        cls,
+        symbol: str,
+        clean_protected: Set[str],
+        clean_protected_base: Set[str],
+    ) -> bool:
+        """判斷標的（含基礎幣種）是否落在外部機器人保護名單。"""
+        if not symbol:
+            return False
+        ns = cls._normalize_symbol(symbol)
+        if ns in clean_protected:
+            return True
+        for quote in ["USDT", "USDC", "BUSD", "USD"]:
+            if ns.endswith(quote) and len(ns) > len(quote):
+                base = ns[:-len(quote)]
+                if base in clean_protected_base or base in clean_protected:
+                    return True
+        return False
+
+    @classmethod
+    def _matches_protected(cls, symbol: str, protected_symbols: Optional[Set[str]]) -> bool:
+        """便利包裝：以原始保護名單判斷單一標的是否受保護。"""
+        clean_protected, clean_protected_base = cls._protected_sets(protected_symbols)
+        return cls._is_protected_symbol(symbol, clean_protected, clean_protected_base)
+
     def calculate_diff(
         self,
         current_positions: Dict[str, float],
@@ -96,28 +137,10 @@ class PortfolioRebalancer:
             target_map[self._normalize_symbol(item.symbol)] = item
 
         # 解析外部機器人保護清單（包含全名與基礎幣種，例如 SOLUSDC -> 排除 SOLUSDC 與 SOL）
-        clean_protected: Set[str] = set()
-        clean_protected_base: Set[str] = set()
-        if protected_symbols:
-            for s in protected_symbols:
-                ns = self._normalize_symbol(s)
-                clean_protected.add(ns)
-                for quote in ["USDT", "USDC", "BUSD", "USD"]:
-                    if ns.endswith(quote) and len(ns) > len(quote):
-                        clean_protected_base.add(ns[:-len(quote)])
+        clean_protected, clean_protected_base = self._protected_sets(protected_symbols)
 
         def _is_protected(sym: str) -> bool:
-            if not sym:
-                return False
-            ns = self._normalize_symbol(sym)
-            if ns in clean_protected:
-                return True
-            for quote in ["USDT", "USDC", "BUSD", "USD"]:
-                if ns.endswith(quote) and len(ns) > len(quote):
-                    base = ns[:-len(quote)]
-                    if base in clean_protected_base or base in clean_protected:
-                        return True
-            return False
+            return self._is_protected_symbol(sym, clean_protected, clean_protected_base)
 
         # 專屬持倉籃子過濾
         clean_managed: Optional[Set[str]] = None
@@ -397,6 +420,29 @@ class PortfolioRebalancer:
             gate_force_flatten=bool(force_flatten),
             batch_id=batch
         )
+
+        # 0. 對沖腿與外部機器人衝突時整輪 abort。
+        # 若只跳過被保護的空頭腿，多頭仍會照常建立，結果是無對沖的方向性多頭。
+        # force_flatten 只平倉、不開新倉，因此不受此限制。
+        if not force_flatten and rank_result.long_list:
+            # short_list 的語意就是對沖/空頭腿；不依賴 side 欄位是否被呼叫端填寫。
+            hedge_symbols = [item.symbol for item in (rank_result.short_list or [])]
+            blocked_hedges = [
+                sym for sym in hedge_symbols
+                if self._matches_protected(sym, protected_symbols)
+            ]
+            if blocked_hedges:
+                report.status = "hedge_blocked"
+                report.error = (
+                    "hedge symbols protected by external bots: "
+                    + ", ".join(blocked_hedges)
+                    + "; rebalance aborted to avoid unhedged longs"
+                )
+                logger.error(
+                    f"⛔ [對沖腿衝突] {', '.join(blocked_hedges)} 受外部機器人保護，"
+                    "為避免建立無對沖多頭，整輪換倉中止"
+                )
+                return report
 
         # 0. 向 Canonical Ledger 登記/更新機器人身分（遵循 P1-6 帳本完整性規範）
         #    P4-1：唯一路徑為 StrategyLedger（自動路由 SQLite / PostgreSQL 真相源），
@@ -705,6 +751,12 @@ class PortfolioRebalancer:
             report.status = "skipped"
             errors = [f"{o.symbol}: {o.error}" for o in report.orders if o.error]
             report.error = "; ".join(errors[:3])
+        elif skipped_count > 0:
+            # 部分成交 + 部分跳過不是 completed；否則 service 會同步完整名單，
+            # 把被跳過的舊部位誤標為 closed。
+            report.status = "partial"
+            errors = [f"{o.symbol}: {o.error}" for o in report.orders if o.error]
+            report.error = "; ".join(errors[:3])
         else:
             report.status = "completed"
 
@@ -855,31 +907,70 @@ class PortfolioRebalancer:
             f"跌幅={pnl_pct*100:.2f}%, 執行市價平倉數量={qty_to_close} (DryRun={dry_run})"
         )
 
+        # Dry-Run 只模擬決策，不得改動 canonical ledger 的籃子狀態。
+        # 否則 live 帳號以 dry_run 啟動時，交易所部位仍在，帳本卻已 STOPPED_OUT。
+        if dry_run:
+            logger.info(f"🧪 [盤中止損 Dry-Run] {clean_sym} 僅模擬，不送單、不結算籃子")
+            return {
+                "status": "simulated",
+                "symbol": clean_sym,
+                "entry_price": entry_price,
+                "exit_price": current_price,
+                "quantity": qty_to_close,
+                "pnl_pct": pnl_pct,
+                "realized_pnl": 0.0,
+                "dry_run": True,
+            }
+
+        if not exchange_adapter:
+            logger.error(f"❌ [盤中止損] {clean_sym} 無可用交易所 adapter，保留籃子 active 等待重試")
+            return {
+                "status": "failed",
+                "symbol": clean_sym,
+                "error": "no exchange adapter; position kept active",
+            }
+
         exec_price = current_price
         exec_amount = qty_to_close
         fee_cost = 0.0
         now_ts = time.time()
+        exec_order_id = ""
 
-        if not dry_run and exchange_adapter:
-            try:
-                market = self._find_exchange_market(exchange_adapter, clean_sym)
-                clean_qty, _ = self._quantize_order_amount(qty_to_close, market)
-                if clean_qty > 0:
-                    exec_amount = clean_qty
+        try:
+            market = self._find_exchange_market(exchange_adapter, clean_sym)
+            clean_qty, skip_reason = self._quantize_order_amount(qty_to_close, market)
+            if skip_reason or clean_qty <= 0:
+                logger.error(f"❌ [盤中止損] {clean_sym} 數量無法量化: {skip_reason or clean_qty}，保留籃子 active")
+                return {
+                    "status": "failed",
+                    "symbol": clean_sym,
+                    "error": skip_reason or "quantized quantity is zero; position kept active",
+                }
 
-                res = await exchange_adapter.create_order(
-                    symbol=clean_sym,
-                    side=OrderSide.SELL,
-                    order_type=OrderType.MARKET,
-                    amount=Decimal(str(exec_amount)),
-                    params={"reduceOnly": True}
-                )
-                exec_price = float(getattr(res, "average", None) or getattr(res, "price", None) or current_price)
-                if hasattr(res, "fee") and isinstance(res.fee, dict):
-                    fee_cost = float(res.fee.get("cost", 0.0) or 0.0)
-            except Exception as ex:
-                logger.error(f"❌ [盤中止損下單失敗] {clean_sym}: {ex}")
-                return {"status": "failed", "symbol": clean_sym, "error": str(ex)}
+            res = await exchange_adapter.create_order(
+                symbol=clean_sym,
+                side=OrderSide.SELL,
+                order_type=OrderType.MARKET,
+                amount=Decimal(str(clean_qty)),
+                params={"reduceOnly": True}
+            )
+            exec_order_id = str(getattr(res, "id", None) or getattr(res, "order_id", None) or "")
+            filled_qty = float(getattr(res, "filled", 0.0) or 0.0)
+            if filled_qty <= 0:
+                logger.error(f"❌ [盤中止損] {clean_sym} 交易所回報 filled=0，保留籃子 active")
+                return {
+                    "status": "failed",
+                    "symbol": clean_sym,
+                    "error": "exchange reported zero filled; position kept active",
+                }
+            # 只結算交易所真正成交的數量；部分成交時保留剩餘部位給下一輪守護。
+            exec_amount = min(filled_qty, qty_to_close)
+            exec_price = float(getattr(res, "average", None) or getattr(res, "price", None) or current_price)
+            if hasattr(res, "fee") and isinstance(res.fee, dict):
+                fee_cost = float(res.fee.get("cost", 0.0) or 0.0)
+        except Exception as ex:
+            logger.error(f"❌ [盤中止損下單失敗] {clean_sym}: {ex}，保留籃子 active")
+            return {"status": "failed", "symbol": clean_sym, "error": str(ex)}
 
         # 寫入 Canonical Ledger 結算籃子均價部位 (均價法自動處理 closed 狀態與 realized_pnl)
         realized_pnl = 0.0
@@ -896,15 +987,16 @@ class PortfolioRebalancer:
         except Exception as ex:
             logger.error(f"❌ [盤中止損結算失敗] {clean_sym}: {ex}")
 
-        # 記錄成交流水與事件
+        # 記錄成交流水與事件；fill_id 優先使用交易所 order id，避免時間戳造成重複入帳。
         try:
             from core.infrastructure.database.models import TradeFill
-            fill_id = f"sl_{account_id}_{clean_sym}_{int(now_ts)}"
+            stable_key = exec_order_id or str(int(now_ts))
+            fill_id = f"sl_{account_id}_{clean_sym}_{stable_key}"
             ledger.record_fill(
                 TradeFill(
                     fill_id=fill_id,
                     bot_id=bot_id,
-                    exchange_order_id=None,
+                    exchange_order_id=exec_order_id or None,
                     client_order_id=fill_id,
                     side="sell",
                     role="stop_loss",
@@ -926,11 +1018,14 @@ class PortfolioRebalancer:
                     "pnl_pct": pnl_pct,
                     "realized_pnl": realized_pnl,
                     "quantity": exec_amount,
-                    "dry_run": dry_run,
+                    "requested_quantity": qty_to_close,
+                    "remaining_quantity": max(0.0, qty_to_close - exec_amount),
+                    "exchange_order_id": exec_order_id or None,
+                    "dry_run": False,
                     "reason": reason,
                     "message": f"Intra-week stop loss triggered for {clean_sym} at {exec_price} (drop {pnl_pct*100:.2f}%)",
                 },
-                dedupe_key=f"sl:{account_id}:{clean_sym}:{int(now_ts)}"
+                dedupe_key=f"sl:{account_id}:{clean_sym}:{stable_key}"
             )
         except Exception as ex:
             logger.error(f"❌ [盤中止損事件記錄失敗]: {ex}")
@@ -941,8 +1036,10 @@ class PortfolioRebalancer:
             "entry_price": entry_price,
             "exit_price": exec_price,
             "quantity": exec_amount,
+            "requested_quantity": qty_to_close,
+            "remaining_quantity": max(0.0, qty_to_close - exec_amount),
             "pnl_pct": pnl_pct,
             "realized_pnl": realized_pnl,
-            "dry_run": dry_run
+            "dry_run": False
         }
 

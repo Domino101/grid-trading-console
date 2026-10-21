@@ -1676,7 +1676,7 @@ export interface CoinFullPrimeFill {
     bot_id: string;
     account_id: string;
     symbol: string;
-    side: 'buy' | 'sell';
+    side: 'buy' | 'sell' | 'funding';
     role: string;
     price: number;
     quantity: number;

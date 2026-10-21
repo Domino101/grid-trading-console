@@ -4,6 +4,7 @@ CoinFull Prime 市場中性策略 Web 控制台 API 路由
 
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
@@ -449,6 +450,43 @@ async def get_coinfull_prime_accounting(_token: str = Depends(verify_token)):
         }
     except Exception as e:
         logger.error(f"取得記帳健康度失敗: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/funding/sync")
+async def sync_funding_income(
+    account_id: Optional[str] = Query(None, description="帳號環境；預設跟隨目前排程目標"),
+    since_days: int = Query(7, ge=1, le=30, description="回溯天數"),
+    _token: str = Depends(verify_token),
+):
+    """手動同步資金費率現金流（FUNDING_FEE）到 canonical ledger。"""
+    try:
+        service = CoinFullPrimeService.instance()
+        target_acc = account_id or service.selected_account or "paper"
+        since_ms = int((time.time() - since_days * 86400) * 1000)
+        recorded = await service.sync_funding_income(target_acc, since_ms=since_ms)
+        return {
+            "status": "success",
+            "account_id": target_acc,
+            "recorded": recorded,
+            "since_days": since_days,
+        }
+    except Exception as e:
+        logger.error(f"資金費率同步失敗: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/reconcile")
+async def reconcile_positions(
+    account_id: Optional[str] = Query(None, description="帳號環境；預設跟隨目前排程目標"),
+    _token: str = Depends(verify_token),
+):
+    """比對交易所持倉與 bot_baskets；只回報，不自動平倉。"""
+    try:
+        service = CoinFullPrimeService.instance()
+        return await service.reconcile_positions(account_id=account_id)
+    except Exception as e:
+        logger.error(f"持倉對帳失敗: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

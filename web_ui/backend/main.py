@@ -115,6 +115,9 @@ async def lifespan(app: FastAPI):
     try:
         from core.services.coinfull_prime.service import CoinFullPrimeService
         prime_service = CoinFullPrimeService.instance()
+        # 先載入設定與建立引擎，讓 config 缺失在啟動時 fail-closed；
+        # 再恢復排程與止損守護，避免 initialized=false 的服務在盤中才初始化。
+        await prime_service.initialize()
         prime_service.restore_scheduler()
     except Exception as e:
         logger.warning(f"CoinFull Prime 排程開機自啟異常: {e}")
@@ -137,7 +140,7 @@ app = FastAPI(
     lifespan=lifespan,
     title="grid-trading-console API",
     description="Grid trading engine control API",
-    version="0.3.13",
+    version="0.3.14",
 )
 
 _cors_origins, _cors_credentials = cors_settings(os.getenv("GRID_CORS_ORIGINS"))

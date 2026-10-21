@@ -55,6 +55,15 @@ class TestMonotonicGuard(unittest.TestCase):
         self.assertEqual(payload["profit"]["realized"], 5.0)
         self.assertEqual(payload["profit"]["fees"], 1.1)
 
+    def test_loss_grid_profit_is_not_blocked(self):
+        # grid_profit 在有新交易 (cycles 或 fees 增加) 時允許合法下降
+        self._save(_snapshot(cycles=2, fees=1.0, profit={"grid_profit": 10.0, "realized": 10.0, "fees": 1.0}), updated_at=1.0)
+        self._save(_snapshot(cycles=3, fees=1.0, profit={"grid_profit": 8.0, "realized": 8.0, "fees": 1.0}), updated_at=2.0)
+
+        payload, _ = self.repo.load_by_bot_id("bot-1")
+        self.assertEqual(payload["profit"]["grid_profit"], 8.0)
+        self.assertEqual(payload["filled_orders"]["cycles"], 3)
+
     def test_bypass_allows_legitimate_reset(self):
         self._save(_snapshot(cycles=5, buy=5, sell=5, fees=1.0), updated_at=1.0)
         # 合法重置（止盈/本金保護/價格脫離）帶 bypass 標記 → 允許歸零
