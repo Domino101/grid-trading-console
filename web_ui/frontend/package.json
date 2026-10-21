@@ -8,6 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "node --experimental-strip-types --test tests/format.test.ts tests/auth.test.ts tests/router.test.ts tests/dca.test.ts tests/dca-form.test.ts tests/dca-chart.test.ts tests/dca-backtest.test.ts tests/events.test.ts tests/coinfull.test.ts",
+    "version:check": "python3 ../../scripts/sync_version.py --check",
+    "version:sync": "python3 ../../scripts/sync_version.py",
     "preview": "vite preview"
   },
   "dependencies": {

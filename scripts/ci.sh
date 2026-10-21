@@ -71,6 +71,7 @@ TEST_MODULES=(
   tests.test_ledger_consistency_audit
   tests.test_ledger_legacy_repair
   tests.test_accounting_path_policy
+  tests.test_version_consistency
 )
 
 PYTHON="${PYTHON_BIN:-$(command -v python3 || command -v python)}"
@@ -78,6 +79,9 @@ PYTHON="${PYTHON_BIN:-$(command -v python3 || command -v python)}"
 # Public-repo hygiene gate (secrets / binaries / tracked-but-ignored files).
 # Rationale: docs/PUBLIC_RELEASE_AUDIT_20261021.md
 bash "$ROOT/scripts/public_repo_guard.sh"
+
+# Single-source version gate: VERSION, package.json, package-lock must agree.
+"$PYTHON" "$ROOT/scripts/sync_version.py" --check
 
 "$PYTHON" -m unittest "${TEST_MODULES[@]}"
 

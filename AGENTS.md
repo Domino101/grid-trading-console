@@ -90,3 +90,11 @@ Rule:
 | **MC-8: 停止事件/名單同步越權改帳** | 止損在 dry-run 或 adapter 缺失時仍 `apply_basket_fill`；名單同步 `close_missing=True` 把平倉失敗部位標 closed，形成孤兒倉 | 架構 (Level 1) + 測試 (Level 3) | 止損僅在交易所 `filled>0` 且非 dry-run 時結算；`save_active_basket` 固定 `close_missing=False`；partial/failed 不同步名單；`tests.test_coinfull_prime_p0_safety` 守門。 |
 | **MC-9: 資料/配置缺漏 fail-open** | ATR/成交量抓取失敗仍放行；配置檔缺失退回 v2 預設；`compute_ranks` failed 的空名單被 `execute_rebalance` 當成全平 | 架構 (Level 1) + 測試 (Level 3) | Opt D 缺值 fail-closed；`load_config` 缺失/空檔 raise；`ranking_failed` 直接 hold；`tests.test_coinfull_prime_p1_safety` 守門。 |
 | **MC-10: 鏡像回填復活已平倉成分** | active basket 為空時 `load_active_basket` 無條件回填 stale 鏡像，把已對帳關閉的成分復活成幽靈持倉 | 架構 (Level 1) + 測試 (Level 3) | 只有整個帳號完全沒有 basket 列才允許回填；`_export_basket_mirror` 在無 active 時移除帳號 key；`tests.test_coinfull_prime_p0_safety::TestBasketMirrorResurrection` 守門。 |
+
+## Version Single Source (版本單一來源，2026-10-21)
+
+Rule:
+- 根目錄 `VERSION` 是唯一版本來源；**禁止**在 JSX、FastAPI 或頁面標題硬編版本號。
+- 前端由 Vite `define` 注入 `__APP_VERSION__`；後端由 `core.version.__version__` 讀取。
+- 升版：`python3 scripts/sync_version.py --set X.Y.Z`；只改 VERSION 後執行 `python3 scripts/sync_version.py`。
+- CI 執行 `python3 scripts/sync_version.py --check`；`tests/test_version_consistency.py` 會擋下 package.json、package-lock、backend 與 frontend 的版本漂移。

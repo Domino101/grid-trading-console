@@ -26,6 +26,7 @@ from web_ui.backend.models import ProcessStatus, StartProcessRequest
 from web_ui.backend.auth import token_matches, verify_token
 from web_ui.backend.lifecycle import cors_settings
 from core.infrastructure.database.redis_support import RedisEventBus
+from core.version import __version__
 
 # 🆕 Hermes Grid API v1 路由
 from web_ui.backend.routes.system import router as system_router
@@ -140,7 +141,7 @@ app = FastAPI(
     lifespan=lifespan,
     title="grid-trading-console API",
     description="Grid trading engine control API",
-    version="0.3.14",
+    version=__version__,
 )
 
 _cors_origins, _cors_credentials = cors_settings(os.getenv("GRID_CORS_ORIGINS"))
