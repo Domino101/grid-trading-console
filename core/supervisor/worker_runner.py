@@ -152,6 +152,21 @@ class WorkerRunner:
         await self.adapter.connect()
         auto_fill_precision(grid_config, self.adapter)
 
+        # 🔥 啟動 preflight：以即時 tickSize/stepSize 校正配置（BRUSDT -4014 事故守門）
+        try:
+            from core.adapters.exchanges.market_rules import aget_rules, normalize_grid_config
+
+            live_rules = await aget_rules(self.adapter, grid_config.symbol, force_refresh=True)
+            if live_rules is not None:
+                for change in normalize_grid_config(grid_config, live_rules, logger):
+                    logger.warning(f"🔧 [{grid_config.symbol}] 啟動精度校正: {change}")
+        except ValueError as precision_err:
+            logger.error(f"❌ [Worker {self.bot_id}] 精度檢查未通過，禁止啟動: {precision_err}")
+            publish_lifecycle(self.config_path, "failed", detail=str(precision_err))
+            sys.exit(1)
+        except Exception as preflight_err:
+            logger.warning(f"⚠️ [{grid_config.symbol}] 啟動精度 preflight 失敗（沿用現值）: {preflight_err}")
+
         strategy = GridStrategyImpl(grid_config)
         engine = GridEngineImpl(self.adapter, grid_config)
         tracker = PositionTrackerImpl()

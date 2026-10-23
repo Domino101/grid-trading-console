@@ -131,6 +131,49 @@ async def test_batch_orders_registered_in_pending_orders(grid_config):
 
 
 @pytest.mark.asyncio
+async def test_batch_result_mapping_survives_balance_precheck_skip(grid_config):
+    """餘額預檢跳過第一張單時，回應不可錯位到錯的訂單（幽靈 order_id）。"""
+    from unittest.mock import AsyncMock
+
+    mock_adapter = MagicMock()
+    mock_adapter.config.exchange_id = "binance"
+    mock_adapter.is_connected.return_value = True
+    mock_rest = MagicMock(spec=BinanceRest)
+    mock_adapter.rest = mock_rest
+
+    class FakeBatchRes:
+        def __init__(self, order_id, client_id):
+            self.order_id = order_id
+            self.client_id = client_id
+
+    # 只有第二張（SELL）真的送出，回應也只有一筆
+    mock_rest.create_batch_orders.return_value = [FakeBatchRes("ex_sell_only", "cli_sell")]
+
+    engine = GridEngineImpl(mock_adapter)
+    engine.config = grid_config
+    engine._get_orderbook_top = AsyncMock(return_value=None)
+    engine._get_cached_balances = AsyncMock(return_value=None)
+    engine._has_sufficient_balance = AsyncMock(side_effect=[False, True])
+
+    buy = GridOrder(
+        order_id="", client_id="cli_buy", grid_id=1, side=GridOrderSide.BUY,
+        price=Decimal("90"), amount=Decimal("0.1"), status=GridOrderStatus.PENDING,
+        created_at=datetime.now(),
+    )
+    sell = GridOrder(
+        order_id="", client_id="cli_sell", grid_id=2, side=GridOrderSide.SELL,
+        price=Decimal("110"), amount=Decimal("0.1"), status=GridOrderStatus.PENDING,
+        created_at=datetime.now(),
+    )
+
+    await engine._place_orders_via_batch_api([buy, sell], current_price=Decimal("100"))
+
+    assert sell.order_id == "ex_sell_only", "回應必須對位到真正送出的訂單"
+    assert buy.order_id == ""
+    assert buy.status == GridOrderStatus.FAILED
+
+
+@pytest.mark.asyncio
 async def test_on_order_update_handles_client_id_without_key_error(grid_config):
     """測試收到帶 client_id 的成交推播時不會因 _pending_orders KeyError 崩潰"""
     mock_adapter = MagicMock()

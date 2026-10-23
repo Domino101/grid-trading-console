@@ -882,6 +882,10 @@ class GridEngineImpl(IGridEngine):
         best_ask = ob_top[1] if ob_top else None
         # 修補 B:批量前先一次性 fetch balance(命中 3s 緩存)
         await self._get_cached_balances()
+        # 🔥 只把真正送出的訂單放進 active_orders，回應必須按這個清單對位。
+        # 舊寫法用 orders[idx]：一旦餘額預檢跳過某張單，後續 order_id 會整批錯位，
+        # 把 A 單的交易所 ID 掛到 B 單上（幽靈成交 / 錯誤方向的來源）。
+        active_orders: List[GridOrder] = []
         for order in orders:
             # 修補 B:單筆餘額預檢
             if not await self._has_sufficient_balance(order):
@@ -915,6 +919,7 @@ class GridEngineImpl(IGridEngine):
                 'price': target_price,
                 'params': params,
             })
+            active_orders.append(order)
 
         rest_adapter = None
         adapter = self.exchange
@@ -934,7 +939,9 @@ class GridEngineImpl(IGridEngine):
             )
             api_results = await rest_adapter.create_batch_orders(symbol, batch_order_dicts)
             for idx, res in enumerate(api_results):
-                order = orders[idx]
+                if idx >= len(active_orders):
+                    break
+                order = active_orders[idx]
                 real_order_id = ""
                 real_client_id = ""
                 if res is not None:
@@ -1776,10 +1783,24 @@ class GridEngineImpl(IGridEngine):
                             f"（閾值{ws_silence_max}秒），有{len(self._pending_orders)}筆掛單，"
                             f"觸發單次REST兜底檢查"
                         )
+                        filled_by_rest = 0
                         try:
-                            await self._check_pending_orders()
+                            filled_by_rest = int(await self._check_pending_orders() or 0)
                         except Exception as e:
                             self.logger.warning(f"死寂兜底REST檢查失敗: {e}")
+                        if filled_by_rest > 0:
+                            # REST 已證明 WS 漏推送（不是「沒有成交所以安靜」）→ 重建用戶數據流
+                            reconnect = getattr(self.exchange, "force_user_stream_reconnect", None)
+                            self.logger.error(
+                                f"🧟 REST 偵測到 {filled_by_rest} 筆 WS 未推送的成交，"
+                                f"判定用戶數據流為殭屍連線"
+                            )
+                            if callable(reconnect):
+                                try:
+                                    await reconnect("rest_detected_missed_fills")
+                                    self._last_ws_message_time = time.time()
+                                except Exception as e:
+                                    self.logger.warning(f"強制重建用戶數據流失敗: {e}")
                 else:
                     try:
                         now = time.time()
@@ -1988,11 +2009,16 @@ class GridEngineImpl(IGridEngine):
                     continue
 
             for order_id, grid_order in filled_orders:
+                # 🔥 以交易所回報的成交價/量入帳，不可用本地網格價覆寫。
+                # 舊寫法 mark_filled(grid_order.price, grid_order.amount) 會把
+                # 0.52 的實際成交記成 0.52798、11 記成 11.4（帳本 vs 交易所永久漂移）。
+                exchange_price = grid_order.filled_price or grid_order.price
+                exchange_amount = grid_order.filled_amount or grid_order.amount
                 self.logger.info(
                     f"📊 REST轮询检测到订单真实成交: {grid_order.side.value} "
-                    f"{grid_order.amount}@{grid_order.price} (Grid {grid_order.grid_id})"
+                    f"{exchange_amount}@{exchange_price} (Grid {grid_order.grid_id})"
                 )
-                grid_order.mark_filled(grid_order.price, grid_order.amount)
+                grid_order.mark_filled(exchange_price, exchange_amount)
                 self._remove_order_from_pending(order_id)
                 for callback in self._order_callbacks:
                     try:
@@ -2087,10 +2113,27 @@ class GridEngineImpl(IGridEngine):
                                 except Exception as e:
                                     self.logger.error(f"订单回调执行失败: {e}")
                         else:
-                            self.logger.warning(
-                                f"⚠️ 未找到原始订单 (order_id={order_id}, client_id={client_id or 'N/A'})，"
-                                f"忽略此成交推送（可能是历史订单或健康检查市价单）"
+                            # 未知成交＝帳本不會入帳，持倉必然漂移（重啟前掛單最常見）。
+                            # 不可靜默：至少讓它變成可觀測事件，由 [GRID_ALERT] 對帳。
+                            self.logger.error(
+                                f"🚨 未找到原始订单 (order_id={order_id}, client_id={client_id or 'N/A'})，"
+                                f"成交未入帳；可能為重啟前掛單或其他 bot 的成交，持倉將出現漂移"
                             )
+                            try:
+                                print(
+                                    "[GRID_ALERT] " + json.dumps({
+                                        "event": "unknown_fill",
+                                        "symbol": self.config.symbol,
+                                        "order_id": order_id,
+                                        "client_id": client_id,
+                                        "side": side.value,
+                                        "price": str(filled_price),
+                                        "amount": str(filled_amount),
+                                    }, ensure_ascii=False, separators=(",", ":")),
+                                    flush=True,
+                                )
+                            except Exception:
+                                pass
                     else:
                         remaining = total_amount - filled_amount
                         self.logger.info(

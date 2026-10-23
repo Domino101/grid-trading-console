@@ -124,6 +124,16 @@ class BinanceWebSocket(BinanceBase):
         # 期貨 stream watchdog 參數（單獨設定，不沿用 user stream 的 30s 一次性檢查）
         self.futures_watchdog_threshold = 60  # 60 秒無任何訊息視為死寂
         self.futures_watchdog_check_interval = 15  # 每 15 秒檢查一次
+
+        # 🔥 用戶數據流「殭屍連線」持久 watchdog
+        # 背景：使用者數據流沒有週期性心跳，連線存活但服務端不再推送時，
+        # is_user_connected 仍為 True，掛單成交只能靠 REST 兜底（BRUSDT 曾靜默 5 小時）。
+        self.user_watchdog_threshold = 900  # 15 分鐘完全無 user message 視為殭屍
+        self.user_watchdog_check_interval = 30
+        self.user_self_check_delay = 30  # 連線自檢延遲（只看 socket 狀態）
+        self._user_silence_task = None
+        self._user_reconnect_at = 0.0
+        self._suppress_user_auto_reconnect = False
         
     async def initialize(self) -> bool:
         """初始化WebSocket连接"""
@@ -174,6 +184,15 @@ class BinanceWebSocket(BinanceBase):
                     await self._listen_key_task
                 except asyncio.CancelledError:
                     pass
+
+            # 🔥 取消用戶數據流死寂 watchdog
+            if self._user_silence_task:
+                self._user_silence_task.cancel()
+                try:
+                    await self._user_silence_task
+                except asyncio.CancelledError:
+                    pass
+                self._user_silence_task = None
 
             # 🔥 取消期貨行情流 watchdog
             if self._futures_stream_watchdog_task:
@@ -297,9 +316,14 @@ class BinanceWebSocket(BinanceBase):
             
             self._user_websocket = await websockets.connect(ws_url)
             self._user_connected = True
-            
+            # 以「連線成功時刻」作為死寂基準，避免 watchdog 一啟動就誤判
+            self._last_user_message_time = time.time()
+            # 連線世代：舊連線的 reader task 不可再觸發重連（避免雙重連線）
+            self._user_stream_gen = getattr(self, "_user_stream_gen", 0) + 1
+            self._start_user_silence_watchdog()
+
             # 启动消息处理任务
-            asyncio.create_task(self._handle_user_messages())
+            asyncio.create_task(self._handle_user_messages(self._user_stream_gen))
             
             # 启动listen key续期任务
             self._listen_key_task = asyncio.create_task(self._listen_key_loop())
@@ -451,8 +475,8 @@ class BinanceWebSocket(BinanceBase):
             if self.logger:
                 self.logger.error(f"❌ 期货消息处理异常: {str(e)}")
     
-    async def _handle_user_messages(self):
-        """处理用户数据消息"""
+    async def _handle_user_messages(self, generation: Optional[int] = None):
+        """处理用户数据消息（generation 用於丟棄舊連線的斷線事件）"""
         try:
             async for message in self._user_websocket:
                 try:
@@ -466,9 +490,15 @@ class BinanceWebSocket(BinanceBase):
                         self.logger.error(f"❌ 处理用户消息失败: {str(e)}")
                         
         except websockets.exceptions.ConnectionClosed:
+            if generation is not None and generation != getattr(self, "_user_stream_gen", generation):
+                # 舊連線的斷線事件；新連線已建立，忽略
+                return
+            self._user_connected = False
+            if self._suppress_user_auto_reconnect:
+                # 主動重建流程已接手，避免雙重重連
+                return
             if self.logger:
                 self.logger.warning("⚠️ 用户数据流连接断开，尝试重连")
-            self._user_connected = False
             await self._reconnect_user_stream()
         except Exception as e:
             if self.logger:
@@ -545,6 +575,12 @@ class BinanceWebSocket(BinanceBase):
             self._last_user_message_time = time.time()
 
             event_type = data.get('e')
+
+            if event_type == 'listenKeyExpired':
+                if self.logger:
+                    self.logger.warning("⚠️ listenKey 已過期，立即重建用戶數據流")
+                asyncio.create_task(self.force_user_stream_reconnect(reason="listenKeyExpired"))
+                return
 
             if event_type == 'ACCOUNT_UPDATE':
                 await self._handle_balance_update(data)
@@ -861,6 +897,8 @@ class BinanceWebSocket(BinanceBase):
         except Exception as e:
             if self.logger:
                 self.logger.error(f"❌ 续期listen key失败: {str(e)}")
+            # listenKey 失效＝後續不會再有成交推送，必須立刻重建（否則靜默到天荒地老）
+            asyncio.create_task(self.force_user_stream_reconnect(reason="renew_listen_key_failed"))
     
     async def _reconnect_market_stream(self):
         """重连现货市场数据流"""
@@ -898,6 +936,70 @@ class BinanceWebSocket(BinanceBase):
                     if self.logger:
                         self.logger.error(f"❌ 重新订阅失败 {stream_name}: {str(e)}")
     
+    # ── 用戶數據流殭屍連線偵測與強制重連 ─────────────────────────────
+
+    def _start_user_silence_watchdog(self) -> None:
+        """持久 watchdog：連線存活但長時間無任何 user message 時主動重連。"""
+        if self._user_silence_task is not None and not self._user_silence_task.done():
+            return
+        self._user_silence_task = asyncio.create_task(self._user_silence_watchdog())
+        if self.logger:
+            self.logger.info(
+                f"🛡️ 用戶數據流 Watchdog 已啟動：閾值={self.user_watchdog_threshold}s, "
+                f"檢查間隔={self.user_watchdog_check_interval}s"
+            )
+
+    async def _user_silence_watchdog(self) -> None:
+        try:
+            while True:
+                await asyncio.sleep(self.user_watchdog_check_interval)
+                if not self._user_connected:
+                    continue
+                last = self._last_user_message_time or 0
+                if not last:
+                    continue
+                silence = time.time() - last
+                if silence > self.user_watchdog_threshold:
+                    if self.logger:
+                        self.logger.warning(
+                            f"🧟 用戶數據流死寂 {silence:.0f}s（閾值 {self.user_watchdog_threshold}s），"
+                            f"判定為殭屍連線，強制重連"
+                        )
+                    await self.force_user_stream_reconnect(reason=f"silence_{int(silence)}s")
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            if self.logger:
+                self.logger.error(f"❌ 用戶數據流 watchdog 異常: {exc}")
+
+    async def force_user_stream_reconnect(self, reason: str = "") -> bool:
+        """主動關閉並重建用戶數據流（殭屍連線 / listenKey 失效 / REST 證明掉單）。"""
+        now = time.time()
+        if now - self._user_reconnect_at < 30:
+            return False
+        self._user_reconnect_at = now
+        if self.logger:
+            self.logger.warning(f"🔄 強制重建用戶數據流（原因: {reason or 'manual'}）")
+        self._suppress_user_auto_reconnect = True
+        self._user_connected = False
+        ok = False
+        try:
+            if self._user_websocket:
+                try:
+                    await self._user_websocket.close()
+                except Exception:
+                    pass
+                self._user_websocket = None
+            ok = await self._connect_user_stream()
+        finally:
+            self._suppress_user_auto_reconnect = False
+        if ok:
+            # 重設死寂基準，避免 watchdog 立刻再次判定殭屍
+            self._last_user_message_time = time.time()
+        if self.logger:
+            self.logger.info("✅ 用戶數據流已重建" if ok else "❌ 用戶數據流重建失敗")
+        return ok
+
     async def _reconnect_user_stream(self):
         """重连用户数据流"""
         if self.logger:
@@ -1084,8 +1186,9 @@ class BinanceWebSocket(BinanceBase):
             self._add_subscription(self._user_subscriptions, 'order', callback)
             self._add_subscription(self._user_subscriptions, 'config', callback)
 
-            # 🔥 修復D：啟動一次性 watchdog，30 秒後檢查是否收到任何 user stream 訊息
-            self._last_user_message_time = 0  # 重置
+            # 🔥 一次性連線自檢：只確認 socket 仍開啟。
+            # 不可用「30 秒內有無訊息」判定——用戶數據流在沒有成交/帳戶變動時
+            # 本來就不會推送，舊邏輯會把正常連線每 30 秒重連一次（BRUSDT 事故來源）。
             if self._user_stream_watchdog_task and not self._user_stream_watchdog_task.done():
                 self._user_stream_watchdog_task.cancel()
             self._user_stream_watchdog_task = asyncio.create_task(
@@ -1093,7 +1196,7 @@ class BinanceWebSocket(BinanceBase):
             )
 
             if self.logger:
-                self.logger.info("👤 订阅用户数据流（含30秒自檢watchdog）")
+                self.logger.info("👤 订阅用户数据流（含30秒連線自檢）")
 
         except Exception as e:
             if self.logger:
@@ -1101,14 +1204,13 @@ class BinanceWebSocket(BinanceBase):
             raise
 
     async def _user_stream_watchdog(self):
-        """一次性 watchdog：訂閱後 30 秒內未收到任何 user stream 訊息則重連"""
+        """一次性連線自檢：30 秒後只檢查 socket 是否仍開啟（不看有無訊息）。"""
         try:
-            await asyncio.sleep(30)
-            if self._last_user_message_time == 0:
+            await asyncio.sleep(getattr(self, "user_self_check_delay", 30))
+            if self._user_websocket is None or _is_ws_closed(self._user_websocket):
                 if self.logger:
                     self.logger.warning(
-                        "⚠️ User Stream Watchdog：訂閱30秒後仍未收到任何訊息，"
-                        "嘗試重新獲取 listenKey 並重連..."
+                        "⚠️ User Stream 自檢：socket 已關閉，嘗試重新獲取 listenKey 並重連..."
                     )
                 # 關閉舊連線
                 if self._user_websocket:
@@ -1126,7 +1228,7 @@ class BinanceWebSocket(BinanceBase):
                         self.logger.error("❌ Watchdog 重連失敗")
             else:
                 if self.logger:
-                    self.logger.info("✅ User Stream Watchdog：已在30秒內收到訊息，數據流正常")
+                    self.logger.info("✅ User Stream 自檢：socket 仍開啟，數據流正常")
         except asyncio.CancelledError:
             pass
         except Exception as e:

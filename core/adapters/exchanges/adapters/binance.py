@@ -480,6 +480,10 @@ class BinanceAdapter(ExchangeAdapter):
         """供 grid_engine_impl 智能監控檢測用戶數據流連線狀態"""
         return self._websocket.is_user_connected
 
+    async def force_user_stream_reconnect(self, reason: str = "") -> bool:
+        """強制重建用戶數據流（殭屍連線／REST 證明漏推送時由引擎呼叫）。"""
+        return await self._websocket.force_user_stream_reconnect(reason)
+
     @property
     def supported_symbols(self) -> List[str]:
         """获取支持的交易对列表"""

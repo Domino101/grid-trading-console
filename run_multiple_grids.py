@@ -314,6 +314,116 @@ def _emit_dca_lifecycle(config_path: str, status: str, detail=None, symbol=None)
         logging.getLogger("system").warning("寫入 DCA lifecycle journal 失敗: %s", exc)
 
 
+#: 訂單健康告警節流（config_path -> 上次告警時間）
+_ORDER_ALERT_AT: dict = {}
+_ORDER_ALERT_THRESHOLD = 8
+_ORDER_ALERT_INTERVAL_SEC = 300.0
+
+
+def _emit_order_health_alert(config_path, bot_id, symbol, pending_orders, logger) -> None:
+    """活躍掛單為 0 且連續被交易所過濾器拒單 → CRITICAL + [GRID_ALERT] + bot_events。
+
+    事故背景：BRUSDT 全數掛單被 -4014 拒絕 1.5 天，期間狀態一直是 running、
+    沒有任何告警。這裡把「掛不出去」變成可觀測事件。
+    """
+    import time as _time
+
+    try:
+        reject = BinanceRest.get_rejection_stats(symbol)
+    except Exception:
+        return
+    consecutive = int(reject.get("consecutive", 0) or 0)
+    if pending_orders > 0 or consecutive < _ORDER_ALERT_THRESHOLD:
+        return
+
+    now = _time.time()
+    if now - _ORDER_ALERT_AT.get(config_path, 0.0) < _ORDER_ALERT_INTERVAL_SEC:
+        return
+    _ORDER_ALERT_AT[config_path] = now
+
+    payload = {
+        "event": "order_rejection_alert",
+        "config_path": config_path,
+        "bot_id": bot_id,
+        "symbol": symbol,
+        "pending_orders": pending_orders,
+        "consecutive_rejections": consecutive,
+        "last_code": reject.get("last_code"),
+        "last_message": reject.get("last_message"),
+    }
+    logger.critical(
+        f"🚨 [{symbol}] 活躍掛單=0 且連續 {consecutive} 次被交易所拒單 "
+        f"(code={reject.get('last_code')}): {reject.get('last_message')}"
+    )
+    print("[GRID_ALERT] " + json.dumps(payload, ensure_ascii=False, separators=(",", ":")), flush=True)
+    try:
+        from core.infrastructure.database.bot_events import emit_bot_event
+
+        emit_bot_event(
+            bot_id,
+            "order_rejection_alert",
+            payload=payload,
+            dedupe_key=f"reject-alert:{bot_id}:{int(now // 300)}",
+        )
+    except Exception as exc:
+        logger.debug(f"寫入 order_rejection_alert 事件失敗（不影響交易）: {exc}")
+
+
+#: 持倉漂移告警節流（config_path -> 上次告警時間）
+_POSITION_ALERT_AT: dict = {}
+_POSITION_ALERT_INTERVAL_SEC = 600.0
+
+
+def _emit_position_drift_alert(config_path, bot_id, symbol, stats_dict, order_amount, logger) -> None:
+    """網格虛擬持倉與交易所持倉不一致時告警（不自動改帳，避免多 bot 共用標的誤修）。"""
+    import time as _time
+
+    grid_pos = stats_dict.get("grid_position")
+    account_pos = stats_dict.get("account_position")
+    if grid_pos is None or account_pos is None:
+        return
+    try:
+        diff = float(grid_pos) - float(account_pos)
+    except (TypeError, ValueError):
+        return
+
+    tolerance = max(abs(float(order_amount or 0)) * 2.0, 1e-9)
+    if abs(diff) <= tolerance:
+        return
+
+    now = _time.time()
+    if now - _POSITION_ALERT_AT.get(config_path, 0.0) < _POSITION_ALERT_INTERVAL_SEC:
+        return
+    _POSITION_ALERT_AT[config_path] = now
+
+    payload = {
+        "event": "position_drift",
+        "config_path": config_path,
+        "bot_id": bot_id,
+        "symbol": symbol,
+        "grid_position": float(grid_pos),
+        "account_position": float(account_pos),
+        "difference": round(diff, 8),
+        "tolerance": tolerance,
+    }
+    logger.critical(
+        f"🚨 [{symbol}] 持倉漂移: 網格={grid_pos} 交易所={account_pos} 差={diff:.4f} "
+        f"(容差={tolerance:.4f})；請對帳，勿自動放行"
+    )
+    print("[GRID_ALERT] " + json.dumps(payload, ensure_ascii=False, separators=(",", ":")), flush=True)
+    try:
+        from core.infrastructure.database.bot_events import emit_bot_event
+
+        emit_bot_event(
+            bot_id,
+            "position_drift",
+            payload=payload,
+            dedupe_key=f"position-drift:{bot_id}:{int(now // 600)}",
+        )
+    except Exception as exc:
+        logger.debug(f"寫入 position_drift 事件失敗（不影響交易）: {exc}")
+
+
 async def run_single_grid_task(config_path: str, adapter_pool, logger, running_grids_ref, starting_grids=None):
     """
     併發啟動並運行單個網格任務
@@ -344,7 +454,8 @@ async def run_single_grid_task(config_path: str, adapter_pool, logger, running_g
         await auto_fill_precision(grid_config, shared_adapter, logger)
 
         # 啟動前交易對有效性守衛門禁 (Pre-flight Symbol Validation Gate)
-        exchange_instance = getattr(shared_adapter, 'exchange', None)
+        from core.adapters.exchanges.market_rules import resolve_ccxt_exchange
+        exchange_instance = resolve_ccxt_exchange(shared_adapter)
         loaded_markets = getattr(exchange_instance, 'markets', None) if exchange_instance else None
         if loaded_markets:
             if grid_config.symbol not in loaded_markets:
@@ -354,6 +465,30 @@ async def run_single_grid_task(config_path: str, adapter_pool, logger, running_g
                 if starting_grids is not None:
                     starting_grids.discard(config_path)
                 return
+
+        # 🔥 啟動 preflight：以**即時** tickSize/stepSize 校正配置。
+        # 事故背景：BRUSDT tick 由 0.00001 → 0.0001 後，配置仍為 5 位小數，
+        # 全數掛單被 -4014 拒絕 1.5 天。這裡在掛單前就對齊，並把所有改寫寫進日誌。
+        try:
+            from core.adapters.exchanges.market_rules import aget_rules, normalize_grid_config
+
+            live_rules = await aget_rules(exchange_instance, grid_config.symbol, force_refresh=True)
+            if live_rules is not None:
+                for change in normalize_grid_config(grid_config, live_rules, logger):
+                    logger.warning(f"🔧 [{grid_config.symbol}] 啟動精度校正: {change}")
+                logger.info(
+                    f"🧭 [{grid_config.symbol}] 啟動過濾器: tick={live_rules.price_tick} "
+                    f"step={live_rules.qty_step} minNotional={live_rules.min_notional}"
+                )
+        except ValueError as precision_err:
+            err_msg = f"精度檢查未通過，禁止啟動: {precision_err}"
+            logger.error(f"❌ [{grid_config.symbol}] {err_msg}")
+            _emit_lifecycle(config_path, "failed", err_msg)
+            if starting_grids is not None:
+                starting_grids.discard(config_path)
+            return
+        except Exception as preflight_err:
+            logger.warning(f"⚠️ [{grid_config.symbol}] 啟動精度 preflight 失敗（沿用現值）: {preflight_err}")
 
         # 2. 建立該網格專有的網格組件，注入共享適配器
         strategy = GridStrategyImpl()
@@ -470,6 +605,16 @@ async def run_single_grid_task(config_path: str, adapter_pool, logger, running_g
                     stats_dict["bot_id"] = grid_bot_id
                     stats_dict["account_mode"] = _config_account_mode(config_path)
                     stats_dict["source"] = "engine_runtime"
+                    # 🔥 記帳契約：bot_positions.average_cost 只從 stats["position"] 讀取。
+                    # 舊 payload 只有 top-level average_cost，導致每分鐘快照把成本價寫成 NULL。
+                    stats_dict["position"] = {
+                        "quantity": stats_dict.get("grid_position", stats_dict.get("current_position", 0.0)),
+                        "average_cost": stats_dict.get("grid_average_cost") or stats_dict.get("average_cost") or 0.0,
+                        "total_cost": float(
+                            (stats_dict.get("grid_position") or 0.0)
+                            * (stats_dict.get("grid_average_cost") or stats_dict.get("average_cost") or 0.0)
+                        ),
+                    }
                     try:
                         pending = engine.get_pending_orders()
                         stats_dict["pending_order_list"] = [
@@ -514,6 +659,29 @@ async def run_single_grid_task(config_path: str, adapter_pool, logger, running_g
                         f"實現盈虧: {stats.realized_pnl} | "
                         f"活躍掛單: {stats.total_pending_orders}"
                     )
+                    # 🔥 訂單健康告警：掛單=0 且連續被過濾器拒單 → 不再靜默
+                    try:
+                        _emit_order_health_alert(
+                            config_path,
+                            grid_bot_id,
+                            grid_config.symbol,
+                            int(getattr(stats, "total_pending_orders", 0) or 0),
+                            logger,
+                        )
+                    except Exception as alert_err:
+                        logger.debug(f"訂單健康告警檢查失敗: {alert_err}")
+                    # 🔥 持倉漂移告警：網格虛擬持倉 vs 交易所帳戶持倉
+                    try:
+                        _emit_position_drift_alert(
+                            config_path,
+                            grid_bot_id,
+                            grid_config.symbol,
+                            stats_dict,
+                            grid_config.order_amount,
+                            logger,
+                        )
+                    except Exception as drift_err:
+                        logger.debug(f"持倉漂移檢查失敗: {drift_err}")
                     # 🔥 限速器統計（每分鐘彙報一次）
                     if True:
                         ts = BinanceRest.get_throttle_stats()

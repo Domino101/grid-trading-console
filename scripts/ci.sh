@@ -61,6 +61,10 @@ TEST_MODULES=(
   tests.services.grid.backtest.test_simulator
   tests.services.grid.backtest.test_stress
   tests.services.dca.test_dca_snapshot_recovery
+  tests.test_market_rules
+  tests.test_binance_order_quantization
+  tests.test_order_health_alert
+  tests.test_binance_ws_silence_watchdog
   tests.test_coinfull_prime_quant
   tests.test_coinfull_prime_rebalance
   tests.test_coinfull_prime_regime

@@ -36,6 +36,18 @@ class BinanceRest(BinanceBase):
     _adapter_circuit_initialized: bool = False
 
     # ---------------------------------------------------------------------------
+    # 🔥 過濾器拒單計數（class 級別，按 symbol）
+    #
+    # 目的：把「掛單全被 -4014/-1111 拒絕」從一行行日誌變成可查詢的健康訊號，
+    # 讓 supervisor 能在活躍掛單為 0 時主動告警，而不是安靜地跑 1.5 天。
+    # ---------------------------------------------------------------------------
+    _rejection_stats: Dict[str, Dict[str, Any]] = {}
+    _quantize_log_at: Dict[str, float] = {}
+
+    #: 交易所過濾器相關的拒單代碼（價格/數量不合規）
+    FILTER_ERROR_CODES: tuple = ("-4014", "-1111", "-4024", "-4164", "-4003")
+
+    # ---------------------------------------------------------------------------
     # 🔥 全局 REST 限速器（類變量，所有 BinanceRest 實例共享）
     #
     # 機制：滑動窗口 (sliding window)
@@ -381,6 +393,13 @@ class BinanceRest(BinanceBase):
                         self.logger.debug(f"ℹ️ 訂單不存在（-2013 / OrderNotFound），停止重試: {str(e)}")
                     raise
 
+                # 🔥 過濾器錯誤（價格不在 tick / 數量不在 step）：重試同樣的價格沒有意義，
+                # 立即停止內層重試，交給 create_order 刷新過濾器後重新量化再試一次。
+                if self._filter_error_code(e):
+                    if self.logger:
+                        self.logger.warning(f"🚫 交易所過濾器拒單，停止內層重試（等待重新量化）: {str(e)}")
+                    raise
+
                 if attempt < self.max_retries - 1:
                     # 指数退避：1s → 3s → 9s...（避免瞬断时暴力重试）
                     delay = self.retry_delay * (3 ** attempt)
@@ -676,6 +695,98 @@ class BinanceRest(BinanceBase):
     
     # ==================== 交易接口 ====================
     
+    # ==================== 交易所過濾器（tickSize / stepSize）量化 ====================
+    #
+    # 這裡是**唯一**把價格與數量轉成交易所可接受值的邊界。所有下單入口
+    # （單筆、批次、反手、健康檢查補單、DCA）都經過 create_order / create_batch_orders，
+    # 因此不需要在策略層各自推算 min_tick。
+
+    @classmethod
+    def _filter_error_code(cls, exc: Any) -> Optional[str]:
+        text = str(exc)
+        for code in cls.FILTER_ERROR_CODES:
+            if code in text:
+                return code
+        return None
+
+    @classmethod
+    def _record_rejection(cls, symbol: str, code: str, message: str) -> None:
+        entry = cls._rejection_stats.setdefault(
+            str(symbol),
+            {"consecutive": 0, "total": 0, "last_code": None, "last_message": "", "last_at": 0.0},
+        )
+        entry["consecutive"] += 1
+        entry["total"] += 1
+        entry["last_code"] = code
+        entry["last_message"] = str(message)[:200]
+        entry["last_at"] = time.time()
+
+    @classmethod
+    def _record_placement_success(cls, symbol: str) -> None:
+        entry = cls._rejection_stats.get(str(symbol))
+        if entry:
+            entry["consecutive"] = 0
+
+    @classmethod
+    def get_rejection_stats(cls, symbol: Optional[str] = None) -> Dict[str, Any]:
+        empty = {"consecutive": 0, "total": 0, "last_code": None, "last_message": "", "last_at": 0.0}
+        if symbol is not None:
+            entry = cls._rejection_stats.get(str(symbol))
+            return dict(entry) if entry else dict(empty)
+        return {key: dict(value) for key, value in cls._rejection_stats.items()}
+
+    @classmethod
+    def reset_rejection_stats(cls, symbol: Optional[str] = None) -> None:
+        if symbol is None:
+            cls._rejection_stats.clear()
+            return
+        cls._rejection_stats.pop(str(symbol), None)
+
+    async def _market_rules(self, symbol: str, *, force_refresh: bool = False):
+        """取得即時過濾器（TTL 快取；force_refresh 會 reload_markets）。"""
+        if self.exchange is None:
+            return None
+        try:
+            from core.adapters.exchanges.market_rules import market_rules_cache
+
+            return await asyncio.get_event_loop().run_in_executor(
+                None,
+                functools.partial(
+                    market_rules_cache.get, self.exchange, symbol, force_refresh=force_refresh
+                ),
+            )
+        except Exception as exc:
+            if self.logger:
+                self.logger.debug(f"取得交易所過濾器失敗（沿用原值）: {exc}")
+            return None
+
+    def _quantize_with_rules(self, rules, symbol: str, side, amount, price):
+        """依 live 過濾器量化；任何改寫都記錄（同 symbol 60 秒內只記一次）。"""
+        if rules is None:
+            return price, amount
+        side_text = getattr(side, "value", side)
+        q_price = rules.quantize_price(price, side_text) if price is not None else None
+        q_amount = rules.quantize_qty(amount)
+
+        if price is not None and q_price is not None and Decimal(str(q_price)) != Decimal(str(price)):
+            self._log_quantize(symbol, "price", price, q_price, rules.price_tick)
+        if amount is not None and q_amount is not None and Decimal(str(q_amount)) != Decimal(str(amount)):
+            self._log_quantize(symbol, "quantity", amount, q_amount, rules.qty_step)
+        return q_price, q_amount
+
+    def _log_quantize(self, symbol: str, kind: str, requested, used, unit) -> None:
+        key = f"{symbol}:{kind}"
+        now = time.time()
+        last = BinanceRest._quantize_log_at.get(key, 0.0)
+        if now - last < 60:
+            return
+        BinanceRest._quantize_log_at[key] = now
+        if self.logger:
+            self.logger.warning(
+                f"🔧 [過濾器] {symbol} {kind} {requested} → {used} "
+                f"(交易所 {('tick' if kind == 'price' else 'step')}={unit})"
+            )
+
     async def create_order(
         self,
         symbol: str,
@@ -704,16 +815,47 @@ class BinanceRest(BinanceBase):
             side_str = side.value.lower() if hasattr(side, "value") else str(side).lower()
             order_type_str = self.ORDER_TYPE_MAPPING.get(order_type, getattr(order_type, "value", str(order_type)).upper())
 
-            order_data = await self._execute_with_retry(
-                self.exchange.create_order,
-                mapped_symbol,
-                order_type_str,
-                side_str,
-                float(amount),
-                float(price) if price else None,
-                order_params
-            )
-            
+            # 🔥 送單前一律依 live tickSize/stepSize 量化（單一委託建構邊界）
+            rules = await self._market_rules(symbol)
+            q_price, q_amount = self._quantize_with_rules(rules, symbol, side, amount, price)
+
+            try:
+                order_data = await self._execute_with_retry(
+                    self.exchange.create_order,
+                    mapped_symbol,
+                    order_type_str,
+                    side_str,
+                    float(q_amount),
+                    float(q_price) if q_price else None,
+                    order_params
+                )
+            except Exception as exc:
+                filter_code = self._filter_error_code(exc)
+                if not filter_code:
+                    raise
+                # 交易所剛調整過濾器：強制刷新後重新量化，只重試一次
+                self._record_rejection(symbol, filter_code, str(exc))
+                refreshed = await self._market_rules(symbol, force_refresh=True)
+                retry_price, retry_amount = self._quantize_with_rules(
+                    refreshed, symbol, side, amount, price
+                )
+                if (retry_price, retry_amount) == (q_price, q_amount):
+                    raise
+                if self.logger:
+                    self.logger.warning(
+                        f"♻️ [過濾器自癒] {symbol} 以新規則重送: {q_price}@{q_amount} → {retry_price}@{retry_amount}"
+                    )
+                order_data = await self._execute_with_retry(
+                    self.exchange.create_order,
+                    mapped_symbol,
+                    order_type_str,
+                    side_str,
+                    float(retry_amount),
+                    float(retry_price) if retry_price else None,
+                    order_params
+                )
+
+            self._record_placement_success(symbol)
             return self.parse_order(order_data, symbol)
         except Exception as e:
             if self.logger:
@@ -744,12 +886,12 @@ class BinanceRest(BinanceBase):
         batch_size = 5  # Binance 批量 API 上限
         results: List[Optional[OrderData]] = []
 
-        for i in range(0, len(orders), batch_size):
-            batch = orders[i:i + batch_size]
-            ccxt_orders = []
+        def _build(batch, active_rules):
+            built = []
             for o in batch:
-                o_amount = o['amount']
-                o_price = o.get('price')
+                q_price, q_amount = self._quantize_with_rules(
+                    active_rules, symbol, o['side'], o['amount'], o.get('price')
+                )
                 p = dict(o.get('params') or {})
                 cid = (
                     p.pop("client_order_id", None)
@@ -760,75 +902,122 @@ class BinanceRest(BinanceBase):
                     p["clientOrderId"] = str(cid)
                 if "reduce_only" in p:
                     p["reduceOnly"] = bool(p.pop("reduce_only"))
-                ccxt_orders.append({
+                built.append({
                     'symbol': mapped_symbol,
                     'type': self.ORDER_TYPE_MAPPING.get(o['order_type'], 'LIMIT'),
                     'side': o['side'].value.lower(),
-                    'amount': float(o_amount),
-                    'price': float(o_price) if o_price is not None else None,
+                    'amount': float(q_amount),
+                    'price': float(q_price) if q_price is not None else None,
                     'params': p,
                 })
+            return built
 
-            try:
-                # 🔥 全局限速器：排隊取得配額
-                await BinanceRest._throttle_acquire(self.logger, 'create_orders_batch')
+        for i in range(0, len(orders), batch_size):
+            batch = orders[i:i + batch_size]
+            rules = await self._market_rules(symbol)
+            outcomes: List[Optional[OrderData]] = [None] * len(batch)
+            pending = list(range(len(batch)))
+            attempt = 0
+            circuit_error: Optional[str] = None
 
-                # 🔥 熔斷器前置檢查
-                if BinanceRest._is_adapter_circuit_open():
-                    code = BinanceRest._adapter_last_error_code or '?'
-                    raise RuntimeError(f"⛔ [BinanceRest] API 熔斷中 (code={code})，拒絕批量下單")
+            while pending and attempt < 2:
+                attempt += 1
+                ccxt_orders = _build([batch[j] for j in pending], rules)
+                try:
+                    # 🔥 全局限速器：排隊取得配額
+                    await BinanceRest._throttle_acquire(self.logger, 'create_orders_batch')
 
-                batch_results = await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    self.exchange.create_orders,
-                    ccxt_orders,
-                )
+                    # 🔥 熔斷器前置檢查
+                    if BinanceRest._is_adapter_circuit_open():
+                        code = BinanceRest._adapter_last_error_code or '?'
+                        raise RuntimeError(f"⛔ [BinanceRest] API 熔斷中 (code={code})，拒絕批量下單")
 
-                for idx, res in enumerate(batch_results):
+                    batch_results = await asyncio.get_event_loop().run_in_executor(
+                        None,
+                        self.exchange.create_orders,
+                        ccxt_orders,
+                    )
+                except Exception as e:
+                    err_str = str(e)
+                    filter_code = self._filter_error_code(e)
+                    if filter_code and attempt == 1:
+                        # 交易所剛調整過濾器：刷新後用新 tick/step 重建，只重試一次
+                        self._record_rejection(symbol, filter_code, err_str)
+                        rules = await self._market_rules(symbol, force_refresh=True)
+                        if self.logger:
+                            self.logger.warning(
+                                f"♻️ [過濾器自癒] 批量下單以新規則重送 (batch {i // batch_size + 1}): {err_str}"
+                            )
+                        continue
+                    circuit_error = err_str
+                    break
+
+                next_pending: List[int] = []
+                for local_idx, res in enumerate(batch_results):
+                    if local_idx >= len(pending):
+                        break
+                    j = pending[local_idx]
                     try:
                         if not res or isinstance(res, Exception):
                             if self.logger:
-                                self.logger.error(f"❌ 批量下單單筆異常 (第 {idx+1} 張): {res}")
-                            results.append(None)
+                                self.logger.error(f"❌ 批量下單單筆異常 (第 {j+1} 張): {res}")
+                            outcomes[j] = None
                             continue
                         if isinstance(res, dict) and ('code' in res or 'msg' in res) and not ('orderId' in res or 'id' in res):
+                            code_text = str(res.get('code'))
+                            is_filter = code_text in BinanceRest.FILTER_ERROR_CODES
+                            if is_filter:
+                                self._record_rejection(symbol, code_text, str(res.get('msg')))
+                            if is_filter and attempt == 1:
+                                next_pending.append(j)
+                                continue
                             if self.logger:
                                 self.logger.error(
-                                    f"❌ 批量下單單筆被交易所拒絕 (第 {idx+1} 張): "
+                                    f"❌ 批量下單單筆被交易所拒絕 (第 {j+1} 張): "
                                     f"code={res.get('code')} msg={res.get('msg')}"
                                 )
-                            results.append(None)
+                            outcomes[j] = None
                             continue
 
                         parsed = self.parse_order(res, symbol)
                         if not parsed or not getattr(parsed, 'id', None):
                             if self.logger:
                                 self.logger.error(f"❌ 批量下單單筆回傳無有效 orderId: {res}")
-                            results.append(None)
+                            outcomes[j] = None
                         else:
-                            results.append(parsed)
+                            outcomes[j] = parsed
                     except Exception as parse_e:
                         if self.logger:
-                            self.logger.error(f"❌ 批量下單結果解析異常 (第 {idx+1} 張): {parse_e}")
-                        results.append(None)
+                            self.logger.error(f"❌ 批量下單結果解析異常 (第 {j+1} 張): {parse_e}")
+                        outcomes[j] = None
 
-            except Exception as e:
-                err_str = str(e)
+                if next_pending:
+                    rules = await self._market_rules(symbol, force_refresh=True)
+                    if self.logger:
+                        self.logger.warning(
+                            f"♻️ [過濾器自癒] batch {i // batch_size + 1} 有 {len(next_pending)} 張被過濾器拒絕，"
+                            f"以新 tick/step 重送"
+                        )
+                pending = next_pending
+
+            if circuit_error is not None:
                 if self.logger:
-                    self.logger.error(f"❌ 批量下單失敗 (batch {i // batch_size + 1}): {err_str}")
+                    self.logger.error(f"❌ 批量下單失敗 (batch {i // batch_size + 1}): {circuit_error}")
                 # 檢查熔斷器（若為 -2015 先探針確認是否為全域金鑰無效）
-                if '-2015' in err_str and self.exchange:
+                if '-2015' in circuit_error and self.exchange:
                     try:
                         await asyncio.get_event_loop().run_in_executor(None, self.exchange.fetch_balance)
                         if self.logger:
                             self.logger.warning(f"⚠️ [BinanceRest] 批量下單收到 -2015 但帳戶資訊驗證正常，不觸發全域熔斷")
                     except Exception as probe_err:
                         if '-2015' in str(probe_err).lower():
-                            BinanceRest._update_adapter_circuit(err_str, self.logger)
+                            BinanceRest._update_adapter_circuit(circuit_error, self.logger)
                 else:
-                    BinanceRest._update_adapter_circuit(err_str, self.logger)
-                # 本批全部標記為 None
-                results.extend([None] * len(batch))
+                    BinanceRest._update_adapter_circuit(circuit_error, self.logger)
+
+            results.extend(outcomes)
+            if any(item is not None for item in outcomes):
+                self._record_placement_success(symbol)
 
             # 批次間短暫延遲
             if i + batch_size < len(orders):

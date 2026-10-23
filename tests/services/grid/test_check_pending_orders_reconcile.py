@@ -167,6 +167,55 @@ class TestCheckPendingOrdersReconcile(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(order.status, GridOrderStatus.FILLED)
         callback_mock.assert_awaited_once_with(order)
 
+    async def test_fill_uses_exchange_price_and_quantity_not_local_values(self):
+        """REST 對帳成交必須以交易所回報的價/量入帳，不可被本地網格價覆寫。
+
+        事故：帳本記 SELL 0.52798/11.4，交易所實際是 BUY 0.52/11，
+        造成持倉 4635 vs 5084、realized_pnl 0.5129 的幽靈帳。
+        """
+        order = GridOrder(
+            order_id="ord_exchange_truth",
+            client_id="cli_truth",
+            grid_id=5,
+            side=GridOrderSide.SELL,
+            price=Decimal("0.52798"),
+            amount=Decimal("11.4"),
+            status=GridOrderStatus.PENDING,
+            created_at=datetime.now(),
+        )
+        self.engine._pending_orders["ord_exchange_truth"] = order
+
+        self.mock_adapter.get_open_orders.return_value = []
+        self.mock_adapter.get_order.return_value = OrderData(
+            id="ord_exchange_truth",
+            client_id="cli_truth",
+            symbol="ETH/USDC:USDC",
+            side=OrderSide.SELL,
+            type=OrderType.LIMIT,
+            amount=Decimal("11.4"),
+            price=Decimal("0.528"),
+            filled=Decimal("11"),
+            remaining=Decimal("0.4"),
+            cost=Decimal("5.808"),
+            average=Decimal("0.528"),
+            status=OrderStatus.FILLED,
+            timestamp=datetime.now(),
+            updated=datetime.now(),
+            fee=None,
+            trades=[],
+            params={},
+            raw_data={},
+        )
+
+        callback_mock = AsyncMock()
+        self.engine.subscribe_order_updates(callback_mock)
+
+        filled_count = await self.engine._check_pending_orders()
+
+        self.assertEqual(filled_count, 1)
+        self.assertEqual(order.filled_price, Decimal("0.528"))
+        self.assertEqual(order.filled_amount, Decimal("11"))
+
     async def test_get_order_transient_failure_keeps_pending(self):
         """測試反查暫態失敗時，保留在 pending 緩存待下輪重試，不武斷認定成交"""
         order = GridOrder(
