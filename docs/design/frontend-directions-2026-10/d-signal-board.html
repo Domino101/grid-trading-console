@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>Signal Board</title>
+<style>
+  :root{
+    --bg:#e7e7e2; --panel:#ffffff; --ink:#0e0e0e; --ink2:#3a3a36; --gray:#77776f;
+    --rule:#c9c9c1; --rule2:#e2e2db;
+    --orange:#ff4d00; --yellow:#ffe500; --green:#007a3d; --red:#c8102e; --cyan:#007d9c;
+    --mono:"JetBrains Mono","Noto Sans Mono","DejaVu Sans Mono",ui-monospace,"SF Mono",Consolas,monospace;
+    --sans:"Inter","Noto Sans CJK TC","Noto Sans","PingFang TC","Microsoft JhengHei",sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:12px;line-height:1.45;-webkit-font-smoothing:antialiased}
+  .app{display:grid;grid-template-columns:202px 1fr;height:100vh}
+  .num{font-family:var(--mono);font-variant-numeric:tabular-nums;letter-spacing:-.2px}
+  .up{color:var(--green)}.dn{color:var(--red)}.or{color:var(--orange)}
+  .cap{font-size:8px;letter-spacing:.16em;text-transform:uppercase}
+
+  /* side */
+  aside{background:#101010;color:#f4f4f0;display:flex;flex-direction:column;border-right:2px solid #101010}
+  .brand{display:flex;align-items:center;gap:10px;padding:18px 16px;border-bottom:1px solid #2a2a2a}
+  .logo{width:32px;height:32px;background:var(--orange);display:grid;place-items:center;font-family:var(--mono);font-size:11px;font-weight:700;color:#0e0e0e;flex:none}
+  .bt{font-size:12px;font-weight:800;letter-spacing:.1em;line-height:1.2}
+  .bs{font-family:var(--mono);font-size:7px;letter-spacing:.16em;color:#8d8d86;margin-top:3px}
+  nav{flex:1;padding:10px 0;overflow:hidden}
+  .grp{font-family:var(--mono);font-size:7.5px;letter-spacing:.2em;color:#6f6f68;padding:14px 16px 5px}
+  .nav{padding:6px 16px;font-size:11.5px;color:#c9c9c1;display:flex;align-items:center;gap:8px;cursor:pointer;border-left:4px solid transparent}
+  .nav .n{margin-left:auto;font-family:var(--mono);font-size:9px;color:#6f6f68}
+  .nav:hover{color:#fff;background:#181818}
+  .nav.on{background:var(--orange);color:#0e0e0e;font-weight:700;border-left-color:var(--yellow)}
+  .nav.on .n{color:#0e0e0e}
+  .sfoot{border-top:1px solid #2a2a2a;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:8px;color:#8d8d86;letter-spacing:.06em}
+  .sdot{width:6px;height:6px;background:#2ee06a;display:inline-block;margin-right:5px}
+
+  /* main */
+  main{display:flex;flex-direction:column;min-height:0;background:var(--bg)}
+  .top{flex:none;height:62px;background:var(--panel);border-bottom:2px solid var(--ink);display:flex;align-items:center;gap:14px;padding:0 16px}
+  .ttl{display:flex;flex-direction:column;gap:1px}
+  .ttl h1{font-size:14px;font-weight:800;letter-spacing:.06em;line-height:1.2;display:flex;align-items:center;gap:8px}
+  .badge{font-family:var(--mono);font-size:8px;font-weight:600;letter-spacing:.1em;padding:2px 5px;border:1px solid var(--ink)}
+  .badge.live{background:var(--ink);color:var(--yellow);border-color:var(--ink)}
+  .badge.sim{background:var(--panel);color:var(--ink)}
+  .sub{font-size:9px;color:var(--gray);letter-spacing:.02em}
+  .top .r{margin-left:auto;display:flex;align-items:center;gap:10px}
+  .clock{text-align:right;font-family:var(--mono);font-size:9px;color:var(--ink2);line-height:1.5}
+  .clock b{display:block;font-size:11px;font-weight:600;color:var(--ink)}
+  .sqbtn{height:28px;padding:0 10px;border:1px solid var(--ink);background:var(--panel);font-size:9px;font-weight:700;letter-spacing:.08em;display:flex;align-items:center;gap:5px;cursor:pointer;white-space:nowrap}
+  .sqbtn:hover{background:var(--ink);color:#fff}
+  .sqbtn.pri{background:var(--orange);color:#fff;border-color:var(--orange)}
+  .sqbtn.pri:hover{background:#0e0e0e;border-color:#0e0e0e}
+
+  .scroll{flex:1;min-height:0;overflow:hidden;padding:12px 14px 10px;display:flex;flex-direction:column;gap:8px}
+
+  /* signal rail */
+  .rail{flex:none;display:grid;grid-template-columns:1.3fr 1fr 1fr 1.15fr;gap:8px}
+  .tile{border:1px solid var(--ink);background:var(--panel);display:flex;flex-direction:column;min-height:102px}
+  .tile .h{background:var(--ink);color:#fff;height:20px;display:flex;align-items:center;justify-content:space-between;padding:0 8px;font-family:var(--mono);font-size:7.5px;letter-spacing:.16em}
+  .tile .h span:last-child{color:#8d8d86}
+  .tile .b{padding:8px 10px 7px;flex:1;display:flex;flex-direction:column}
+  .trow{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+  .tsym{font-family:var(--mono);font-size:17px;font-weight:700;letter-spacing:-.4px;line-height:1.15}
+  .tval{font-family:var(--mono);font-size:18px;font-weight:700;letter-spacing:-.8px}
+  .ttag{font-size:8.5px;font-weight:700;letter-spacing:.06em;color:var(--orange);margin-top:2px}
+  .tmeta{font-family:var(--mono);font-size:9px;color:var(--ink2);margin-top:auto;padding-top:4px}
+  .tmeta b{font-weight:700}
+  .tile.accent{border-top:4px solid var(--orange)}
+  .tile .h .idx{color:var(--yellow)}
+  .kvs{display:flex;justify-content:space-between;font-size:10px;color:var(--ink2);padding:1.5px 0;border-bottom:1px dotted var(--rule)}
+  .kvs:last-of-type{border-bottom:0}
+  .kvs b{font-family:var(--mono);font-size:10.5px;color:var(--ink)}
+  .big0{font-family:var(--mono);font-size:26px;font-weight:700;letter-spacing:-1.5px;line-height:1}
+  .big0 small{font-size:9px;font-family:var(--sans);font-weight:600;letter-spacing:.08em;margin-left:3px}
+
+  /* config */
+  .cfg{flex:none;border:1px solid var(--ink);background:var(--panel)}
+  .cfghead{height:24px;border-bottom:1px solid var(--ink);display:flex;align-items:center;justify-content:space-between;padding:0 10px;font-family:var(--mono);font-size:7.5px;letter-spacing:.16em;color:var(--ink)}
+  .cfghead .l{display:flex;align-items:center;gap:7px}
+  .cfghead .l i{width:7px;height:7px;background:var(--orange);display:block}
+  .cfghead .r{color:var(--gray)}
+  .cfghead .r b{color:var(--green)}
+  .cfgrow1{display:flex;align-items:flex-end;gap:16px;padding:8px 10px 7px;border-bottom:1px solid var(--rule)}
+  .fld{display:flex;flex-direction:column;gap:4px}
+  .lab{font-size:7.5px;letter-spacing:.16em;color:var(--gray);font-weight:600}
+  .selbox{display:flex;align-items:center;gap:10px;height:30px;border:1px solid var(--ink);padding:0 8px;min-width:268px;background:var(--panel)}
+  .selbox .v{font-size:11px;font-weight:600}
+  .selbox .b{margin-left:auto;font-family:var(--mono);font-size:9.5px;color:var(--ink2)}
+  .selbox .ar{font-size:10px;color:var(--ink)}
+  .seg{display:flex;border:1px solid var(--ink);height:30px}
+  .seg span{padding:0 12px;display:flex;align-items:center;font-size:10px;border-right:1px solid var(--rule);color:var(--ink2);cursor:pointer}
+  .seg span:last-child{border-right:0}
+  .seg .on{background:var(--ink);color:#fff;font-weight:600}
+  .avail{margin-left:auto;text-align:right}
+  .avail .v{font-family:var(--mono);font-size:23px;font-weight:700;letter-spacing:-1px;line-height:1.05}
+  .cfgrow2{display:flex;align-items:center;gap:10px;padding:7px 10px}
+  .inbox{display:flex;align-items:center;height:26px;border:1px solid var(--ink);padding:0 7px}
+  .inbox input{width:36px;border:0;background:none;outline:0;font-family:var(--mono);font-size:11px;font-weight:600;text-align:right;color:var(--ink)}
+  .inbox i{font-style:normal;font-size:8px;font-family:var(--mono);margin-left:2px;color:var(--gray)}
+  .pct{display:flex;border:1px solid var(--rule);height:26px}
+  .pct span{padding:0 7px;display:flex;align-items:center;font-family:var(--mono);font-size:9px;color:var(--ink2);border-right:1px solid var(--rule);cursor:pointer}
+  .pct span:last-child{border-right:0}
+  .pct .on{background:var(--yellow);color:var(--ink);font-weight:700}
+  .sep{width:1px;height:18px;background:var(--rule)}
+  .totals{margin-left:auto;display:flex;gap:16px}
+  .totals div{text-align:right}
+  .totals span{display:block;font-size:7px;letter-spacing:.14em;color:var(--gray)}
+  .totals b{font-family:var(--mono);font-size:11px;font-weight:700}
+  .totals .hi b{color:var(--orange);font-size:13px}
+
+  /* scheduler */
+  .sched{flex:none;height:38px;display:flex;align-items:stretch;border:1px solid var(--ink);background:var(--yellow)}
+  .haz{width:12px;flex:none;background:repeating-linear-gradient(45deg,#0e0e0e 0 5px,var(--yellow) 5px 11px)}
+  .sched .in{flex:1;display:flex;align-items:center;gap:9px;padding:0 9px;min-width:0}
+  .st{font-family:var(--mono);font-size:8px;font-weight:700;letter-spacing:.1em;background:var(--ink);color:var(--yellow);padding:2px 5px;white-space:nowrap}
+  .stxt{font-size:9.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .stxt b{font-family:var(--mono);font-weight:700}
+  .stxt .w{background:var(--ink);color:#fff;padding:0 3px;font-weight:700}
+  .sched .acts{display:flex;gap:0;border-left:1px solid var(--ink);flex:none}
+  .sched .acts button{border:0;border-right:1px solid var(--ink);background:transparent;font-size:8.5px;font-weight:700;padding:0 9px;cursor:pointer;letter-spacing:.03em}
+  .sched .acts button:last-child{border-right:0}
+  .sched .acts button:hover{background:var(--ink);color:var(--yellow)}
+
+  /* list */
+  .list{flex:1;min-height:0;border:1px solid var(--ink);background:var(--panel);display:flex;flex-direction:column;overflow:hidden}
+  .lhead{flex:none;height:38px;display:flex;align-items:stretch;border-bottom:1px solid var(--ink)}
+  .tab{padding:0 14px;display:flex;align-items:center;gap:6px;font-size:10px;font-weight:600;color:var(--ink2);border-right:1px solid var(--rule);cursor:pointer;letter-spacing:.03em}
+  .tab b{font-family:var(--mono);font-size:8.5px;font-weight:400;color:var(--gray)}
+  .tab.on{background:var(--ink);color:#fff}
+  .tab.on b{color:var(--yellow)}
+  .lhead .r{margin-left:auto;display:flex;align-items:center;gap:10px;padding:0 10px;font-family:var(--mono);font-size:8px;color:var(--gray);letter-spacing:.04em}
+  .live{display:flex;align-items:center;gap:5px;color:var(--green);font-weight:700}
+  .live i{width:5px;height:5px;background:var(--green);display:block}
+  .toolbar{flex:none;height:38px;display:flex;align-items:center;gap:6px;padding:0 8px;border-bottom:1px solid var(--ink);background:#f4f4f0}
+  .f{padding:3px 7px;border:1px solid var(--rule);background:var(--panel);font-size:9px;color:var(--ink2);display:flex;gap:5px;align-items:center;cursor:pointer;white-space:nowrap}
+  .f b{font-family:var(--mono);font-size:8.5px;color:var(--ink)}
+  .f.on{background:var(--ink);border-color:var(--ink);color:#fff}
+  .f.on b{color:var(--yellow)}
+  .search{margin-left:auto;display:flex;align-items:center;gap:6px;border:1px solid var(--ink);height:24px;width:230px;padding:0 7px;color:var(--gray);background:var(--panel)}
+  .search span{font-size:8.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  table{width:100%;border-collapse:collapse;table-layout:fixed}
+  th{background:var(--ink);color:#fff;font-family:var(--mono);font-size:7.5px;font-weight:500;letter-spacing:.18em;text-align:left;padding:6px 9px;white-space:nowrap}
+  th.r,td.r{text-align:right}
+  td{padding:4px 9px;border-bottom:1px solid var(--rule2);vertical-align:middle}
+  tbody tr:nth-child(even) td{background:#fafaf7}
+  tbody tr:hover td{background:#f0f0ea}
+  .rk{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:9.5px;color:var(--gray)}
+  .side{font-family:var(--sans);font-size:7.5px;font-weight:700;letter-spacing:.06em;padding:1px 3px;border:1px solid}
+  .side.l{color:#fff;background:var(--cyan);border-color:var(--cyan)}
+  .side.s{color:#0e0e0e;background:var(--orange);border-color:var(--orange)}
+  .symc{font-family:var(--mono);font-size:11.5px;font-weight:700}
+  .cap2{display:block;font-family:var(--mono);font-size:8px;color:var(--gray);font-weight:400;margin-top:1px}
+  .sv{font-family:var(--mono);font-size:11.5px;font-weight:700}
+  .bar{height:5px;background:#e6e6df;width:72px;margin-top:3px}
+  .bar i{display:block;height:5px;background:var(--green)}
+  .bar i.n{background:var(--red)}
+  .note2{font-size:8px;color:var(--gray);margin-top:2px}
+  .mv{font-family:var(--mono);font-size:11px}
+  .ms{font-size:8px;color:var(--gray);margin-top:2px}
+  .cf b{display:block;font-family:var(--mono);font-size:10.5px}
+  .cf span{display:block;font-family:var(--mono);font-size:8px;color:var(--gray);margin-top:1px}
+  tr.short td{background:#fff6f0 !important}
+  tr.short td:first-child{border-left:4px solid var(--orange)}
+  tr td:first-child{border-left:4px solid var(--cyan)}
+  .listfoot{flex:none;margin-top:auto;height:22px;background:var(--ink);color:#b9b9b1;display:flex;align-items:center;justify-content:space-between;padding:0 9px;font-family:var(--mono);font-size:7.5px;letter-spacing:.1em}
+  .listfoot .ok{color:#2ee06a}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div class="brand">
+      <div class="logo">GT</div>
+      <div><div class="bt">GRID TRADING</div><div class="bs">OPERATIONS CONSOLE</div></div>
+    </div>
+    <nav>
+      <div class="grp">01 / 監控</div>
+      <div class="nav">策略總覽<span class="n">12</span></div>
+      <div class="nav">策略市場</div>
+      <div class="grp">02 / 網格</div>
+      <div class="nav">網格回測</div>
+      <div class="nav">建立網格</div>
+      <div class="grp">03 / DCA</div>
+      <div class="nav">DCA 機器人<span class="n">3</span></div>
+      <div class="nav">建立 DCA</div>
+      <div class="grp">04 / 截面多空</div>
+      <div class="nav">多空截面排行</div>
+      <div class="nav on">CoinFull 策略機器人<span class="n">01</span></div>
+    </nav>
+    <div class="sfoot"><span><span class="sdot"></span>WS OK</span><span>v0.3.15</span></div>
+  </aside>
+
+  <main>
+    <header class="top">
+      <div class="ttl">
+        <h1>COINFULL PRIME <span class="badge live">實盤</span><span class="badge sim">模擬試算</span></h1>
+        <div class="sub">每日截面多空 · 自動隔離網格與 DCA 標的 · 手動執行與背景排程分開設定</div>
+      </div>
+      <div class="r">
+        <div class="clock"><b>2026-10-21 22:10:33</b>UTC+8 · DATA 22:10</div>
+        <button class="sqbtn">多空截面</button>
+        <button class="sqbtn">重新計算</button>
+        <button class="sqbtn pri">立即執行</button>
+      </div>
+    </header>
+
+    <div class="scroll">
+      <!-- SIGNAL RAIL -->
+      <div class="rail">
+        <section class="tile accent">
+          <div class="h"><span>01 / 多頭首選 · MOMENTUM</span><span class="idx">TOP</span></div>
+          <div class="b">
+            <div class="trow"><span class="tsym">JCTUSDT</span><span class="tval up">+1.2414</span></div>
+            <div class="ttag">強烈做多 · TOP 7</div>
+            <div class="tmeta">配置 <b>$31.87</b> · 10.0% 名義額 · 動能 <b class="up">+79.78%</b></div>
+          </div>
+        </section>
+        <section class="tile">
+          <div class="h"><span>02 / 基準對沖 · HEDGE</span><span>02</span></div>
+          <div class="b">
+            <div class="trow"><span class="tsym">BTC</span><span class="tval or">50.0%</span></div>
+            <div class="ttag" style="color:var(--ink2)">對沖空頭名義</div>
+            <div class="tmeta">配置 <b>$159.33</b> · 市價 <b>$83,879.80</b></div>
+          </div>
+        </section>
+        <section class="tile">
+          <div class="h"><span>03 / 持倉 · EXPOSURE</span><span>03</span></div>
+          <div class="b">
+            <div class="big0">0<small>筆</small></div>
+            <div class="tmeta" style="padding-top:2px">多 <b>0</b> · 空 <b>0</b> · 下次換倉 5 多 / 1 空</div>
+          </div>
+        </section>
+        <section class="tile">
+          <div class="h"><span>04 / 防護 · GUARD</span><span>04</span></div>
+          <div class="b" style="padding-top:5px">
+            <div class="kvs"><span>隔離標的</span><b>10 個</b></div>
+            <div class="kvs"><span>母體覆蓋</span><b>80 幣</b></div>
+            <div class="kvs"><span>其他策略</span><b>5 筆 · $4,217.90</b></div>
+          </div>
+        </section>
+      </div>
+
+      <!-- CONFIG -->
+      <section class="cfg">
+        <div class="cfghead">
+          <div class="l"><i></i><span>ACCOUNT CONFIG / 交易帳號設定</span></div>
+          <div class="r"><b>●</b> API VERIFIED · READ-ONLY KEY</div>
+        </div>
+        <div class="cfgrow1">
+          <div class="fld"><span class="lab">交易帳號</span>
+            <div class="selbox"><span class="v">Binance 合約實盤</span><span class="b">5,637.30</span><span class="ar">▼</span></div>
+          </div>
+          <div class="fld"><span class="lab">執行模式</span>
+            <div class="seg"><span class="on">模擬試算</span><span>真實發單</span></div>
+          </div>
+          <div class="avail"><span class="lab">可用保證金 / AVAILABLE</span><div class="v">$637.30</div></div>
+        </div>
+        <div class="cfgrow2">
+          <div class="fld" style="flex-direction:row;align-items:center;gap:8px"><span class="lab">本金規模</span>
+            <div class="inbox"><input value="50" readonly><i>%</i></div>
+            <div class="pct"><span>25%</span><span class="on">50%</span><span>80%</span><span>100%</span></div>
+          </div>
+          <div class="sep"></div>
+          <div class="fld" style="flex-direction:row;align-items:center;gap:8px"><span class="lab">槓桿</span>
+            <div class="pct"><span class="on">1x</span><span>1.2x</span><span>1.5x</span><span>2x</span></div>
+          </div>
+          <div class="totals">
+            <div><span>名義額</span><b>$318.65</b></div>
+            <div><span>單幣</span><b>$31.87</b></div>
+            <div class="hi"><span>本金</span><b>$318.65</b></div>
+          </div>
+          <button class="sqbtn">套用至排程</button>
+          <button class="sqbtn pri">執行模擬換倉</button>
+        </div>
+      </section>
+
+      <!-- SCHEDULE -->
+      <div class="sched">
+        <div class="haz"></div>
+        <div class="in">
+          <span class="st">排程運行中</span>
+          <span class="stxt">下次 <b>2026/10/22 08:05</b>（台北）· 目標 <b>Binance 合約實盤</b> <span class="w">實盤 · 真實發單</span> · 單筆約 <b>$31.87</b> · 排程未同步</span>
+        </div>
+        <div class="acts"><button>套用目前設定</button><button>停止排程</button></div>
+      </div>
+
+      <!-- LIST -->
+      <section class="list">
+        <div class="lhead">
+          <div class="tab">持倉 <b>0</b></div>
+          <div class="tab on">排行 <b>80</b></div>
+          <div class="tab">歷史 <b>18</b></div>
+          <div class="r"><span>資料 2026-10-21 22:10</span><span class="live"><i></i>LIVE</span></div>
+        </div>
+        <div class="toolbar">
+          <div class="f on">今日多空組合 <b>6</b></div>
+          <div class="f">多頭籃子 <b>5</b></div>
+          <div class="f">對沖籃子 <b>1</b></div>
+          <div class="f">全部 <b>80</b></div>
+          <div class="search">⌕ <span>搜尋全部幣種（BTC · SOL …）</span></div>
+        </div>
+        <table>
+          <thead><tr>
+            <th style="width:70px">排名</th><th style="width:180px">幣種 / 市值</th><th style="width:140px">綜合評分</th>
+            <th style="width:31%">動能（60%）</th><th style="width:31%">資金費率（40%）</th><th class="r" style="width:130px">目標配置</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td><div class="rk">#07<span class="side l">多</span></div></td>
+              <td><span class="symc">JCTUSDT</span><span class="cap2">$0.00436</span></td>
+              <td><span class="sv up">+1.2414</span><div class="bar"><i style="width:88%"></i></div><div class="note2">強烈做多 · TOP 7</div></td>
+              <td><span class="mv up">+79.78%</span><div class="ms">Z +2.39 · 動能極強</div></td>
+              <td><span class="mv up">+0.0520%</span><div class="ms">反向 Z −0.48 · 嚴重過熱（看空時機）</div></td>
+              <td class="r cf"><b>$31.87</b><span>10.0% 名義額</span></td>
+            </tr>
+            <tr>
+              <td><div class="rk">#10<span class="side l">多</span></div></td>
+              <td><span class="symc">BIRBUSDT</span><span class="cap2">$0.05966</span></td>
+              <td><span class="sv up">+0.9422</span><div class="bar"><i style="width:67%"></i></div><div class="note2">強烈做多 · TOP 10</div></td>
+              <td><span class="mv dn">−15.50%</span><div class="ms">Z −0.83 · 偏弱走跌</div></td>
+              <td><span class="mv dn">−0.5381%</span><div class="ms">反向 Z +3.60 · 深度貼水（反轉看多）</div></td>
+              <td class="r cf"><b>$31.87</b><span>10.0% 名義額</span></td>
+            </tr>
+            <tr>
+              <td><div class="rk">#11<span class="side l">多</span></div></td>
+              <td><span class="symc">BMTUSDT</span><span class="cap2">$0.02269</span></td>
+              <td><span class="sv up">+0.8716</span><div class="bar"><i style="width:62%"></i></div><div class="note2">強烈做多 · TOP 11</div></td>
+              <td><span class="mv up">+0.77%</span><div class="ms">Z −0.28 · 震盪中性</div></td>
+              <td><span class="mv dn">−0.1960%</span><div class="ms">反向 Z +2.60 · 深度貼水（反轉看多）</div></td>
+              <td class="r cf"><b>$31.87</b><span>10.0% 名義額</span></td>
+            </tr>
+            <tr>
+              <td><div class="rk">#13<span class="side l">多</span></div></td>
+              <td><span class="symc">IOSTUSDT</span><span class="cap2">$0.001608</span></td>
+              <td><span class="sv up">+0.7898</span><div class="bar"><i style="width:56%"></i></div><div class="note2">強烈做多 · TOP 13</div></td>
+              <td><span class="mv up">+11.95%</span><div class="ms">Z +0.10 · 震盪中性</div></td>
+              <td><span class="mv dn">−0.1440%</span><div class="ms">反向 Z +1.83 · 深度貼水（反轉看多）</div></td>
+              <td class="r cf"><b>$31.87</b><span>10.0% 名義額</span></td>
+            </tr>
+            <tr>
+              <td><div class="rk">#16<span class="side l">多</span></div></td>
+              <td><span class="symc">DOODUSDT</span><span class="cap2">$0.004492</span></td>
+              <td><span class="sv up">+0.2955</span><div class="bar"><i style="width:34%"></i></div><div class="note2">偏多 · TOP 16</div></td>
+              <td><span class="mv up">+27.01%</span><div class="ms">Z +0.61 · 震盪中性</div></td>
+              <td><span class="mv up">−0.0094%</span><div class="ms">反向 Z −0.17 · 費率正常</div></td>
+              <td class="r cf"><b>$31.87</b><span>10.0% 名義額</span></td>
+            </tr>
+            <tr>
+              <td><div class="rk">#18<span class="side l">多</span></div></td>
+              <td><span class="symc">PENGUUSDT</span><span class="cap2">$0.03142</span></td>
+              <td><span class="sv up">+0.2114</span><div class="bar"><i style="width:28%"></i></div><div class="note2">偏多 · TOP 18</div></td>
+              <td><span class="mv up">+6.42%</span><div class="ms">Z +0.44 · 動能中性</div></td>
+              <td><span class="mv up">+0.0071%</span><div class="ms">反向 Z −0.08 · 費率正常</div></td>
+              <td class="r cf"><b>$31.87</b><span>10.0% 名義額</span></td>
+            </tr>
+            <tr>
+              <td><div class="rk">#23<span class="side l">多</span></div></td>
+              <td><span class="symc">WIFUSDT</span><span class="cap2">$2.1460</span></td>
+              <td><span class="sv up">+0.1882</span><div class="bar"><i style="width:24"></i></div><div class="note2">偏多 · TOP 23</div></td>
+              <td><span class="mv up">+2.14%</span><div class="ms">Z +0.21 · 動能中性</div></td>
+              <td><span class="mv up">+0.0132%</span><div class="ms">反向 Z −0.11 · 費率正常</div></td>
+              <td class="r cf"><b>$31.87</b><span>10.0% 名義額</span></td>
+            </tr>
+            <tr>
+              <td><div class="rk">#27<span class="side l">多</span></div></td>
+              <td><span class="symc">TIAUSDT</span><span class="cap2">$2.8700</span></td>
+              <td><span class="sv up">+0.1544</span><div class="bar"><i style="width:21"></i></div><div class="note2">中性 · TOP 27</div></td>
+              <td><span class="mv up">+4.06%</span><div class="ms">Z +0.35 · 動能中性</div></td>
+              <td><span class="mv up">+0.0105%</span><div class="ms">反向 Z −0.05 · 費率正常</div></td>
+              <td class="r cf"><b>$31.87</b><span>10.0% 名義額</span></td>
+            </tr>
+            <tr>
+              <td><div class="rk">#31<span class="side l">多</span></div></td>
+              <td><span class="symc">SUIUSDT</span><span class="cap2">$3.4200</span></td>
+              <td><span class="sv up">+0.1206</span><div class="bar"><i style="width:17"></i></div><div class="note2">中性 · TOP 31</div></td>
+              <td><span class="mv up">+1.88%</span><div class="ms">Z +0.12 · 震盪中性</div></td>
+              <td><span class="mv up">+0.0042%</span><div class="ms">反向 Z −0.02 · 費率正常</div></td>
+              <td class="r cf"><b>$31.87</b><span>10.0% 名義額</span></td>
+            </tr>
+            <tr class="short">
+              <td><div class="rk">#21<span class="side s">空</span></div></td>
+              <td><span class="symc">BTCUSDT</span><span class="cap2">$83,624.60</span></td>
+              <td><span class="sv dn">−0.3623</span><div class="bar"><i class="n" style="width:22%"></i></div><div class="note2">基準指數對沖做空 · 50%</div></td>
+              <td><span class="mv dn">−0.52%</span><div class="ms">Z −0.32 · 震盪中性</div></td>
+              <td><span class="mv up">+0.00876%</span><div class="ms">反向 Z −0.42 · 費率正常</div></td>
+              <td class="r cf"><b>$500.00</b><span>50.0% 籃子權重</span></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="listfoot"><span>80 SYMBOLS · BINANCE FUTURES · UTC+8</span><span><span class="ok">●</span> LEDGER HEALTHY · WS 42MS</span></div>
+      </section>
+    </div>
+  </main>
+</div>
+</body>
+</html>
