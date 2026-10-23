@@ -26,6 +26,7 @@ import DcaTable from './DcaTable';
 import DcaDetail from './DcaDetail';
 import KpiCard from './KpiCard';
 import TopBar from './TopBar';
+import { t } from '../i18n/index.ts';
 
 const REFRESH_MS = 15_000;
 
@@ -82,7 +83,7 @@ const DcaDashboard: React.FC<DcaDashboardProps> = ({ onCreateNew, onUnauthorized
             }
             if (caught instanceof DOMException && caught.name === 'AbortError') return;
             failures.current += 1;
-            setError(caught instanceof Error ? caught.message : '無法讀取 DCA 總覽快照');
+            setError(caught instanceof Error ? caught.message : t("無法讀取 DCA 總覽快照"));
         } finally {
             setLoading(false);
             inFlight.current = false;
@@ -149,7 +150,7 @@ const DcaDashboard: React.FC<DcaDashboardProps> = ({ onCreateNew, onUnauthorized
                 onUnauthorized();
                 return;
             }
-            setError(caught instanceof Error ? caught.message : 'DCA 操作失敗');
+            setError(caught instanceof Error ? caught.message : t("DCA 操作失敗"));
         } finally {
             setActionBotId(null);
             setConfirm(null);
@@ -208,7 +209,7 @@ const DcaDashboard: React.FC<DcaDashboardProps> = ({ onCreateNew, onUnauthorized
         return (
             <div className="glass-panel" style={{ padding: '3rem 1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
                 <Activity size={24} className="spin" style={{ margin: '0 auto 0.75rem' }} />
-                <p>載入 DCA 機器人工作台…</p>
+                <p>{t("載入 DCA 機器人工作台…")}</p>
             </div>
         );
     }
@@ -218,7 +219,7 @@ const DcaDashboard: React.FC<DcaDashboardProps> = ({ onCreateNew, onUnauthorized
         return (
             <main className="dashboard dca-dashboard" aria-busy={loading}>
                 <TopBar
-                  title="DCA 機器人"
+                  title={t("DCA 機器人")}
                   dataStatus={snapshot?.data_status}
                   enginePid={health?.engine.pid ?? null}
                   engineRunning={health?.engine.process_running}
@@ -230,11 +231,9 @@ const DcaDashboard: React.FC<DcaDashboardProps> = ({ onCreateNew, onUnauthorized
                 />
                 <div className="glass-panel" style={{ padding: '2.5rem 1.5rem', textAlign: 'center', marginTop: '1.5rem' }}>
                     <p className="notice notice-warning" style={{ marginBottom: '1.25rem' }}>
-                        找不到指定的 DCA 機器人「{activeTargetId}」（可能已刪除或設定檔不存在）
-                    </p>
+                        {t("找不到指定的 DCA 機器人「")}{activeTargetId}{t("」（可能已刪除或設定檔不存在）")}{' '}</p>
                     <button className="btn btn-primary" type="button" onClick={handleCloseDetail}>
-                        返回 DCA 總覽
-                    </button>
+                        {t("返回 DCA 總覽")}{' '}</button>
                 </div>
             </main>
         );
@@ -255,7 +254,7 @@ const DcaDashboard: React.FC<DcaDashboardProps> = ({ onCreateNew, onUnauthorized
         <main className="dashboard dca-dashboard" aria-busy={loading}>
             {/* TopBar Telemetry（複用網格遙測；標題改為 DCA） */}
             <TopBar
-              title="DCA 機器人"
+              title={t("DCA 機器人")}
               dataStatus={snapshot?.data_status}
               enginePid={health?.engine.pid ?? null}
               engineRunning={health?.engine.process_running}
@@ -270,12 +269,12 @@ const DcaDashboard: React.FC<DcaDashboardProps> = ({ onCreateNew, onUnauthorized
             <header className="dashboard-header">
                 <div>
                     <p className="eyebrow">Dollar-Cost Averaging Console</p>
-                    <h2>DCA 機器人大盤</h2>
+                    <h2>{t("DCA 機器人大盤")}</h2>
                 </div>
                 {onCreateNew && (
                     <button className="btn btn-primary" type="button" onClick={onCreateNew}>
                         <PlusCircle size={16} />
-                        <span>建立 DCA 機器人</span>
+                        <span>{t("建立 DCA 機器人")}</span>
                     </button>
                 )}
             </header>
@@ -284,10 +283,8 @@ const DcaDashboard: React.FC<DcaDashboardProps> = ({ onCreateNew, onUnauthorized
             <div className="notice notice-warning" role="status">
                 <AlertTriangle size={18} style={{ flexShrink: 0 }} />
                 <span>
-                    <strong>armed 語意：</strong>
-                    DCA 機器人啟動後先進入「監控中」狀態，入場條件成立前交易所端不會有任何掛單；
-                    觸發後才下基礎單與安全單階梯。停止操作僅撤銷掛單、不平倉。
-                </span>
+                    <strong>{t("armed 語意：")}</strong>
+                    {t("DCA 機器人啟動後先進入「監控中」狀態，入場條件成立前交易所端不會有任何掛單； 觸發後才下基礎單與安全單階梯。停止操作僅撤銷掛單、不平倉。")}{' '}</span>
             </div>
 
             {error && (
@@ -298,72 +295,72 @@ const DcaDashboard: React.FC<DcaDashboardProps> = ({ onCreateNew, onUnauthorized
             )}
 
             {/* Hero KPI Matrix（LIVE/PAPER 雙重編碼：標籤文字含模式，稽核 5.9） */}
-            <section className="kpi-grid" aria-label="DCA 總覽指標">
+            <section className="kpi-grid" aria-label={t("DCA 總覽指標")}>
                 <KpiCard
-                  label={snapshot?.account_mode === 'paper' ? 'PAPER 淨盈虧' : 'LIVE 淨盈虧'}
+                  label={snapshot?.account_mode === 'paper' ? t("PAPER 淨盈虧") : t("LIVE 淨盈虧")}
                   value={aggregate ? money(aggregate.net_pnl) : '—'}
                   hint={
                     aggregate
-                        ? `已實現 ${money(aggregate.realized_pnl)} · 浮動 ${money(aggregate.unrealized_pnl)}`
-                        : '載入中…'
+                        ? (t("已實現 ") + (money(aggregate.realized_pnl)) + t(" · 浮動 ") + (money(aggregate.unrealized_pnl)))
+                        : t("載入中…")
                   }
                   tone={aggregate && aggregate.net_pnl >= 0 ? 'positive' : 'negative'}
                   icon={<DollarSign size={16} />}
                 />
 
                 <KpiCard
-                  label="安全單成交 / 循環"
-                  value={aggregate ? `${number(aggregate.filled_safety_orders, 0)} 張` : '—'}
-                  hint={aggregate ? `完成循環 ${number(aggregate.completed_cycles, 0)} 輪` : '載入中…'}
+                  label={t("安全單成交 / 循環")}
+                  value={aggregate ? ((number(aggregate.filled_safety_orders, 0)) + t(" 張")) : '—'}
+                  hint={aggregate ? (t("完成循環 ") + (number(aggregate.completed_cycles, 0)) + t(" 輪")) : t("載入中…")}
                   icon={<TrendingUp size={16} />}
                 />
 
                 <KpiCard
-                  label="運行中 DCA 隊列"
+                  label={t("運行中 DCA 隊列")}
                   value={aggregate ? `${aggregate.running_bots} / ${aggregate.total_bots}` : '—'}
                   hint={
                     aggregate
-                        ? `${aggregate.available_bots} 即時同步 · ${aggregate.stale_bots} 過期`
-                        : '載入中…'
+                        ? ((aggregate.available_bots) + t(" 即時同步 · ") + (aggregate.stale_bots) + t(" 過期"))
+                        : t("載入中…")
                   }
                   icon={<Activity size={16} />}
                 />
 
                 <KpiCard
-                  label="成本手續費"
+                  label={t("成本手續費")}
                   value={aggregate ? money(aggregate.fees) : '—'}
-                  hint={aggregate ? `已實現盈虧 ${money(aggregate.realized_pnl)}` : '載入中…'}
+                  hint={aggregate ? (t("已實現盈虧 ") + (money(aggregate.realized_pnl))) : t("載入中…")}
                   icon={<Cpu size={16} />}
                 />
             </section>
 
             {/* Paper Band（與網格一致：PAPER 獨立運算，不計入 LIVE KPI） */}
             {snapshot?.aggregate_paper && snapshot.aggregate_paper.total_bots > 0 && snapshot.account_mode !== 'paper' && (
-                <section className="paper-band" aria-label="PAPER 模擬帳戶">
+                <section className="paper-band" aria-label={t("PAPER 模擬帳戶")}>
                     <div className="paper-band-title">
-                        <span className="badge badge-paper">PAPER 模擬隊列</span>
-                        <span>（獨立運算，不計入上方 LIVE KPI）</span>
+                        <span className="badge badge-paper">{t("PAPER 模擬隊列")}</span>
+                        <span>{t("（獨立運算，不計入上方 LIVE KPI）")}</span>
                     </div>
                     <div className="font-mono">
-                        淨盈虧: <strong className={snapshot.aggregate_paper.net_pnl >= 0 ? 'positive' : 'negative'}>{money(snapshot.aggregate_paper.net_pnl)}</strong>
+                        {t("淨盈虧:")}{' '}<strong className={snapshot.aggregate_paper.net_pnl >= 0 ? 'positive' : 'negative'}>{money(snapshot.aggregate_paper.net_pnl)}</strong>
                         {' · '}
-                        運行: <strong>{snapshot.aggregate_paper.running_bots}/{snapshot.aggregate_paper.total_bots}</strong>
+                        {t("運行:")}{' '}<strong>{snapshot.aggregate_paper.running_bots}/{snapshot.aggregate_paper.total_bots}</strong>
                     </div>
                 </section>
             )}
 
             {/* Toolbar: Search, Filters, View Modes */}
-            <section className="dashboard-toolbar" aria-label="DCA 篩選與檢視控制">
+            <section className="dashboard-toolbar" aria-label={t("DCA 篩選與檢視控制")}>
                 <div className="toolbar-left">
                     <div className="search-input-wrapper">
                         <Search size={15} />
                         <input
                           className="search-input"
                           type="text"
-                          placeholder="搜尋交易對、ID、交易所…"
+                          placeholder={t("搜尋交易對、ID、交易所…")}
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
-                          aria-label="搜尋 DCA 機器人"
+                          aria-label={t("搜尋 DCA 機器人")}
                         />
                     </div>
 
@@ -373,36 +370,33 @@ const DcaDashboard: React.FC<DcaDashboardProps> = ({ onCreateNew, onUnauthorized
                           type="button"
                           onClick={() => setFilterMode('all')}
                         >
-                            全部 ({snapshot?.bots.length ?? 0})
+                            {t("全部 (")}{snapshot?.bots.length ?? 0})
                         </button>
                         <button
                           className={`filter-pill ${filterMode === 'running' ? 'active' : ''}`}
                           type="button"
                           onClick={() => setFilterMode('running')}
                         >
-                            運行中 ({runningCount})
+                            {t("運行中 (")}{runningCount})
                         </button>
                         <button
                           className={`filter-pill ${filterMode === 'live' ? 'active' : ''}`}
                           type="button"
                           onClick={() => setFilterMode('live')}
                         >
-                            LIVE 實盤
-                        </button>
+                            {t("LIVE 實盤")}{' '}</button>
                         <button
                           className={`filter-pill ${filterMode === 'paper' ? 'active' : ''}`}
                           type="button"
                           onClick={() => setFilterMode('paper')}
                         >
-                            PAPER 模擬
-                        </button>
+                            {t("PAPER 模擬")}{' '}</button>
                         <button
                           className={`filter-pill ${filterMode === 'stale' ? 'active' : ''}`}
                           type="button"
                           onClick={() => setFilterMode('stale')}
                         >
-                            已停止/待處理
-                        </button>
+                            {t("已停止/待處理")}{' '}</button>
                     </div>
                 </div>
 
@@ -412,8 +406,8 @@ const DcaDashboard: React.FC<DcaDashboardProps> = ({ onCreateNew, onUnauthorized
                           className={`view-btn ${viewMode === 'grid' ? 'active' : ''}`}
                           type="button"
                           onClick={() => setViewMode('grid')}
-                          title="卡片視覺檢視"
-                          aria-label="卡片檢視"
+                          title={t("卡片視覺檢視")}
+                          aria-label={t("卡片檢視")}
                         >
                             <LayoutGrid size={16} />
                         </button>
@@ -421,8 +415,8 @@ const DcaDashboard: React.FC<DcaDashboardProps> = ({ onCreateNew, onUnauthorized
                           className={`view-btn ${viewMode === 'table' ? 'active' : ''}`}
                           type="button"
                           onClick={() => setViewMode('table')}
-                          title="高密度表格檢視"
-                          aria-label="表格檢視"
+                          title={t("高密度表格檢視")}
+                          aria-label={t("表格檢視")}
                         >
                             <List size={16} />
                         </button>
@@ -434,22 +428,22 @@ const DcaDashboard: React.FC<DcaDashboardProps> = ({ onCreateNew, onUnauthorized
             {loading && !snapshot && (
                 <div className="glass-panel" style={{ padding: '3rem 1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
                     <Activity size={24} className="spin" style={{ margin: '0 auto 0.75rem' }} />
-                    <p>正在載入 DCA 機器人快照…</p>
+                    <p>{t("正在載入 DCA 機器人快照…")}</p>
                 </div>
             )}
 
             {!loading && filteredBots.length === 0 && (
                 <div className="glass-panel" style={{ padding: '3.5rem 1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
                     <p style={{ fontSize: '1rem', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>
-                        {searchQuery ? `找不到與「${searchQuery}」相符的 DCA 機器人。` : '目前沒有符合篩選條件的 DCA 機器人。'}
+                        {searchQuery ? (t("找不到與「") + (searchQuery) + t("」相符的 DCA 機器人。")) : t("目前沒有符合篩選條件的 DCA 機器人。")}
                     </p>
-                    <small>點擊上方「建立 DCA 機器人」配置新的 DCA 策略實例。</small>
+                    <small>{t("點擊上方「建立 DCA 機器人」配置新的 DCA 策略實例。")}</small>
                 </div>
             )}
 
             {/* 卡片或表格 */}
             {viewMode === 'grid' ? (
-                <section className="strategy-grid" aria-label="DCA 機器人列表">
+                <section className="strategy-grid" aria-label={t("DCA 機器人列表")}>
                     {filteredBots.map((bot) => (
                         <DcaCard
                           key={bot.bot_id}
@@ -484,24 +478,24 @@ const DcaDashboard: React.FC<DcaDashboardProps> = ({ onCreateNew, onUnauthorized
                 <ConfirmDialog
                   title={
                       confirm.action === 'stop'
-                          ? '停止 DCA 機器人'
+                          ? t("停止 DCA 機器人")
                           : isDcaRunningStatus(confirm.bot.status)
-                          ? '停止並刪除 DCA 機器人'
-                          : '刪除 DCA 配置'
+                          ? t("停止並刪除 DCA 機器人")
+                          : t("刪除 DCA 配置")
                   }
                   body={
                       confirm.action === 'stop'
-                          ? `確定要停止 ${confirm.bot.symbol ?? confirm.bot.bot_id}（${confirm.bot.mode.toUpperCase()} 模式）嗎？系統將撤銷所有掛單（撤單但不平倉，現有部位將保留），機器人狀態轉為已停止。此操作將寫入審計日誌。`
+                          ? (t("確定要停止 ") + (confirm.bot.symbol ?? confirm.bot.bot_id) + t("（") + (confirm.bot.mode.toUpperCase()) + t(" 模式）嗎？系統將撤銷所有掛單（撤單但不平倉，現有部位將保留），機器人狀態轉為已停止。此操作將寫入審計日誌。"))
                           : isDcaRunningStatus(confirm.bot.status)
-                          ? `確定要停止並刪除 ${confirm.bot.symbol ?? confirm.bot.bot_id}（${confirm.bot.mode.toUpperCase()} 模式）嗎？此機器人目前運行中，系統將先撤銷所有掛單（撤單但不平倉）、停止運行，並將配置檔案歸檔刪除。`
-                          : `確定要刪除 ${confirm.bot.symbol ?? confirm.bot.bot_id}（${confirm.bot.mode.toUpperCase()} 模式）嗎？此機器人已停止，配置檔案將被歸檔刪除。`
+                          ? (t("確定要停止並刪除 ") + (confirm.bot.symbol ?? confirm.bot.bot_id) + t("（") + (confirm.bot.mode.toUpperCase()) + t(" 模式）嗎？此機器人目前運行中，系統將先撤銷所有掛單（撤單但不平倉）、停止運行，並將配置檔案歸檔刪除。"))
+                          : (t("確定要刪除 ") + (confirm.bot.symbol ?? confirm.bot.bot_id) + t("（") + (confirm.bot.mode.toUpperCase()) + t(" 模式）嗎？此機器人已停止，配置檔案將被歸檔刪除。"))
                   }
                   confirmLabel={
                       confirm.action === 'stop'
-                          ? '確認停止（撤單不平倉）'
+                          ? t("確認停止（撤單不平倉）")
                           : isDcaRunningStatus(confirm.bot.status)
-                          ? '確認停止並刪除'
-                          : '確認刪除'
+                          ? t("確認停止並刪除")
+                          : t("確認刪除")
                   }
                   danger={confirm.action === 'delete'}
                   onCancel={() => setConfirm(null)}

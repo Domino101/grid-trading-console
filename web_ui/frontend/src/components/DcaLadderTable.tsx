@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import type { DcaLevelView } from '../services/api';
 import { number } from '../utils/format';
 import { dcaSlotStatusMeta } from '../utils/dca';
+import { t } from '../i18n/index.ts';
 
 interface DcaLadderTableProps {
     levels: DcaLevelView[];
@@ -36,8 +37,7 @@ const DcaLadderTable: React.FC<DcaLadderTableProps> = ({
     if (levels.length === 0) {
         return (
             <p className="muted" style={{ padding: '2rem 0', textAlign: 'center' }}>
-                目前無鎖定方向的實際階梯（armed / cooling 狀態不掛單）。
-            </p>
+                {t("目前無鎖定方向的實際階梯（armed / cooling 狀態不掛單）。")}{' '}</p>
         );
     }
 
@@ -46,13 +46,13 @@ const DcaLadderTable: React.FC<DcaLadderTableProps> = ({
             <table className="pro-table dca-ladder-detail-table">
                 <thead>
                     <tr>
-                        <th>層級</th>
-                        <th>角色</th>
-                        <th>偏移%</th>
-                        <th>價格</th>
-                        <th>數量</th>
-                        <th>名目</th>
-                        <th>狀態</th>
+                        <th>{t("層級")}</th>
+                        <th>{t("角色")}</th>
+                        <th>{t("偏移%")}</th>
+                        <th>{t("價格")}</th>
+                        <th>{t("數量")}</th>
+                        <th>{t("名目")}</th>
+                        <th>{t("狀態")}</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -68,8 +68,8 @@ const DcaLadderTable: React.FC<DcaLadderTableProps> = ({
                         const isPriceMarker = priceMarkerIndex === level.index;
                         return (
                             <tr key={`${level.role}-${level.index}`} className={isPriceMarker ? 'dca-ladder-price-row' : ''}>
-                                <td className="font-mono">{level.index === 0 ? '基礎' : `SO${String(level.index).padStart(2, '0')}`}</td>
-                                <td>{level.role === 'base' ? '基礎單' : '安全單'}</td>
+                                <td className="font-mono">{level.index === 0 ? t("基礎") : `SO${String(level.index).padStart(2, '0')}`}</td>
+                                <td>{level.role === 'base' ? t("基礎單") : t("安全單")}</td>
                                 <td className="font-mono">{deviation == null ? '—' : `${deviation >= 0 ? '+' : ''}${deviation.toFixed(2)}%`}</td>
                                 <td className="font-mono">{number(price)}</td>
                                 <td className="font-mono">{number(qty)}</td>
@@ -83,14 +83,14 @@ const DcaLadderTable: React.FC<DcaLadderTableProps> = ({
                 </tbody>
             </table>
             <div className="dca-ladder-legend" role="note">
-                <span><span className="dca-legend-dot dca-slot-filled" /> 已成交</span>
-                <span><span className="dca-legend-dot dca-slot-active" /> 掛單中</span>
-                <span><span className="dca-legend-dot dca-slot-waiting" /> 未觸及</span>
+                <span><span className="dca-legend-dot dca-slot-filled" /> {' '}{t("已成交")}</span>
+                <span><span className="dca-legend-dot dca-slot-active" /> {' '}{t("掛單中")}</span>
+                <span><span className="dca-legend-dot dca-slot-waiting" /> {' '}{t("未觸及")}</span>
                 {averagePrice != null && (
-                    <span className="font-mono dca-legend-avg">均價線: {number(averagePrice)}</span>
+                    <span className="font-mono dca-legend-avg">{t("均價線:")}{' '}{number(averagePrice)}</span>
                 )}
                 {currentPrice != null && (
-                    <span className="font-mono dca-legend-current">當前價: {number(currentPrice)}</span>
+                    <span className="font-mono dca-legend-current">{t("當前價:")}{' '}{number(currentPrice)}</span>
                 )}
             </div>
         </div>

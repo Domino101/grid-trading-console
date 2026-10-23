@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Check, ShieldAlert } from 'lucide-react';
+import { t } from '../i18n/index.ts';
 
 export interface ConfirmDialogDetail {
   label: string;
@@ -89,8 +90,7 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
         {requireText && (
           <label className="confirm-text-field">
             <span>
-              請輸入 <code>{requireText}</code> 以確認
-            </span>
+              {t("請輸入")}{' '}<code>{requireText}</code> {' '}{t("以確認")}{' '}</span>
             <input
               ref={inputRef}
               type="text"
@@ -101,15 +101,14 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
               onKeyDown={(event) => {
                 if (event.key === 'Enter') submit();
               }}
-              aria-label={`輸入 ${requireText} 以確認`}
+              aria-label={(t("輸入 ") + (requireText) + t(" 以確認"))}
             />
           </label>
         )}
 
         <footer className="confirm-dialog-actions">
           <button className="btn btn-outline" type="button" onClick={onCancel}>
-            取消
-          </button>
+            {t("取消")}{' '}</button>
           <button
             className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`}
             type="button"

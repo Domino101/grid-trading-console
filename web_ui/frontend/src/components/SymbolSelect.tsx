@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { api, type MarketSymbolItem } from '../services/api';
 import { Search, ChevronDown, Check, Loader2, X } from 'lucide-react';
+import { t } from '../i18n/index.ts';
 
 interface SymbolSelectProps {
   value: string;
@@ -16,7 +17,7 @@ export const SymbolSelect: React.FC<SymbolSelectProps> = ({
   value,
   onChange,
   exchange,
-  placeholder = '搜尋或輸入交易對 (如: BTC/USDT 或 牛来USDT)',
+  placeholder = t("搜尋或輸入交易對 (如: BTC/USDT 或 牛来USDT)"),
   disabled = false,
   id,
   ariaDescribedBy,
@@ -78,7 +79,7 @@ export const SymbolSelect: React.FC<SymbolSelectProps> = ({
         }
       } catch (err: unknown) {
         if (err instanceof Error && err.name !== 'AbortError') {
-          console.warn(`[SymbolSelect] 載入交易對列表失敗 (${exchange}):`, err);
+          console.warn((t("[SymbolSelect] 載入交易對列表失敗 (") + (exchange) + "):"), err);
         }
       } finally {
         if (active) setLoading(false);
@@ -252,7 +253,7 @@ export const SymbolSelect: React.FC<SymbolSelectProps> = ({
               type="button"
               onClick={handleClear}
               className="btn-icon-subtle"
-              title="清除"
+              title={t("清除")}
               style={{
                 background: 'transparent',
                 border: 'none',
@@ -317,9 +318,9 @@ export const SymbolSelect: React.FC<SymbolSelectProps> = ({
               }}
             >
               {loading ? (
-                <span>正在載入交易對列表...</span>
+                <span>{t("正在載入交易對列表...")}</span>
               ) : (
-                <span>找不到符合「{inputValue}」的上市交易對</span>
+                <span>{t("找不到符合「")}{inputValue}{t("」的上市交易對")}</span>
               )}
             </div>
           ) : (

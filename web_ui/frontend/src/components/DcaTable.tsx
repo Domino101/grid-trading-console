@@ -15,6 +15,7 @@ import {
 } from '../utils/dca';
 import type { DcaSnapshotItem } from '../services/api';
 import DcaStatusBadge from './DcaStatusBadge';
+import { t } from '../i18n/index.ts';
 
 interface DcaTableProps {
     bots: DcaSnapshotItem[];
@@ -35,18 +36,18 @@ const DcaTable: React.FC<DcaTableProps> = ({
 }) => {
     return (
         <div className="table-wrapper">
-            <table className="pro-table" aria-label="DCA 機器人一覽表">
+            <table className="pro-table" aria-label={t("DCA 機器人一覽表")}>
                 <thead>
                     <tr>
-                        <th>交易對 / 方向 / 模式</th>
-                        <th>狀態</th>
-                        <th>入場</th>
-                        <th>安全單進度</th>
-                        <th>均價 / 現價</th>
-                        <th>純淨盈虧 (實現/浮動)</th>
-                        <th>止盈價</th>
-                        <th>循環 / 成交</th>
-                        <th style={{ textAlign: 'right' }}>操作</th>
+                        <th>{t("交易對 / 方向 / 模式")}</th>
+                        <th>{t("狀態")}</th>
+                        <th>{t("入場")}</th>
+                        <th>{t("安全單進度")}</th>
+                        <th>{t("均價 / 現價")}</th>
+                        <th>{t("純淨盈虧 (實現/浮動)")}</th>
+                        <th>{t("止盈價")}</th>
+                        <th>{t("循環 / 成交")}</th>
+                        <th style={{ textAlign: 'right' }}>{t("操作")}</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -74,7 +75,7 @@ const DcaTable: React.FC<DcaTableProps> = ({
                                         <span className={`status-dot ${bot.data_status === 'live' && running ? 'is-live' : running ? 'is-warning' : ''}`} />
                                         <span>{bot.symbol ?? bot.bot_id}</span>
                                         <span className={`badge badge-${bot.mode}`}>{bot.mode.toUpperCase()}</span>
-                                        <span className="exchange-pill" title="方向">
+                                        <span className="exchange-pill" title={t("方向")}>
                                             {directionLabel(bot.direction)}
                                         </span>
                                     </div>
@@ -94,14 +95,13 @@ const DcaTable: React.FC<DcaTableProps> = ({
                                     <span style={{ fontSize: '0.8rem' }}>{dcaEntryText(bot)}</span>
                                     {armed && (
                                         <small className="text-muted" style={{ display: 'block' }}>
-                                            尚未掛單
-                                        </small>
+                                            {t("尚未掛單")}{' '}</small>
                                     )}
                                 </td>
 
                                 <td>
                                     {armed ? (
-                                        <span className="text-muted">—（armed）</span>
+                                        <span className="text-muted">— (armed)</span>
                                     ) : (
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                             <span className="font-mono">
@@ -116,7 +116,7 @@ const DcaTable: React.FC<DcaTableProps> = ({
                                               aria-valuemin={0}
                                               aria-valuemax={progress.max ?? 100}
                                               aria-valuenow={progress.filled ?? 0}
-                                              aria-label="安全單成交進度"
+                                              aria-label={t("安全單成交進度")}
                                             >
                                                 <div
                                                   className="dca-ladder-progress-fill"
@@ -125,7 +125,7 @@ const DcaTable: React.FC<DcaTableProps> = ({
                                             </div>
                                             {(bot.position?.quantity ?? 0) > 0 && (
                                                 <small className="text-muted font-mono">
-                                                    下一張 {number(bot.next_safety_order_price)}{' '}
+                                                    {t("下一張")}{' '}{number(bot.next_safety_order_price)}{' '}
                                                     {distanceText(nextSafetyDistance(bot))}
                                                 </small>
                                             )}
@@ -149,7 +149,7 @@ const DcaTable: React.FC<DcaTableProps> = ({
                                             {money(netPnl)}
                                         </strong>
                                         <small className="font-mono text-muted" style={{ fontSize: '0.74rem' }}>
-                                            實現 {money(netRealized)} · 浮動 {money(unrealized)}
+                                            {t("實現")}{' '}{money(netRealized)} {' '}{t("· 浮動")}{' '}{money(unrealized)}
                                             {roi != null && ` (${roi >= 0 ? '+' : ''}${roi.toFixed(1)}%)`}
                                         </small>
                                     </div>
@@ -168,11 +168,11 @@ const DcaTable: React.FC<DcaTableProps> = ({
 
                                 <td>
                                     <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                        <span className="font-mono" style={{ fontWeight: 600 }}>{number(bot.cycles, 0)} 輪</span>
+                                        <span className="font-mono" style={{ fontWeight: 600 }}>{number(bot.cycles, 0)} {' '}{t("輪")}</span>
                                         {bot.total_trades != null ? (
-                                            <small className="font-mono text-muted">{bot.total_trades} 筆成交</small>
+                                            <small className="font-mono text-muted">{bot.total_trades} {' '}{t("筆成交")}</small>
                                         ) : (
-                                            <small className="font-mono text-muted">{armed ? '空倉待命' : '持倉中'}</small>
+                                            <small className="font-mono text-muted">{armed ? t("空倉待命") : t("持倉中")}</small>
                                         )}
                                     </div>
                                 </td>
@@ -184,9 +184,9 @@ const DcaTable: React.FC<DcaTableProps> = ({
                                           style={{ padding: '0.35rem 0.6rem', fontSize: '0.78rem' }}
                                           type="button"
                                           onClick={() => onOpen(bot.bot_id)}
-                                          title="開啟 DCA 詳情"
+                                          title={t("開啟 DCA 詳情")}
                                         >
-                                            <span>詳情</span>
+                                            <span>{t("詳情")}</span>
                                             <ChevronRight size={13} />
                                         </button>
 
@@ -201,7 +201,7 @@ const DcaTable: React.FC<DcaTableProps> = ({
                                               type="button"
                                               disabled={isBusy}
                                               onClick={() => onStop(bot)}
-                                              title="停止 DCA（撤單但不平倉）"
+                                              title={t("停止 DCA（撤單但不平倉）")}
                                             >
                                                 <Square size={13} />
                                             </button>
@@ -212,7 +212,7 @@ const DcaTable: React.FC<DcaTableProps> = ({
                                               type="button"
                                               disabled={isBusy || Boolean(bot.start_blocked_reason)}
                                               onClick={() => onStart(bot)}
-                                              title={bot.start_blocked_reason ?? '啟動 DCA'}
+                                              title={bot.start_blocked_reason ?? t("啟動 DCA")}
                                             >
                                                 <Play size={13} />
                                             </button>
@@ -224,8 +224,8 @@ const DcaTable: React.FC<DcaTableProps> = ({
                                           type="button"
                                           disabled={isBusy}
                                           onClick={() => onDelete(bot)}
-                                          title={running ? '停止並刪除 DCA' : '刪除 DCA'}
-                                          aria-label={`刪除 ${bot.symbol ?? bot.bot_id}`}
+                                          title={running ? t("停止並刪除 DCA") : t("刪除 DCA")}
+                                          aria-label={(t("刪除 ") + (bot.symbol ?? bot.bot_id))}
                                         >
                                             <Trash2 size={13} />
                                         </button>

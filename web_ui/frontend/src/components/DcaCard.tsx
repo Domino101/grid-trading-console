@@ -25,6 +25,7 @@ import {
 } from '../utils/dca';
 import type { DcaSnapshotItem } from '../services/api';
 import DcaStatusBadge from './DcaStatusBadge';
+import { t } from '../i18n/index.ts';
 
 interface DcaCardProps {
     bot: DcaSnapshotItem;
@@ -59,21 +60,21 @@ const DcaCard: React.FC<DcaCardProps> = ({ bot, busy, now, onOpen, onStart, onSt
         bot.data_status === 'live' && running ? 'is-live' : running ? 'is-warning' : '';
 
     return (
-        <article className="strategy-card dca-card" aria-label={`DCA 機器人 ${bot.symbol ?? bot.bot_id}`}>
+        <article className="strategy-card dca-card" aria-label={(t("DCA 機器人 ") + (bot.symbol ?? bot.bot_id))}>
             {/* 標頭：symbol / exchange / 方向 / LIVE-PAPER / 狀態 / 新鮮度 */}
             <header className="strategy-card-header">
                 <div className="strategy-symbol-group">
                     <div className="strategy-symbol">
                         <span className={`status-dot ${dotClass}`} />
-                        <span>{bot.symbol ?? '未命名 DCA'}</span>
+                        <span>{bot.symbol ?? t("未命名 DCA")}</span>
                     </div>
                     <div className="strategy-meta">
-                        <span className="exchange-pill">{bot.exchange ?? '未知交易所'}</span>
+                        <span className="exchange-pill">{bot.exchange ?? t("未知交易所")}</span>
                         <span>·</span>
-                        <span title="方向（雙向 = 同一時刻單一方向互斥）">{directionLabel(bot.direction)}</span>
+                        <span title={t("方向（雙向 = 同一時刻單一方向互斥）")}>{directionLabel(bot.direction)}</span>
                         {bot.active_direction && (
-                            <span title="本輪鎖定方向" style={{ marginLeft: '0.35rem' }}>
-                                （本輪 {directionLabel(bot.active_direction)}）
+                            <span title={t("本輪鎖定方向")} style={{ marginLeft: '0.35rem' }}>
+                                {t("（本輪")}{' '}{directionLabel(bot.active_direction)})
                             </span>
                         )}
                     </div>
@@ -88,14 +89,14 @@ const DcaCard: React.FC<DcaCardProps> = ({ bot, busy, now, onOpen, onStart, onSt
             {/* PnL Hero: 核心收益與套利戰果看板（常駐展示，不因 armed 隱藏） */}
             <div className="strategy-pnl-hero dca-pnl-hero">
                 <div className="pnl-hero-left">
-                    <span className="pnl-label">策略純淨收益 (Net PnL)</span>
+                    <span className="pnl-label">{t("策略純淨收益 (Net PnL)")}</span>
                     <span className={`pnl-amount font-mono ${netPnl === null ? '' : isPositivePnl ? 'positive' : 'negative'}`}>
                         {money(netPnl)}
                     </span>
                     <div className="pnl-breakdown-sub" style={{ fontSize: '0.78rem', color: 'var(--text-muted, #8b949e)', marginTop: '2px' }}>
-                        <span>實現: <strong className={netRealized >= 0 ? 'positive' : 'negative'}>{money(netRealized)}</strong></span>
+                        <span>{t("實現:")}{' '}<strong className={netRealized >= 0 ? 'positive' : 'negative'}>{money(netRealized)}</strong></span>
                         <span style={{ margin: '0 4px' }}>·</span>
-                        <span>浮動: <strong className={(unrealized ?? 0) >= 0 ? 'positive' : 'negative'}>{money(unrealized)}</strong></span>
+                        <span>{t("浮動:")}{' '}<strong className={(unrealized ?? 0) >= 0 ? 'positive' : 'negative'}>{money(unrealized)}</strong></span>
                         {roi != null && (
                             <span style={{ marginLeft: '4px' }}>
                                 ({roi >= 0 ? '+' : ''}{roi.toFixed(2)}%)
@@ -105,19 +106,19 @@ const DcaCard: React.FC<DcaCardProps> = ({ bot, busy, now, onOpen, onStart, onSt
                 </div>
 
                 <div className="dca-hero-right" style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
-                    <span className="pnl-label">套利戰果</span>
+                    <span className="pnl-label">{t("套利戰果")}</span>
                     <span className="font-mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>
-                        {number(bot.cycles, 0)} <span style={{ fontSize: '0.8rem', fontWeight: 400, color: 'var(--text-muted)' }}>輪循環</span>
+                        {number(bot.cycles, 0)} <span style={{ fontSize: '0.8rem', fontWeight: 400, color: 'var(--text-muted)' }}>{t("輪循環")}</span>
                     </span>
                     <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
                         {bot.total_trades != null ? (
-                            <span><strong>{bot.total_trades}</strong> 筆成交</span>
+                            <span><strong>{bot.total_trades}</strong> {' '}{t("筆成交")}</span>
                         ) : hasPosition ? (
-                            <span>持倉中</span>
+                            <span>{t("持倉中")}</span>
                         ) : (
-                            <span>空倉待命中</span>
+                            <span>{t("空倉待命中")}</span>
                         )}
-                        {fees > 0 && <span> · 費 {money(fees)}</span>}
+                        {fees > 0 && <span> {' '}{t("· 費")}{' '}{money(fees)}</span>}
                     </div>
                 </div>
             </div>
@@ -127,9 +128,8 @@ const DcaCard: React.FC<DcaCardProps> = ({ bot, busy, now, onOpen, onStart, onSt
                 <div className="notice notice-warning dca-armed-banner" role="status">
                     <Radar size={16} style={{ flexShrink: 0 }} />
                     <span>
-                        監控中 · 尚未掛單
-                        {waitText ? `（${waitText}）` : ''}
-                        <small className="text-muted"> 入場條件成立前，交易所端無任何掛單</small>
+                        {t("監控中 · 尚未掛單")}{' '}{waitText ? ` (${waitText})` : ''}
+                        <small className="text-muted"> {' '}{t("入場條件成立前，交易所端無任何掛單")}</small>
                     </span>
                 </div>
             )}
@@ -139,8 +139,8 @@ const DcaCard: React.FC<DcaCardProps> = ({ bot, busy, now, onOpen, onStart, onSt
                 <div className="notice notice-error dca-command-error" role="alert">
                     <AlertTriangle size={14} style={{ flexShrink: 0 }} />
                     <span>
-                        命令 {bot.command_status === 'timed_out' ? '確認逾時' : '執行失敗'}
-                        {bot.start_blocked_reason ? `：${bot.start_blocked_reason}` : '，請查看日誌。'}
+                        {t("命令")}{' '}{bot.command_status === 'timed_out' ? t("確認逾時") : t("執行失敗")}
+                        {bot.start_blocked_reason ? `: ${bot.start_blocked_reason}` : t("，請查看日誌。")}
                     </span>
                 </div>
             )}
@@ -148,11 +148,11 @@ const DcaCard: React.FC<DcaCardProps> = ({ bot, busy, now, onOpen, onStart, onSt
             {/* 入場區塊：模式 + 指標即時值 + 等待時長 */}
             <dl className="strategy-metrics-matrix dca-entry-matrix">
                 <div className="metric-cell">
-                    <dt>入場</dt>
+                    <dt>{t("入場")}</dt>
                     <dd title={dcaEntryText(bot)}>{dcaEntryText(bot)}</dd>
                 </div>
                 <div className="metric-cell">
-                    <dt>{bot.entry_timeframe ?? '—'} 時框</dt>
+                    <dt>{bot.entry_timeframe ?? '—'} {' '}{t("時框")}</dt>
                     <dd className="dca-indicator-chips">
                         {(bot.entry_indicators ?? []).length === 0 && (
                             <span className="text-muted">—</span>
@@ -180,10 +180,10 @@ const DcaCard: React.FC<DcaCardProps> = ({ bot, busy, now, onOpen, onStart, onSt
             {!armed && (
                 <div className="dca-ladder-block">
                     <div className="dca-ladder-head">
-                        <span>安全單 {progress.filled != null && progress.max != null ? `${progress.filled} / ${progress.max}` : '—'}</span>
+                        <span>{t("安全單")}{' '}{progress.filled != null && progress.max != null ? `${progress.filled} / ${progress.max}` : '—'}</span>
                         <span className="font-mono text-muted">
                             {progress.max != null
-                                ? `剩餘 ${Math.max(0, (progress.max ?? 0) - (progress.filled ?? 0))} 張`
+                                ? (t("剩餘 ") + (Math.max(0, (progress.max ?? 0) - (progress.filled ?? 0))) + t(" 張"))
                                 : ''}
                         </span>
                     </div>
@@ -193,7 +193,7 @@ const DcaCard: React.FC<DcaCardProps> = ({ bot, busy, now, onOpen, onStart, onSt
                       aria-valuemin={0}
                       aria-valuemax={progress.max ?? 100}
                       aria-valuenow={progress.filled ?? 0}
-                      aria-label="安全單成交進度"
+                      aria-label={t("安全單成交進度")}
                     >
                         <div
                           className="dca-ladder-progress-fill"
@@ -201,12 +201,11 @@ const DcaCard: React.FC<DcaCardProps> = ({ bot, busy, now, onOpen, onStart, onSt
                         />
                     </div>
                     {!hasPosition && (
-                        <small className="text-muted">下一張安全單 —（尚無部位）</small>
+                        <small className="text-muted">{t("下一張安全單 —（尚無部位）")}</small>
                     )}
                     {hasPosition && (
                         <small className="text-muted">
-                            下一張安全單：
-                            <span className="font-mono">{number(bot.next_safety_order_price)}</span>
+                            {t("下一張安全單：")}{' '}<span className="font-mono">{number(bot.next_safety_order_price)}</span>
                             <span style={{ marginLeft: '0.4rem' }}>
                                 {distanceText(nextSafetyDistance(bot))}
                             </span>
@@ -218,14 +217,14 @@ const DcaCard: React.FC<DcaCardProps> = ({ bot, busy, now, onOpen, onStart, onSt
             {/* 部位區塊 */}
             <dl className="strategy-metrics-matrix">
                 <div className="metric-cell">
-                    <dt>均價 / 現價</dt>
+                    <dt>{t("均價 / 現價")}</dt>
                     <dd className="font-mono">
                         {hasPosition ? number(bot.position?.average_cost ?? null) : '—'}
                         <span className="text-muted"> / {number(bot.current_price)}</span>
                     </dd>
                 </div>
                 <div className="metric-cell">
-                    <dt>持倉量 / 名目</dt>
+                    <dt>{t("持倉量 / 名目")}</dt>
                     <dd className="font-mono">
                         {hasPosition ? (
                             <>
@@ -233,12 +232,12 @@ const DcaCard: React.FC<DcaCardProps> = ({ bot, busy, now, onOpen, onStart, onSt
                                 <span className="text-muted"> · {money(notional)}</span>
                             </>
                         ) : (
-                            <span className="text-muted">空倉待命</span>
+                            <span className="text-muted">{t("空倉待命")}</span>
                         )}
                     </dd>
                 </div>
                 <div className="metric-cell">
-                    <dt>未實現盈虧 / ROI</dt>
+                    <dt>{t("未實現盈虧 / ROI")}</dt>
                     <dd className={`font-mono ${unrealized == null ? '' : unrealized >= 0 ? 'positive' : 'negative'}`}>
                         {hasPosition ? (
                             <>
@@ -248,12 +247,12 @@ const DcaCard: React.FC<DcaCardProps> = ({ bot, busy, now, onOpen, onStart, onSt
                                 </span>
                             </>
                         ) : (
-                            <span className="text-muted">$0.00 (空倉)</span>
+                            <span className="text-muted">{t("$0.00 (空倉)")}</span>
                         )}
                     </dd>
                 </div>
                 <div className="metric-cell">
-                    <dt>入場價 / 每筆金額</dt>
+                    <dt>{t("入場價 / 每筆金額")}</dt>
                     <dd className="font-mono">
                         {hasPosition ? number(bot.entry_price) : '—'}
                         <span className="text-muted"> · {money(bot.base_order_amount)}</span>
@@ -265,43 +264,41 @@ const DcaCard: React.FC<DcaCardProps> = ({ bot, busy, now, onOpen, onStart, onSt
             {!armed ? (
                 <dl className="strategy-metrics-matrix">
                     <div className="metric-cell">
-                        <dt>止盈價（{number(bot.take_profit_percent)}%）</dt>
+                        <dt>{t("止盈價（")}{number(bot.take_profit_percent)}%)</dt>
                         <dd className="font-mono">
                             {number(bot.take_profit_price)}
                             <span className="text-muted"> {distanceText(takeProfitDistance(bot))}</span>
                         </dd>
                     </div>
                     <div className="metric-cell">
-                        <dt>{bot.stop_loss_percent != null ? `止損價（${number(bot.stop_loss_percent)}%）` : '止損'}</dt>
+                        <dt>{bot.stop_loss_percent != null ? (t("止損價（") + (number(bot.stop_loss_percent)) + t("%）")) : t("止損")}</dt>
                         <dd className="font-mono">
-                            {bot.stop_loss_percent != null ? number(bot.stop_loss_price) : '—（未啟用）'}
+                            {bot.stop_loss_percent != null ? number(bot.stop_loss_price) : t("—（未啟用）")}
                         </dd>
                     </div>
                     <div className="metric-cell">
-                        <dt>完成循環 / 成交</dt>
+                        <dt>{t("完成循環 / 成交")}</dt>
                         <dd className="font-mono">
-                            {number(bot.cycles, 0)} 輪
-                            {bot.total_trades != null && <span className="text-muted"> · {bot.total_trades} 筆</span>}
+                            {number(bot.cycles, 0)} {' '}{t("輪")}{' '}{bot.total_trades != null && <span className="text-muted"> · {bot.total_trades} {' '}{t("筆")}</span>}
                         </dd>
                     </div>
                 </dl>
             ) : (
                 <dl className="strategy-metrics-matrix">
                     <div className="metric-cell">
-                        <dt>止盈目標</dt>
+                        <dt>{t("止盈目標")}</dt>
                         <dd className="font-mono">+{number(bot.take_profit_percent)}%</dd>
                     </div>
                     <div className="metric-cell">
-                        <dt>止損保護</dt>
+                        <dt>{t("止損保護")}</dt>
                         <dd className="font-mono">
-                            {bot.stop_loss_percent != null ? `-${number(bot.stop_loss_percent)}%` : '—（未啟用）'}
+                            {bot.stop_loss_percent != null ? `-${number(bot.stop_loss_percent)}%` : t("—（未啟用）")}
                         </dd>
                     </div>
                     <div className="metric-cell">
-                        <dt>完成循環 / 成交</dt>
+                        <dt>{t("完成循環 / 成交")}</dt>
                         <dd className="font-mono">
-                            {number(bot.cycles, 0)} 輪
-                            {bot.total_trades != null && <span className="text-muted"> · {bot.total_trades} 筆</span>}
+                            {number(bot.cycles, 0)} {' '}{t("輪")}{' '}{bot.total_trades != null && <span className="text-muted"> · {bot.total_trades} {' '}{t("筆")}</span>}
                         </dd>
                     </div>
                 </dl>
@@ -313,23 +310,23 @@ const DcaCard: React.FC<DcaCardProps> = ({ bot, busy, now, onOpen, onStart, onSt
                     {freshnessText(bot.data_status, bot.last_updated_at)}
                 </span>
                 {bot.data_status === 'stale' && (
-                    <span className="text-muted" title="資料過期：引擎心跳中斷或快照逾時">
-                        最後同步 {bot.last_updated_at ? new Date(bot.last_updated_at * 1000).toLocaleString('zh-TW', { hour12: false }) : '—'}
+                    <span className="text-muted" title={t("資料過期：引擎心跳中斷或快照逾時")}>
+                        {t("最後同步")}{' '}{bot.last_updated_at ? new Date(bot.last_updated_at * 1000).toLocaleString('zh-TW', { hour12: false }) : '—'}
                     </span>
                 )}
             </div>
 
             {/* 操作：詳情 / 啟動・停止 / 刪除（各自獨立 busy 狀態，稽核 5.13） */}
             <footer className="strategy-actions">
-                <button className="btn btn-outline btn-detail" type="button" onClick={onOpen} title="開啟 DCA 詳情">
-                    <span>詳情</span>
+                <button className="btn btn-outline btn-detail" type="button" onClick={onOpen} title={t("開啟 DCA 詳情")}>
+                    <span>{t("詳情")}</span>
                     <ChevronRight size={14} />
                 </button>
 
                 {isStarting || isStopping ? (
                     <button className="btn btn-outline" type="button" disabled>
                         <RefreshCcw size={14} className="spin" />
-                        <span>{isStopping ? '停止中…' : '啟動中…'}</span>
+                        <span>{isStopping ? t("停止中…") : t("啟動中…")}</span>
                     </button>
                 ) : running ? (
                     <button
@@ -337,21 +334,21 @@ const DcaCard: React.FC<DcaCardProps> = ({ bot, busy, now, onOpen, onStart, onSt
                       type="button"
                       disabled={busy}
                       onClick={onStop}
-                      title="停止 DCA（撤單但不平倉）"
+                      title={t("停止 DCA（撤單但不平倉）")}
                     >
                         <Square size={14} />
-                        <span>{busy ? '處理中…' : '停止'}</span>
+                        <span>{busy ? t("處理中…") : t("停止")}</span>
                     </button>
                 ) : (
                     <button
                       className="btn btn-success"
                       type="button"
                       disabled={busy || Boolean(bot.start_blocked_reason)}
-                      title={bot.start_blocked_reason ?? '啟動 DCA（armed 監控）'}
+                      title={bot.start_blocked_reason ?? t("啟動 DCA（armed 監控）")}
                       onClick={onStart}
                     >
                         <Play size={14} />
-                        <span>{busy ? '處理中…' : bot.start_blocked_reason ? '鎖定' : '啟動'}</span>
+                        <span>{busy ? t("處理中…") : bot.start_blocked_reason ? t("鎖定") : t("啟動")}</span>
                     </button>
                 )}
 
@@ -359,9 +356,9 @@ const DcaCard: React.FC<DcaCardProps> = ({ bot, busy, now, onOpen, onStart, onSt
                   className="btn btn-danger btn-icon-only"
                   type="button"
                   disabled={busy}
-                  title={running ? '停止並刪除 DCA' : '刪除 DCA'}
+                  title={running ? t("停止並刪除 DCA") : t("刪除 DCA")}
                   onClick={onDelete}
-                  aria-label="刪除 DCA 機器人"
+                  aria-label={t("刪除 DCA 機器人")}
                 >
                     <Trash2 size={14} />
                 </button>

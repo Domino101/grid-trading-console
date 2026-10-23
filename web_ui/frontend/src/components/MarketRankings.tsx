@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 
 import { api, ApiError, type MarketRankingItem, type MarketRankingsResponse } from '../services/api';
+import { t } from '../i18n/index.ts';
 
 interface MarketRankingsProps {
   onSelectSymbol: (item: MarketRankingItem, period: string) => void;
@@ -40,7 +41,7 @@ const MarketRankings: React.FC<MarketRankingsProps> = ({ onSelectSymbol, onBackt
         onUnauthorized();
         return;
       }
-      setError(err instanceof Error ? err.message : '無法讀取市場年化排行榜');
+      setError(err instanceof Error ? err.message : t("無法讀取市場年化排行榜"));
     } finally {
       setLoading(false);
     }
@@ -80,13 +81,13 @@ const MarketRankings: React.FC<MarketRankingsProps> = ({ onSelectSymbol, onBackt
   const getRatingBadge = (rating: string) => {
     switch (rating) {
       case 'S':
-        return <span className="badge-rating rating-s">🔥 S 級</span>;
+        return <span className="badge-rating rating-s">{t("🔥 S 級")}</span>;
       case 'A':
-        return <span className="badge-rating rating-a">⭐ A 級</span>;
+        return <span className="badge-rating rating-a">{t("⭐ A 級")}</span>;
       case 'B':
-        return <span className="badge-rating rating-b">B 級</span>;
+        return <span className="badge-rating rating-b">{t("B 級")}</span>;
       default:
-        return <span className="badge-rating rating-c">C 級</span>;
+        return <span className="badge-rating rating-c">{t("C 級")}</span>;
     }
   };
 
@@ -110,17 +111,16 @@ const MarketRankings: React.FC<MarketRankingsProps> = ({ onSelectSymbol, onBackt
               <div className="brand-icon-wrapper" style={{ width: '32px', height: '32px' }}>
                 <Trophy size={18} color="#a855f7" />
               </div>
-              <h2 style={{ fontSize: '1.35rem', fontWeight: 700 }}>網格策略市場 · 歷史回測年化排行榜</h2>
+              <h2 style={{ fontSize: '1.35rem', fontWeight: 700 }}>{t("網格策略市場 · 歷史回測年化排行榜")}</h2>
             </div>
             <p className="muted" style={{ marginTop: '0.25rem', fontSize: '0.84rem' }}>
-              基於真實歷史 K 線撮合模擬 · 依年化收益率與流動性排行 · 支援一鍵自動帶入參數開格
-            </p>
+              {t("基於真實歷史 K 線撮合模擬 · 依年化收益率與流動性排行 · 支援一鍵自動帶入參數開格")}{' '}</p>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
             <div className="safe-cache-pill">
               <ShieldCheck size={14} color="#10b981" />
-              <span>15分鐘平滑快取防護 · 零 API 額度消耗</span>
+              <span>{t("15分鐘平滑快取防護 · 零 API 額度消耗")}</span>
             </div>
 
             <button
@@ -131,7 +131,7 @@ const MarketRankings: React.FC<MarketRankingsProps> = ({ onSelectSymbol, onBackt
               style={{ fontSize: '0.82rem', padding: '0.5rem 0.85rem' }}
             >
               <RefreshCw size={14} className={loading ? 'spin' : ''} />
-              <span>{loading ? '計算中…' : '重新整理'}</span>
+              <span>{loading ? t("計算中…") : t("重新整理")}</span>
             </button>
           </div>
         </div>
@@ -144,7 +144,7 @@ const MarketRankings: React.FC<MarketRankingsProps> = ({ onSelectSymbol, onBackt
             <Flame size={20} />
           </div>
           <div>
-            <span className="kpi-label">最佳年化收益標的</span>
+            <span className="kpi-label">{t("最佳年化收益標的")}</span>
             <div className="kpi-value-row">
               <strong className="kpi-main-val" style={{ color: '#10b981' }}>
                 {topPerformer ? `${topPerformer.estimated_apr.toFixed(1)}%` : '—'}
@@ -159,10 +159,10 @@ const MarketRankings: React.FC<MarketRankingsProps> = ({ onSelectSymbol, onBackt
             <TrendingUp size={20} />
           </div>
           <div>
-            <span className="kpi-label">市場平均回測年化 (APR)</span>
+            <span className="kpi-label">{t("市場平均回測年化 (APR)")}</span>
             <div className="kpi-value-row">
               <strong className="kpi-main-val">+{avgApr.toFixed(1)}%</strong>
-              <span className="kpi-sub-tag">{period.toUpperCase()} 週期</span>
+              <span className="kpi-sub-tag">{period.toUpperCase()} {' '}{t("週期")}</span>
             </div>
           </div>
         </div>
@@ -172,9 +172,9 @@ const MarketRankings: React.FC<MarketRankingsProps> = ({ onSelectSymbol, onBackt
             <Layers size={20} />
           </div>
           <div>
-            <span className="kpi-label">監控高流動性代幣</span>
+            <span className="kpi-label">{t("監控高流動性代幣")}</span>
             <div className="kpi-value-row">
-              <strong className="kpi-main-val">{data?.items?.length ?? 0} 個交易對</strong>
+              <strong className="kpi-main-val">{data?.items?.length ?? 0} {' '}{t("個交易對")}</strong>
               <span className="kpi-sub-tag">24h Vol &gt; $1M</span>
             </div>
           </div>
@@ -191,8 +191,7 @@ const MarketRankings: React.FC<MarketRankingsProps> = ({ onSelectSymbol, onBackt
               className={`select-pill ${exchange === 'binance' ? 'active' : ''}`}
               onClick={() => setExchange('binance')}
             >
-              Binance (幣安)
-            </button>
+              {t("Binance (幣安)")}{' '}</button>
             <button
               type="button"
               className={`select-pill ${exchange === 'okx' ? 'active' : ''}`}
@@ -230,22 +229,19 @@ const MarketRankings: React.FC<MarketRankingsProps> = ({ onSelectSymbol, onBackt
               className={`select-pill ${period === '7d' ? 'active' : ''}`}
               onClick={() => setPeriod('7d')}
             >
-              7 天 (7D)
-            </button>
+              {t("7 天 (7D)")}{' '}</button>
             <button
               type="button"
               className={`select-pill ${period === '30d' ? 'active' : ''}`}
               onClick={() => setPeriod('30d')}
             >
-              30 天 (30D)
-            </button>
+              {t("30 天 (30D)")}{' '}</button>
             <button
               type="button"
               className={`select-pill ${period === '180d' ? 'active' : ''}`}
               onClick={() => setPeriod('180d')}
             >
-              180 天 (180D)
-            </button>
+              {t("180 天 (180D)")}{' '}</button>
           </div>
         </div>
 
@@ -257,7 +253,7 @@ const MarketRankings: React.FC<MarketRankingsProps> = ({ onSelectSymbol, onBackt
             className="search-input"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="搜尋幣種 (例: BTC, SOL, ETH)..."
+            placeholder={t("搜尋幣種 (例: BTC, SOL, ETH)...")}
           />
         </div>
       </div>
@@ -275,25 +271,25 @@ const MarketRankings: React.FC<MarketRankingsProps> = ({ onSelectSymbol, onBackt
         {loading && !data ? (
           <div style={{ padding: '4rem 1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
             <Activity size={28} className="spin" style={{ margin: '0 auto 0.75rem' }} />
-            <p>正在分析全市場歷史 K 線與虛擬網格撮合年化…</p>
+            <p>{t("正在分析全市場歷史 K 線與虛擬網格撮合年化…")}</p>
           </div>
         ) : filteredItems.length === 0 ? (
           <div style={{ padding: '3.5rem 1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
-            <p>未找到符合條件的交易對。</p>
+            <p>{t("未找到符合條件的交易對。")}</p>
           </div>
         ) : (
           <table className="rankings-table">
             <thead>
               <tr>
-                <th style={{ width: '70px', textAlign: 'center' }}>排名</th>
-                <th>交易對 (Symbol)</th>
-                <th>當前價格</th>
-                <th>24h 成交額</th>
-                <th>{period.toUpperCase()} 回測年化 (APR)</th>
-                <th>推薦震盪區間 ($Lower ~ $Upper)</th>
-                <th>推薦網格</th>
-                <th>評級</th>
-                <th style={{ textAlign: 'right' }}>操作</th>
+                <th style={{ width: '70px', textAlign: 'center' }}>{t("排名")}</th>
+                <th>{t("交易對 (Symbol)")}</th>
+                <th>{t("當前價格")}</th>
+                <th>{t("24h 成交額")}</th>
+                <th>{period.toUpperCase()} {' '}{t("回測年化 (APR)")}</th>
+                <th>{t("推薦震盪區間 ($Lower ~ $Upper)")}</th>
+                <th>{t("推薦網格")}</th>
+                <th>{t("評級")}</th>
+                <th style={{ textAlign: 'right' }}>{t("操作")}</th>
               </tr>
             </thead>
             <tbody>
@@ -334,7 +330,7 @@ const MarketRankings: React.FC<MarketRankingsProps> = ({ onSelectSymbol, onBackt
                   </td>
                   <td>
                     <div className="grid-density-cell">
-                      <span className="mono-num">{item.grid_count} 格</span>
+                      <span className="mono-num">{item.grid_count} {' '}{t("格")}</span>
                       <span className="grid-sub-info">(${item.grid_interval})</span>
                     </div>
                   </td>
@@ -347,7 +343,7 @@ const MarketRankings: React.FC<MarketRankingsProps> = ({ onSelectSymbol, onBackt
                         onClick={() => onSelectSymbol(item, period)}
                       >
                         <Sparkles size={14} />
-                        <span>一鍵開格</span>
+                        <span>{t("一鍵開格")}</span>
                         <ArrowRight size={13} />
                       </button>
                       {onBacktest && (
@@ -358,7 +354,7 @@ const MarketRankings: React.FC<MarketRankingsProps> = ({ onSelectSymbol, onBackt
                           onClick={() => onBacktest(item, period)}
                         >
                           <Activity size={13} />
-                          <span>回測</span>
+                          <span>{t("回測")}</span>
                         </button>
                       )}
                     </div>

@@ -25,6 +25,7 @@ import GridCard from './GridCard';
 import GridTable from './GridTable';
 import KpiCard from './KpiCard';
 import TopBar from './TopBar';
+import { t } from '../i18n/index.ts';
 
 const REFRESH_MS = 15_000;
 
@@ -75,7 +76,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenGrid, onCreateNew, onUnauth
       }
       if (caught instanceof DOMException && caught.name === 'AbortError') return;
       failures.current += 1;
-      setError(caught instanceof Error ? caught.message : '無法讀取網格總覽快照');
+      setError(caught instanceof Error ? caught.message : t("無法讀取網格總覽快照"));
     } finally {
       setLoading(false);
       inFlight.current = false;
@@ -165,7 +166,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenGrid, onCreateNew, onUnauth
         onUnauthorized();
         return;
       }
-      setError(caught instanceof Error ? caught.message : '策略操作失敗');
+      setError(caught instanceof Error ? caught.message : t("策略操作失敗"));
     } finally {
       setActionGridId(null);
       setConfirm(null);
@@ -227,12 +228,12 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenGrid, onCreateNew, onUnauth
       <header className="dashboard-header">
         <div>
           <p className="eyebrow">Quantitative Engine Console</p>
-          <h2>量化網格總控台</h2>
+          <h2>{t("量化網格總控台")}</h2>
         </div>
         {onCreateNew && (
           <button className="btn btn-primary" type="button" onClick={onCreateNew}>
             <PlusCircle size={16} />
-            <span>建立網格策略</span>
+            <span>{t("建立網格策略")}</span>
           </button>
         )}
       </header>
@@ -241,11 +242,10 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenGrid, onCreateNew, onUnauth
       <div className="notice notice-warning" role="status">
         <AlertTriangle size={18} style={{ flexShrink: 0 }} />
         <span>
-          <strong>模式說明：</strong>PAPER 模式採用公開行情與虛擬撮合；LIVE 為實盤對接，請確保系統環境變數 <code>GRID_LIVE_TRADING_ENABLED=1</code> 已正確配置。
-        </span>
+          <strong>{t("模式說明：")}</strong>{t("PAPER 模式採用公開行情與虛擬撮合；LIVE 為實盤對接，請確保系統環境變數")}{' '}<code>GRID_LIVE_TRADING_ENABLED=1</code> {' '}{t("已正確配置。")}{' '}</span>
       </div>
 
-      {error && error !== '尚未同步' && (
+      {error && error !== t("尚未同步") && (
         <div className="notice notice-error" role="alert">
           <ShieldAlert size={18} style={{ flexShrink: 0 }} />
           <span>{error}</span>
@@ -253,65 +253,65 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenGrid, onCreateNew, onUnauth
       )}
 
       {/* Hero KPI Matrix */}
-      <section className="kpi-grid" aria-label="網格總覽指標">
+      <section className="kpi-grid" aria-label={t("網格總覽指標")}>
         <KpiCard
-          label={snapshot?.account_mode === 'paper' ? 'PAPER 總收益' : 'LIVE 總收益 (Total PnL)'}
+          label={snapshot?.account_mode === 'paper' ? t("PAPER 總收益") : t("LIVE 總收益 (Total PnL)")}
           value={aggregate ? money(aggregate.total_pnl ?? ((aggregate.grid_profit ?? aggregate.realized_pnl ?? 0) + (aggregate.unrealized_pnl ?? 0))) : '—'}
-          hint={`毛利 ${aggregate ? money(aggregate.grid_profit ?? aggregate.realized_pnl) : '—'} · 浮動 ${aggregate ? money(aggregate.unrealized_pnl) : '—'} · 純淨 ${aggregate ? money(aggregate.net_pnl) : '—'}`}
+          hint={(t("毛利 ") + (aggregate ? money(aggregate.grid_profit ?? aggregate.realized_pnl) : '—') + t(" · 浮動 ") + (aggregate ? money(aggregate.unrealized_pnl) : '—') + t(" · 純淨 ") + (aggregate ? money(aggregate.net_pnl) : '—'))}
           tone={((aggregate?.total_pnl ?? aggregate?.net_pnl ?? 0)) >= 0 ? 'positive' : 'negative'}
           icon={<DollarSign size={16} />}
         />
 
         <KpiCard
-          label="累計交易量 / 套利"
+          label={t("累計交易量 / 套利")}
           value={aggregate ? money(aggregate.volume, 0) : '—'}
-          hint={`完成網格套利 ${aggregate ? number(aggregate.completed_cycles, 0) : '—'} 格`}
+          hint={(t("完成網格套利 ") + (aggregate ? number(aggregate.completed_cycles, 0) : '—') + t(" 格"))}
           icon={<TrendingUp size={16} />}
         />
 
         <KpiCard
-          label="運行中策略隊列"
+          label={t("運行中策略隊列")}
           value={aggregate ? `${aggregate.running_grids} / ${aggregate.total_grids}` : '—'}
-          hint={aggregate ? `${aggregate.available_grids} 即時同步 · ${aggregate.stale_grids} 過期` : '載入中…'}
+          hint={aggregate ? ((aggregate.available_grids) + t(" 即時同步 · ") + (aggregate.stale_grids) + t(" 過期")) : t("載入中…")}
           icon={<Activity size={16} />}
         />
 
         <KpiCard
-          label="總管轄權益估算"
+          label={t("總管轄權益估算")}
           value={totalEquity != null ? money(totalEquity, 2) : '—'}
-          hint={`共 ${snapshot?.grids.length ?? 0} 個策略實例`}
+          hint={(t("共 ") + (snapshot?.grids.length ?? 0) + t(" 個策略實例"))}
           icon={<Cpu size={16} />}
         />
       </section>
 
       {/* Paper Band */}
       {snapshot?.aggregate_paper && snapshot.aggregate_paper.total_grids > 0 && snapshot.account_mode !== 'paper' && (
-        <section className="paper-band" aria-label="PAPER 模擬帳戶">
+        <section className="paper-band" aria-label={t("PAPER 模擬帳戶")}>
           <div className="paper-band-title">
-            <span className="badge badge-paper">PAPER 模擬隊列</span>
-            <span>（獨立運算，不計入上方 LIVE KPI）</span>
+            <span className="badge badge-paper">{t("PAPER 模擬隊列")}</span>
+            <span>{t("（獨立運算，不計入上方 LIVE KPI）")}</span>
           </div>
           <div className="font-mono">
-            總收益: <strong className={((snapshot.aggregate_paper.total_pnl ?? ((snapshot.aggregate_paper.grid_profit ?? 0) + (snapshot.aggregate_paper.unrealized_pnl ?? 0)))) >= 0 ? 'positive' : 'negative'}>
+            {t("總收益:")}{' '}<strong className={((snapshot.aggregate_paper.total_pnl ?? ((snapshot.aggregate_paper.grid_profit ?? 0) + (snapshot.aggregate_paper.unrealized_pnl ?? 0)))) >= 0 ? 'positive' : 'negative'}>
               {money(snapshot.aggregate_paper.total_pnl ?? ((snapshot.aggregate_paper.grid_profit ?? 0) + (snapshot.aggregate_paper.unrealized_pnl ?? 0)))}
             </strong>
             {' · '}
-            純淨: <strong className={snapshot.aggregate_paper.net_pnl >= 0 ? 'positive' : 'negative'}>{money(snapshot.aggregate_paper.net_pnl)}</strong>
+            {t("純淨:")}{' '}<strong className={snapshot.aggregate_paper.net_pnl >= 0 ? 'positive' : 'negative'}>{money(snapshot.aggregate_paper.net_pnl)}</strong>
             {' · '}
-            運行: <strong>{snapshot.aggregate_paper.running_grids}/{snapshot.aggregate_paper.total_grids}</strong>
+            {t("運行:")}{' '}<strong>{snapshot.aggregate_paper.running_grids}/{snapshot.aggregate_paper.total_grids}</strong>
           </div>
         </section>
       )}
 
       {/* Toolbar: Search, Filters, View Modes */}
-      <section className="dashboard-toolbar" aria-label="策略篩選與檢視控制">
+      <section className="dashboard-toolbar" aria-label={t("策略篩選與檢視控制")}>
         <div className="toolbar-left">
           <div className="search-input-wrapper">
             <Search size={15} />
             <input
               className="search-input"
               type="text"
-              placeholder="搜尋交易對、ID、交易所…"
+              placeholder={t("搜尋交易對、ID、交易所…")}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -323,36 +323,33 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenGrid, onCreateNew, onUnauth
               type="button"
               onClick={() => setFilterMode('all')}
             >
-              全部 ({snapshot?.grids.length ?? 0})
+              {t("全部 (")}{snapshot?.grids.length ?? 0})
             </button>
             <button
               className={`filter-pill ${filterMode === 'running' ? 'active' : ''}`}
               type="button"
               onClick={() => setFilterMode('running')}
             >
-              運行中 ({snapshot?.grids.filter((g) => g.status === 'running').length ?? 0})
+              {t("運行中 (")}{snapshot?.grids.filter((g) => g.status === 'running').length ?? 0})
             </button>
             <button
               className={`filter-pill ${filterMode === 'live' ? 'active' : ''}`}
               type="button"
               onClick={() => setFilterMode('live')}
             >
-              LIVE 實盤
-            </button>
+              {t("LIVE 實盤")}{' '}</button>
             <button
               className={`filter-pill ${filterMode === 'paper' ? 'active' : ''}`}
               type="button"
               onClick={() => setFilterMode('paper')}
             >
-              PAPER 模擬
-            </button>
+              {t("PAPER 模擬")}{' '}</button>
             <button
               className={`filter-pill ${filterMode === 'stale' ? 'active' : ''}`}
               type="button"
               onClick={() => setFilterMode('stale')}
             >
-              已停止/待處理
-            </button>
+              {t("已停止/待處理")}{' '}</button>
           </div>
         </div>
 
@@ -362,8 +359,8 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenGrid, onCreateNew, onUnauth
               className={`view-btn ${viewMode === 'grid' ? 'active' : ''}`}
               type="button"
               onClick={() => setViewMode('grid')}
-              title="卡片視覺檢視"
-              aria-label="卡片檢視"
+              title={t("卡片視覺檢視")}
+              aria-label={t("卡片檢視")}
             >
               <LayoutGrid size={16} />
             </button>
@@ -371,8 +368,8 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenGrid, onCreateNew, onUnauth
               className={`view-btn ${viewMode === 'table' ? 'active' : ''}`}
               type="button"
               onClick={() => setViewMode('table')}
-              title="高密度表格檢視"
-              aria-label="表格檢視"
+              title={t("高密度表格檢視")}
+              aria-label={t("表格檢視")}
             >
               <List size={16} />
             </button>
@@ -384,22 +381,22 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenGrid, onCreateNew, onUnauth
       {loading && !snapshot && (
         <div className="glass-panel" style={{ padding: '3rem 1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
           <Activity size={24} className="spin" style={{ margin: '0 auto 0.75rem' }} />
-          <p>正在載入量化策略快照…</p>
+          <p>{t("正在載入量化策略快照…")}</p>
         </div>
       )}
 
       {!loading && filteredGrids.length === 0 && (
         <div className="glass-panel" style={{ padding: '3.5rem 1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
           <p style={{ fontSize: '1rem', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>
-            {searchQuery ? `找不到與「${searchQuery}」相符的策略。` : '目前沒有符合篩選條件的網格策略。'}
+            {searchQuery ? (t("找不到與「") + (searchQuery) + t("」相符的策略。")) : t("目前沒有符合篩選條件的網格策略。")}
           </p>
-          <small>您可以點擊上方「建立網格策略」配置新的量化交易實例。</small>
+          <small>{t("您可以點擊上方「建立網格策略」配置新的量化交易實例。")}</small>
         </div>
       )}
 
       {/* Grid Cards or Table View */}
       {viewMode === 'grid' ? (
-        <section className="strategy-grid" aria-label="網格策略列表">
+        <section className="strategy-grid" aria-label={t("網格策略列表")}>
           {filteredGrids.map((grid) => (
             <GridCard
               key={grid.grid_id}
@@ -430,24 +427,24 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenGrid, onCreateNew, onUnauth
         <ConfirmDialog
           title={
             confirm.action === 'stop'
-              ? '停止策略運行'
+              ? t("停止策略運行")
               : confirm.grid.status === 'running' || confirm.grid.status === 'starting' || confirm.grid.status === 'stopping'
-              ? '停止並刪除策略'
-              : '刪除策略配置'
+              ? t("停止並刪除策略")
+              : t("刪除策略配置")
           }
           body={
             confirm.action === 'stop'
-              ? `確定要停止 ${confirm.grid.symbol ?? confirm.grid.grid_id} 嗎？系統將撤銷所有掛單並停止運行，策略配置將保留在看板中（狀態變更為已停止）。此操作將寫入審計日誌。`
+              ? (t("確定要停止 ") + (confirm.grid.symbol ?? confirm.grid.grid_id) + t(" 嗎？系統將撤銷所有掛單並停止運行，策略配置將保留在看板中（狀態變更為已停止）。此操作將寫入審計日誌。"))
               : confirm.grid.status === 'running' || confirm.grid.status === 'starting' || confirm.grid.status === 'stopping'
-              ? `確定要停止並刪除 ${confirm.grid.symbol ?? confirm.grid.grid_id} 嗎？此策略目前正在運行中，系統將先撤銷所有掛單、停止運行，並將配置檔案歸檔刪除。`
-              : `確定要刪除 ${confirm.grid.symbol ?? confirm.grid.grid_id} 嗎？此策略已停止，關聯 YAML 將被歸檔刪除。`
+              ? (t("確定要停止並刪除 ") + (confirm.grid.symbol ?? confirm.grid.grid_id) + t(" 嗎？此策略目前正在運行中，系統將先撤銷所有掛單、停止運行，並將配置檔案歸檔刪除。"))
+              : (t("確定要刪除 ") + (confirm.grid.symbol ?? confirm.grid.grid_id) + t(" 嗎？此策略已停止，關聯 YAML 將被歸檔刪除。"))
           }
           confirmLabel={
             confirm.action === 'stop'
-              ? '確認停止掛單（保留配置）'
+              ? t("確認停止掛單（保留配置）")
               : confirm.grid.status === 'running' || confirm.grid.status === 'starting' || confirm.grid.status === 'stopping'
-              ? '確認停止並刪除'
-              : '確認刪除'
+              ? t("確認停止並刪除")
+              : t("確認刪除")
           }
           danger={confirm.action === 'delete'}
           onCancel={() => setConfirm(null)}

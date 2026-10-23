@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useState, useEffect } from 'react';
-import { Activity, Menu, PlusCircle, BarChart3, Trophy, X, LogOut, Terminal, Repeat, Wand2, Gauge, TrendingUp, Layers } from 'lucide-react';
+import { Activity, Menu, X, LogOut } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import DcaDashboard from './components/DcaDashboard';
 import DcaForm from './components/DcaForm';
@@ -9,13 +9,17 @@ import MarketRankings from './components/MarketRankings';
 import CrossSectionRankings from './components/CrossSectionRankings';
 import { CoinFullPrimePage } from './components/CoinFullPrimePage';
 import LoginPage from './components/LoginPage';
+import LanguageToggle from './components/LanguageToggle';
+import { useI18n } from './i18n/useI18n.ts';
 import { api, type MarketRankingItem } from './services/api';
 import { clearStoredToken, getStoredToken, storeToken } from './utils/auth';
 import { parseHash, navigate, type RouteState } from './utils/router';
+import { t } from './i18n/index.ts';
 
 const GridDetail = lazy(() => import('./components/GridDetail'));
 
 const App: React.FC = () => {
+  const { lang } = useI18n();
   const [route, setRoute] = useState<RouteState>(() => {
     if (typeof window !== 'undefined' && window.location.hash) {
       return parseHash(window.location.hash);
@@ -136,13 +140,13 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-lang={lang}>
       {/* Backdrop for Mobile Drawer */}
       {drawerOpen && (
         <button
           className="drawer-backdrop"
           type="button"
-          aria-label="關閉選單"
+          aria-label={t("關閉選單")}
           onClick={() => setDrawerOpen(false)}
         />
       )}
@@ -152,32 +156,27 @@ const App: React.FC = () => {
           className="btn btn-outline drawer-toggle"
           type="button"
           onClick={() => setDrawerOpen(true)}
-          aria-label="開啟選單"
+          aria-label={t("開啟選單")}
         >
           <Menu size={18} />
         </button>
         <span className="mobile-topbar-title">Grid Trading Console</span>
+        <LanguageToggle compact />
       </div>
 
       {/* Sidebar */}
       <aside className={`app-sidebar ${drawerOpen ? 'is-open' : ''}`}>
         <div className="sidebar-brand">
-          <div className="brand-icon-wrapper">
-            <Activity color="var(--accent-primary)" size={20} />
-          </div>
-          <div>
-            <h1 className="brand-title">Grid Trading</h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.2rem', flexWrap: 'wrap' }}>
+          <div className="brand-icon-wrapper" aria-hidden="true">GT</div>
+          <div className="brand-copy">
+            <h1 className="brand-title">GRID TRADING</h1>
+            <div className="brand-meta">
               <span className="brand-tag">PRO CONSOLE</span>
               {liveTradingEnabled === true && (
-                <span className="brand-tag" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.3)', fontWeight: 600 }}>
-                  🟢 LIVE 實盤
-                </span>
+                <span className="brand-status is-live"><i aria-hidden="true" />{t("LIVE 實盤")}</span>
               )}
               {liveTradingEnabled === false && (
-                <span className="brand-tag" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.3)', fontWeight: 600 }}>
-                  🟡 PAPER 模擬
-                </span>
+                <span className="brand-status is-paper"><i aria-hidden="true" />{t("PAPER 模擬")}</span>
               )}
             </div>
           </div>
@@ -185,16 +184,16 @@ const App: React.FC = () => {
             className="drawer-close"
             type="button"
             onClick={() => setDrawerOpen(false)}
-            aria-label="關閉選單"
+            aria-label={t("關閉選單")}
           >
             <X size={18} />
           </button>
         </div>
 
-        <nav className="app-nav" aria-label="系統導航">
+        <nav className="app-nav" aria-label={t("系統導航")}>
           {/* 網格交易策略群組 */}
           <div className="nav-group-header">
-            <span>網格交易 (Grid)</span>
+            <span className="nav-group-code">01</span><span>{t("網格交易")}</span>
           </div>
 
           <button
@@ -202,8 +201,7 @@ const App: React.FC = () => {
             type="button"
             onClick={() => go('dashboard')}
           >
-            <BarChart3 size={17} />
-            <span>策略總覽</span>
+            <span>{t("策略總覽")}</span>
           </button>
 
           <button
@@ -211,8 +209,7 @@ const App: React.FC = () => {
             type="button"
             onClick={() => go('market')}
           >
-            <Trophy size={17} />
-            <span>策略市場</span>
+            <span>{t("策略市場")}</span>
           </button>
 
           <button
@@ -220,23 +217,21 @@ const App: React.FC = () => {
             type="button"
             onClick={() => go('grid-backtest')}
           >
-            <Gauge size={17} />
-            <span>網格回測</span>
+            <span>{t("網格回測")}</span>
           </button>
 
           <button
             className={`btn ${activeTab === 'configs' ? 'active' : ''}`}
             type="button"
             onClick={() => go('configs')}
-            title="量化網格機器人專屬建立精靈"
+            title={t("量化網格機器人專屬建立精靈")}
           >
-            <PlusCircle size={17} />
-            <span>建立網格</span>
+            <span>{t("建立網格")}</span>
           </button>
 
           {/* DCA 機器人分頁（與網格完全隔離的獨立分頁） */}
           <div className="nav-group-header">
-            <span>馬丁 DCA (DCA)</span>
+            <span className="nav-group-code">02</span><span>{t("馬丁 DCA")}</span>
           </div>
 
           <button
@@ -244,8 +239,7 @@ const App: React.FC = () => {
             type="button"
             onClick={() => go('dca')}
           >
-            <Repeat size={17} />
-            <span>DCA 機器人</span>
+            <span>{t("DCA 機器人")}</span>
           </button>
 
           <button
@@ -253,43 +247,41 @@ const App: React.FC = () => {
             type="button"
             onClick={() => go('dca-create')}
           >
-            <Wand2 size={17} />
-            <span>建立 DCA</span>
+            <span>{t("建立 DCA")}</span>
           </button>
 
           {/* CoinFull Prime 截面多空對沖策略群組 */}
           <div className="nav-group-header">
-            <span>截面多空 (CoinFull)</span>
+            <span className="nav-group-code">03</span><span>{t("截面多空")}</span>
           </div>
 
           <button
             className={`btn ${activeTab === 'cross-section' ? 'active' : ''}`}
             type="button"
             onClick={() => go('cross-section')}
-            title="純盤面客觀 79 幣因子評分與多空名單"
+            title={t("純盤面客觀 79 幣因子評分與多空名單")}
           >
-            <TrendingUp size={17} />
-            <span>多空截面排行</span>
+            <span>{t("多空截面排行")}</span>
           </button>
 
           <button
             className={`btn ${activeTab === 'coinfull-prime' ? 'active' : ''}`}
             type="button"
             onClick={() => go('coinfull-prime')}
-            title="CoinFull Prime 市場中性對沖策略機器人運行與換倉控制台"
+            title={t("CoinFull Prime 市場中性對沖策略機器人運行與換倉控制台")}
           >
-            <Layers size={17} />
-            <span>CoinFull 策略機器人</span>
+            <span>{t("CoinFull 策略機器人")}</span>
           </button>
         </nav>
 
         <div className="sidebar-footer">
           <div className="sidebar-version">
-            <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-              <Terminal size={12} />
-              <span title={`Build ${__APP_VERSION__}`}>v{__APP_VERSION__}</span>
-            </span>
-            <span className="positive">● CONNECTED</span>
+            <span className="ws-status"><i aria-hidden="true" />{t("WS 已連線")}</span>
+            <span title={`Build ${__APP_VERSION__}`}>v{__APP_VERSION__}</span>
+          </div>
+
+          <div className="sidebar-lang">
+            <LanguageToggle />
           </div>
 
           <button
@@ -299,7 +291,7 @@ const App: React.FC = () => {
             style={{ width: '100%', justifyContent: 'center' }}
           >
             <LogOut size={15} />
-            <span>登出系統</span>
+            <span>{t("登出系統")}</span>
           </button>
         </div>
       </aside>
@@ -308,7 +300,7 @@ const App: React.FC = () => {
       <div className="app-main">
         {activeTab === 'dashboard' && (
           <Dashboard
-            onUnauthorized={() => lock('Token 無效或已過期，請重新登入。')}
+            onUnauthorized={() => lock(t("Token 無效或已過期，請重新登入。"))}
             onCreateNew={() => go('configs')}
             onOpenGrid={handleOpenGrid}
           />
@@ -318,7 +310,7 @@ const App: React.FC = () => {
           <MarketRankings
             onSelectSymbol={handleSelectMarketSymbol}
             onBacktest={handleSelectMarketBacktest}
-            onUnauthorized={() => lock('Token 無效或已過期，請重新登入。')}
+            onUnauthorized={() => lock(t("Token 無效或已過期，請重新登入。"))}
           />
         )}
 
@@ -326,7 +318,7 @@ const App: React.FC = () => {
           <GridBacktestPage
             initialConfig={prefilledBacktestConfig}
             onClearInitialConfig={() => setPrefilledBacktestConfig(null)}
-            onUnauthorized={() => lock('Token 無效或已過期，請重新登入。')}
+            onUnauthorized={() => lock(t("Token 無效或已過期，請重新登入。"))}
           />
         )}
 
@@ -346,14 +338,14 @@ const App: React.FC = () => {
             fallback={
               <div className="glass-panel" style={{ padding: '3rem 1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
                 <Activity size={24} className="spin" style={{ margin: '0 auto 0.75rem' }} />
-                <p>載入策略工作台…</p>
+                <p>{t("載入策略工作台…")}</p>
               </div>
             }
           >
             <GridDetail
               gridId={selectedGridId}
               onBack={() => go('dashboard')}
-              onUnauthorized={() => lock('Token 無效或已過期，請重新登入。')}
+              onUnauthorized={() => lock(t("Token 無效或已過期，請重新登入。"))}
             />
           </Suspense>
         )}
@@ -361,7 +353,7 @@ const App: React.FC = () => {
         {activeTab === 'dca' && (
           <DcaDashboard
             onCreateNew={() => go('dca-create')}
-            onUnauthorized={() => lock('Token 無效或已過期，請重新登入。')}
+            onUnauthorized={() => lock(t("Token 無效或已過期，請重新登入。"))}
             selectedBotId={route.dcaBotId}
             onSelectBot={handleSelectDcaBot}
           />
@@ -373,14 +365,14 @@ const App: React.FC = () => {
 
         {activeTab === 'cross-section' && (
           <CrossSectionRankings
-            onUnauthorized={() => lock('Token 無效或已過期，請重新登入。')}
+            onUnauthorized={() => lock(t("Token 無效或已過期，請重新登入。"))}
             onGoToBot={() => go('coinfull-prime')}
           />
         )}
 
         {activeTab === 'coinfull-prime' && (
           <CoinFullPrimePage
-            onUnauthorized={() => lock('Token 無效或已過期，請重新登入。')}
+            onUnauthorized={() => lock(t("Token 無效或已過期，請重新登入。"))}
             onGoToRankings={() => go('cross-section')}
           />
         )}

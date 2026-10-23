@@ -32,6 +32,7 @@ import {
     type ChartMarkInput,
     type ChartMarkerShape,
 } from '../utils/dcaChart';
+import { t } from '../i18n/index.ts';
 
 export interface DcaChartProps {
     candles: readonly ChartCandleInput[] | null | undefined;
@@ -68,7 +69,7 @@ const DcaChart: React.FC<DcaChartProps> = ({
     direction,
     liveLastPrice,
     height = 420,
-    ariaLabel = 'DCA K 線圖表',
+    ariaLabel = t("DCA K 線圖表"),
     timeframe,
 }) => {
     const containerRef = useRef<HTMLDivElement | null>(null);

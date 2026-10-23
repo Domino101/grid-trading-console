@@ -1,4 +1,5 @@
 import { ApiError, detailMessage, getStoredToken } from '../utils/auth';
+import { t } from '../i18n/index.ts';
 
 // Browser-facing requests must remain same-origin. In development Vite proxies
 // these paths to the backend; deployed builds are served by FastAPI directly.
@@ -1067,7 +1068,7 @@ const requestJson = async <T>(path: string, init: RequestInit = {}, fallback: st
     const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
     const body = await parseBody(res);
     if (res.status === 401 || res.status === 403) {
-        throw new ApiError(detailMessage(body, '未授權'), res.status);
+        throw new ApiError(detailMessage(body, t("未授權")), res.status);
     }
     if (!res.ok) {
         throw new ApiError(detailMessage(body, fallback), res.status);
@@ -1086,7 +1087,7 @@ export const api = {
 
     async getConfig(path: string): Promise<string> {
         const res = await fetch(`${API_BASE}/config/${encodeURIComponent(path)}`, { headers: authHeaders() });
-        if (res.status === 401 || res.status === 403) throw new ApiError('未授權', res.status);
+        if (res.status === 401 || res.status === 403) throw new ApiError(t("未授權"), res.status);
         if (!res.ok) throw new ApiError('Failed to load config', res.status);
         return res.text();
     },
@@ -1099,7 +1100,7 @@ export const api = {
             headers,
             body: content,
         });
-        if (res.status === 401 || res.status === 403) throw new ApiError('未授權', res.status);
+        if (res.status === 401 || res.status === 403) throw new ApiError(t("未授權"), res.status);
         if (!res.ok) throw new ApiError('Failed to save config', res.status);
     },
 
@@ -1121,11 +1122,11 @@ export const api = {
     },
 
     async getDashboardSnapshot(signal?: AbortSignal): Promise<DashboardSnapshot> {
-        return requestJson('/v1/dashboard/snapshot', { headers: authHeaders(), signal }, '無法讀取網格總覽');
+        return requestJson('/v1/dashboard/snapshot', { headers: authHeaders(), signal }, t("無法讀取網格總覽"));
     },
 
     async getSystemHealth(signal?: AbortSignal): Promise<SystemHealth> {
-        return requestJson('/v1/system/health', { headers: authHeaders(), signal }, '無法讀取系統健康狀態');
+        return requestJson('/v1/system/health', { headers: authHeaders(), signal }, t("無法讀取系統健康狀態"));
     },
 
     async listGrids(): Promise<GridListResponse> {
@@ -1140,7 +1141,7 @@ export const api = {
         return requestJson(
             `/v1/market/symbols?exchange=${encodeURIComponent(exchange)}`,
             { headers: authHeaders(), signal },
-            '無法讀取交易所交易對清單',
+            t("無法讀取交易所交易對清單"),
         );
     },
 
@@ -1148,7 +1149,7 @@ export const api = {
         return requestJson(
             `/v1/market/info/${encodeURIComponent(symbol)}?exchange=${encodeURIComponent(exchange)}`,
             { headers: authHeaders() },
-            '無法讀取交易對規則',
+            t("無法讀取交易對規則"),
         );
     },
 
@@ -1156,7 +1157,7 @@ export const api = {
         return requestJson(
             `/v1/market/recommendation/${encodeURIComponent(symbol)}?exchange=${encodeURIComponent(exchange)}&days=${days}`,
             { headers: authHeaders() },
-            '無法讀取 AI 網格推薦參數與回測數據',
+            t("無法讀取 AI 網格推薦參數與回測數據"),
         );
     },
 
@@ -1164,7 +1165,7 @@ export const api = {
         return requestJson(
             `/v1/market/rankings?exchange=${encodeURIComponent(exchange)}&period=${encodeURIComponent(period)}&limit=${limit}`,
             { headers: authHeaders() },
-            '無法讀取市場年化排行榜',
+            t("無法讀取市場年化排行榜"),
         );
     },
 
@@ -1264,33 +1265,33 @@ export const api = {
     // ── DCA 機器人（Phase 5；同源相對 URL，禁止 localhost/127.0.0.1）──
 
     async getDcaSnapshot(signal?: AbortSignal): Promise<DcaSnapshotResponse> {
-        return requestJson('/v1/dca/snapshot', { headers: authHeaders(), signal }, '無法讀取 DCA 總覽');
+        return requestJson('/v1/dca/snapshot', { headers: authHeaders(), signal }, t("無法讀取 DCA 總覽"));
     },
 
     // ── DCA 詳情工作台（Phase 7）：階梯 / 訂單 / 成交 / 事件 / 設定 ──
 
     async getDcaBot(botId: string, signal?: AbortSignal): Promise<DcaInfoResponse> {
-        return requestJson(`/v1/dca/${encodeURIComponent(botId)}`, { headers: authHeaders(), signal }, `無法讀取 DCA ${botId}`);
+        return requestJson(`/v1/dca/${encodeURIComponent(botId)}`, { headers: authHeaders(), signal }, (t("無法讀取 DCA ") + (botId)));
     },
 
     async getDcaStats(botId: string, signal?: AbortSignal): Promise<DcaStatsResponse> {
-        return requestJson(`/v1/dca/${encodeURIComponent(botId)}/stats`, { headers: authHeaders(), signal }, `無法讀取 DCA ${botId} 統計`);
+        return requestJson(`/v1/dca/${encodeURIComponent(botId)}/stats`, { headers: authHeaders(), signal }, (t("無法讀取 DCA ") + (botId) + t(" 統計")));
     },
 
     async getDcaLadder(botId: string, signal?: AbortSignal): Promise<DcaLadderResponse> {
-        return requestJson(`/v1/dca/${encodeURIComponent(botId)}/ladder`, { headers: authHeaders(), signal }, `無法讀取 DCA ${botId} 階梯`);
+        return requestJson(`/v1/dca/${encodeURIComponent(botId)}/ladder`, { headers: authHeaders(), signal }, (t("無法讀取 DCA ") + (botId) + t(" 階梯")));
     },
 
     async getDcaOrders(botId: string, signal?: AbortSignal): Promise<DcaOrdersResponse> {
-        return requestJson(`/v1/dca/${encodeURIComponent(botId)}/orders`, { headers: authHeaders(), signal }, `無法讀取 DCA ${botId} 掛單`);
+        return requestJson(`/v1/dca/${encodeURIComponent(botId)}/orders`, { headers: authHeaders(), signal }, (t("無法讀取 DCA ") + (botId) + t(" 掛單")));
     },
 
     async getDcaFills(botId: string, signal?: AbortSignal): Promise<DcaFillsResponse> {
-        return requestJson(`/v1/dca/${encodeURIComponent(botId)}/fills`, { headers: authHeaders(), signal }, `無法讀取 DCA ${botId} 成交`);
+        return requestJson(`/v1/dca/${encodeURIComponent(botId)}/fills`, { headers: authHeaders(), signal }, (t("無法讀取 DCA ") + (botId) + t(" 成交")));
     },
 
     async listDcaEvents(botId: string, signal?: AbortSignal): Promise<DcaEventListResponse> {
-        return requestJson(`/v1/dca/${encodeURIComponent(botId)}/events`, { headers: authHeaders(), signal }, `無法讀取 DCA ${botId} 事件`);
+        return requestJson(`/v1/dca/${encodeURIComponent(botId)}/events`, { headers: authHeaders(), signal }, (t("無法讀取 DCA ") + (botId) + t(" 事件")));
     },
 
     async startDca(botId: string, source: string = 'dashboard', idempotencyKey?: string, cooldownSeconds?: number): Promise<DcaActionResponse> {
@@ -1299,7 +1300,7 @@ export const api = {
         return requestJson(
             `/v1/dca/${encodeURIComponent(botId)}/start?source=${encodeURIComponent(source)}${cdParam}`,
             { method: 'POST', headers: authHeaders(key) },
-            `無法啟動 DCA ${botId}`,
+            (t("無法啟動 DCA ") + (botId)),
         );
     },
 
@@ -1315,7 +1316,7 @@ export const api = {
                 headers: authHeaders(),
                 body: JSON.stringify(params),
             },
-            `無法更新 DCA ${botId} 參數`,
+            (t("無法更新 DCA ") + (botId) + t(" 參數")),
         );
     },
 
@@ -1324,7 +1325,7 @@ export const api = {
         return requestJson(
             `/v1/dca/${encodeURIComponent(botId)}/stop?source=${encodeURIComponent(source)}`,
             { method: 'POST', headers: authHeaders(key) },
-            `無法停止 DCA ${botId}`,
+            (t("無法停止 DCA ") + (botId)),
         );
     },
 
@@ -1333,7 +1334,7 @@ export const api = {
         return requestJson(
             `/v1/dca/${encodeURIComponent(botId)}?source=${encodeURIComponent(source)}${forceParam}`,
             { method: 'DELETE', headers: authHeaders() },
-            `無法刪除 DCA ${botId}`,
+            (t("無法刪除 DCA ") + (botId)),
         );
     },
 
@@ -1343,7 +1344,7 @@ export const api = {
             headers: authHeaders(),
             body: JSON.stringify(request),
             signal,
-        }, '無法試算 DCA 階梯');
+        }, t("無法試算 DCA 階梯"));
     },
 
     async createDca(request: DcaCreateRequest): Promise<DcaCreateResponse> {
@@ -1351,7 +1352,7 @@ export const api = {
             method: 'POST',
             headers: authHeaders(),
             body: JSON.stringify(request),
-        }, '無法建立 DCA 機器人');
+        }, t("無法建立 DCA 機器人"));
     },
 
     // ── Phase C6：K 線與 DCA 即時圖表（同源相對 URL）──
@@ -1364,7 +1365,7 @@ export const api = {
         signal?: AbortSignal,
     ): Promise<KlinesResponse> {
         const qs = `?exchange=${encodeURIComponent(exchange)}&timeframe=${encodeURIComponent(timeframe)}&limit=${limit}`;
-        return requestJson(`/v1/market/klines/${encodeURIComponent(symbol)}${qs}`, { headers: authHeaders(), signal }, '無法讀取 K 線資料');
+        return requestJson(`/v1/market/klines/${encodeURIComponent(symbol)}${qs}`, { headers: authHeaders(), signal }, t("無法讀取 K 線資料"));
     },
 
     async getDcaChart(
@@ -1374,7 +1375,7 @@ export const api = {
         signal?: AbortSignal,
     ): Promise<DcaChartResponse> {
         const qs = `?timeframe=${encodeURIComponent(timeframe)}&limit=${limit}`;
-        return requestJson(`/v1/dca/${encodeURIComponent(botId)}/chart${qs}`, { headers: authHeaders(), signal }, `無法讀取 DCA ${botId} 圖表`);
+        return requestJson(`/v1/dca/${encodeURIComponent(botId)}/chart${qs}`, { headers: authHeaders(), signal }, (t("無法讀取 DCA ") + (botId) + t(" 圖表")));
     },
 
     // ── Phase C7：回測與參數掃描（同源相對 URL；長任務務必傳 signal 以支援取消）──
@@ -1385,7 +1386,7 @@ export const api = {
             headers: authHeaders(),
             body: JSON.stringify(request),
             signal,
-        }, '無法執行回測');
+        }, t("無法執行回測"));
     },
 
     async runDcaSweep(request: SweepRequest, signal?: AbortSignal): Promise<SweepResponse> {
@@ -1394,7 +1395,7 @@ export const api = {
             headers: authHeaders(),
             body: JSON.stringify(request),
             signal,
-        }, '無法執行參數掃描');
+        }, t("無法執行參數掃描"));
     },
 
     async getMarketIndicators(
@@ -1405,7 +1406,7 @@ export const api = {
         signal?: AbortSignal,
     ): Promise<MarketIndicatorsResponse> {
         const qs = `?exchange=${encodeURIComponent(exchange)}&timeframe=${encodeURIComponent(timeframe)}&limit=${limit}`;
-        return requestJson(`/v1/market/indicators/${encodeURIComponent(symbol)}${qs}`, { headers: authHeaders(), signal }, '無法讀取指標即時值');
+        return requestJson(`/v1/market/indicators/${encodeURIComponent(symbol)}${qs}`, { headers: authHeaders(), signal }, t("無法讀取指標即時值"));
     },
 
     // ── 網格完整回測（P3）──
@@ -1415,7 +1416,7 @@ export const api = {
             headers: authHeaders(),
             body: JSON.stringify(request),
             signal,
-        }, '無法執行網格回測');
+        }, t("無法執行網格回測"));
     },
 
     async runGridStress(request: GridBacktestRequest, signal?: AbortSignal): Promise<GridBacktestStressResponse> {
@@ -1424,7 +1425,7 @@ export const api = {
             headers: authHeaders(),
             body: JSON.stringify(request),
             signal,
-        }, '無法執行壓力情境');
+        }, t("無法執行壓力情境"));
     },
 
     async runGridSweep(request: GridBacktestRequest, signal?: AbortSignal): Promise<GridBacktestSweepResponse> {
@@ -1433,20 +1434,20 @@ export const api = {
             headers: authHeaders(),
             body: JSON.stringify(request),
             signal,
-        }, '無法執行參數掃描');
+        }, t("無法執行參數掃描"));
     },
 
     // ── CoinFull Prime 每日截面多空 ──
     async getCoinFullPrimeStatus(signal?: AbortSignal): Promise<CoinFullPrimeStatus> {
-        return requestJson('/v1/coinfull-prime/status', { headers: authHeaders(), signal }, '無法獲取 CoinFull Prime 狀態');
+        return requestJson('/v1/coinfull-prime/status', { headers: authHeaders(), signal }, t("無法獲取 CoinFull Prime 狀態"));
     },
 
     async getCoinFullPrimeAccounts(signal?: AbortSignal): Promise<CoinFullPrimeAccountsResponse> {
-        return requestJson('/v1/coinfull-prime/accounts', { headers: authHeaders(), signal }, '無法獲取交易帳號列表');
+        return requestJson('/v1/coinfull-prime/accounts', { headers: authHeaders(), signal }, t("無法獲取交易帳號列表"));
     },
 
     async getCoinFullPrimePositions(accountId = 'paper', signal?: AbortSignal): Promise<CoinFullPrimePositionsResponse> {
-        return requestJson(`/v1/coinfull-prime/positions?account_id=${encodeURIComponent(accountId)}`, { headers: authHeaders(), signal }, '無法獲取合約持倉列表');
+        return requestJson(`/v1/coinfull-prime/positions?account_id=${encodeURIComponent(accountId)}`, { headers: authHeaders(), signal }, t("無法獲取合約持倉列表"));
     },
 
     async getCoinFullPrimeRankings(refresh = false, excludeTradfi?: boolean, signal?: AbortSignal): Promise<UniverseRankResult> {
@@ -1454,7 +1455,7 @@ export const api = {
         if (refresh) params.set('refresh', 'true');
         if (excludeTradfi !== undefined) params.set('exclude_tradfi', String(excludeTradfi));
         const qs = params.toString() ? `?${params.toString()}` : '';
-        return requestJson(`/v1/coinfull-prime/rankings${qs}`, { headers: authHeaders(), signal }, '無法獲取 CoinFull Prime 排名');
+        return requestJson(`/v1/coinfull-prime/rankings${qs}`, { headers: authHeaders(), signal }, t("無法獲取 CoinFull Prime 排名"));
     },
 
     async triggerCoinFullPrimeRebalance(
@@ -1482,7 +1483,7 @@ export const api = {
             method: 'POST',
             headers: authHeaders(),
             signal,
-        }, '無法執行 CoinFull Prime 換倉');
+        }, t("無法執行 CoinFull Prime 換倉"));
     },
 
     async controlCoinFullPrimeScheduler(
@@ -1501,7 +1502,7 @@ export const api = {
             method: 'POST',
             headers: authHeaders(),
             signal,
-        }, `無法${action === 'start' ? '啟動' : '停止'}排程器`);
+        }, (t("無法") + (action === 'start' ? t('啟動') : t('停止')) + t("排程器")));
     },
 
     async updateCoinFullPrimeSchedulerTarget(
@@ -1518,7 +1519,7 @@ export const api = {
             method: 'POST',
             headers: authHeaders(),
             signal,
-        }, '無法更新排程器目標帳號');
+        }, t("無法更新排程器目標帳號"));
     },
 
     async getCoinFullPrimeFills(
@@ -1531,7 +1532,7 @@ export const api = {
         if (accountId) params.set('account_id', accountId);
         params.set('limit', String(limit));
         params.set('include_simulated', String(includeSimulated));
-        return requestJson(`/v1/coinfull-prime/fills?${params.toString()}`, { headers: authHeaders(), signal }, '無法獲取 CoinFull Prime 成交流水');
+        return requestJson(`/v1/coinfull-prime/fills?${params.toString()}`, { headers: authHeaders(), signal }, t("無法獲取 CoinFull Prime 成交流水"));
     },
 
     async getCoinFullPrimeHistory(
@@ -1542,7 +1543,7 @@ export const api = {
         const params = new URLSearchParams();
         if (accountId) params.set('account_id', accountId);
         params.set('limit', String(limit));
-        return requestJson(`/v1/coinfull-prime/history?${params.toString()}`, { headers: authHeaders(), signal }, '無法獲取 CoinFull Prime 換倉歷史');
+        return requestJson(`/v1/coinfull-prime/history?${params.toString()}`, { headers: authHeaders(), signal }, t("無法獲取 CoinFull Prime 換倉歷史"));
     },
 };
 

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Search, ShieldCheck, TriangleAlert } from 'lucide-react';
 import type { RankingFilter } from './useCoinFullPrime';
+import { t } from '../../i18n/index.ts';
 
 interface Counts {
   baskets: number;
@@ -36,19 +37,19 @@ export const RankingsToolbar: React.FC<Props> = ({
   onToggleDisabled,
   busy,
 }) => (
-  <section className="cfp-toolbar cfp-panel" aria-label="排行篩選">
-    <div className="cfp-tab-pills" role="tablist" aria-label="排行範圍">
+  <section className="cfp-toolbar cfp-panel" aria-label={t("排行篩選")}>
+    <div className="cfp-tab-pills" role="tablist" aria-label={t("排行範圍")}>
       <button type="button" role="tab" aria-selected={filterTab === 'baskets'} className={filterTab === 'baskets' ? 'is-active' : ''} onClick={() => onFilter('baskets')}>
-        今日多空組合 <span>{counts.baskets}</span>
+        {t("今日多空組合")}{' '}<span>{counts.baskets}</span>
       </button>
       <button type="button" role="tab" aria-selected={filterTab === 'long'} className={filterTab === 'long' ? 'is-active' : ''} onClick={() => onFilter('long')}>
-        多頭籃子 <span>{counts.long}</span>
+        {t("多頭籃子")}{' '}<span>{counts.long}</span>
       </button>
       <button type="button" role="tab" aria-selected={filterTab === 'short'} className={filterTab === 'short' ? 'is-active' : ''} onClick={() => onFilter('short')}>
-        對沖籃子 <span>{counts.short}</span>
+        {t("對沖籃子")}{' '}<span>{counts.short}</span>
       </button>
       <button type="button" role="tab" aria-selected={filterTab === 'all'} className={filterTab === 'all' ? 'is-active' : ''} onClick={() => onFilter('all')}>
-        全部 <span>{counts.all || universeSize}</span>
+        {t("全部")}{' '}<span>{counts.all || universeSize}</span>
       </button>
     </div>
 
@@ -59,23 +60,23 @@ export const RankingsToolbar: React.FC<Props> = ({
         aria-pressed={excludeTradfi}
         onClick={() => onToggleTradfi(!excludeTradfi)}
         disabled={busy}
-        title="排除美股、ETF 與大宗商品合約，維持純加密宇宙"
+        title={t("排除美股、ETF 與大宗商品合約，維持純加密宇宙")}
       >
         {excludeTradfi ? <ShieldCheck size={14} aria-hidden="true" /> : <TriangleAlert size={14} aria-hidden="true" />}
-        <span>{excludeTradfi ? `純加密 ${universeSize} 幣` : '含 TradFi 合約'}</span>
+        <span>{excludeTradfi ? (t("純加密 ") + (universeSize) + t(" 幣")) : t("含 TradFi 合約")}</span>
       </button>
 
       <label className="cfp-check">
         <input type="checkbox" checked={showDisabledFactors} onChange={(event) => onToggleDisabled(event.target.checked)} />
-        <span>顯示 0% 因子</span>
+        <span>{t("顯示 0% 因子")}</span>
       </label>
 
       <label className="cfp-search">
         <Search size={15} aria-hidden="true" />
-        <span className="sr-only">搜尋幣種</span>
+        <span className="sr-only">{t("搜尋幣種")}</span>
         <input
           type="search"
-          placeholder="搜尋全部幣種（BTC、SOL…）"
+          placeholder={t("搜尋全部幣種（BTC、SOL…）")}
           value={searchQuery}
           onChange={(event) => onSearch(event.target.value)}
         />

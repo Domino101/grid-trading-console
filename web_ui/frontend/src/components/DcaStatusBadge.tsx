@@ -1,5 +1,6 @@
 import React from 'react';
 import { dcaStatusMeta } from '../utils/dca';
+import { t } from '../i18n/index.ts';
 
 interface DcaStatusBadgeProps {
     status: string | null | undefined;
@@ -13,7 +14,7 @@ const DcaStatusBadge: React.FC<DcaStatusBadgeProps> = ({ status }) => {
         <span
           className={meta.badgeClass}
           data-status={status ?? 'unknown'}
-          aria-label={`DCA 狀態：${meta.label}`}
+          aria-label={(t("DCA 狀態：") + (meta.label))}
         >
             {meta.label}
         </span>

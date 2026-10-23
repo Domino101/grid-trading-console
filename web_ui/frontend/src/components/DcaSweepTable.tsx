@@ -19,6 +19,7 @@ import {
     sweepParamsText,
     sweepTruncatedText,
 } from '../utils/dca';
+import { t } from '../i18n/index.ts';
 
 export interface DcaSweepTableProps {
     response: SweepResponse;
@@ -26,11 +27,11 @@ export interface DcaSweepTableProps {
 
 /** 可排序的指標欄（皆為 API 直供欄位）。 */
 const SORTABLE_METRICS: readonly { key: string; label: string }[] = [
-    { key: 'total_return_pct', label: '總報酬%' },
+    { key: 'total_return_pct', label: t("總報酬%") },
     { key: 'alpha_pct', label: 'Alpha%' },
-    { key: 'profit_factor', label: '獲利因子' },
-    { key: 'max_drawdown_pct', label: '最大回撤%' },
-    { key: 'win_rate_pct', label: '勝率%' },
+    { key: 'profit_factor', label: t("獲利因子") },
+    { key: 'max_drawdown_pct', label: t("最大回撤%") },
+    { key: 'win_rate_pct', label: t("勝率%") },
 ];
 
 const DcaSweepTable: React.FC<DcaSweepTableProps> = ({ response }) => {
@@ -59,11 +60,9 @@ const DcaSweepTable: React.FC<DcaSweepTableProps> = ({ response }) => {
 
     return (
         <section className="glass-panel dca-sweep-table" style={{ padding: '1.25rem' }}>
-            <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.25rem' }}>參數掃描比較</h3>
+            <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.25rem' }}>{t("參數掃描比較")}</h3>
             <p className="muted" style={{ fontSize: '0.8rem' }}>
-                共 {response.budget.runs_total} 組參數，已完成 {response.budget.runs_completed} 組
-                （使用 {response.budget.bars_used} / {response.budget.bars_limit} 根棒預算）。
-            </p>
+                {t("共")}{' '}{response.budget.runs_total} {' '}{t("組參數，已完成")}{' '}{response.budget.runs_completed} {' '}{t("組 （使用")}{' '}{response.budget.bars_used} / {response.budget.bars_limit} {' '}{t("根棒預算）。")}{' '}</p>
 
             {/* 稽核 7.4：truncated 必須誠實且不得宣稱全域最佳。 */}
             {truncatedText && (
@@ -84,7 +83,7 @@ const DcaSweepTable: React.FC<DcaSweepTableProps> = ({ response }) => {
             </div>
 
             <div className="dca-sweep-sort">
-                <span className="muted">排序依據</span>
+                <span className="muted">{t("排序依據")}</span>
                 {SORTABLE_METRICS.map((metric) => (
                     <button
                         key={metric.key}
@@ -102,15 +101,15 @@ const DcaSweepTable: React.FC<DcaSweepTableProps> = ({ response }) => {
                 <table className="pro-table">
                     <thead>
                         <tr>
-                            <th>參數組合</th>
-                            <th>總報酬%</th>
-                            <th>買入持有%</th>
+                            <th>{t("參數組合")}</th>
+                            <th>{t("總報酬%")}</th>
+                            <th>{t("買入持有%")}</th>
                             <th>Alpha%</th>
-                            <th>最大回撤%</th>
-                            <th>勝率%</th>
-                            <th>獲利因子</th>
-                            <th>輪次</th>
-                            <th>狀態</th>
+                            <th>{t("最大回撤%")}</th>
+                            <th>{t("勝率%")}</th>
+                            <th>{t("獲利因子")}</th>
+                            <th>{t("輪次")}</th>
+                            <th>{t("狀態")}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -137,8 +136,8 @@ const DcaSweepTable: React.FC<DcaSweepTableProps> = ({ response }) => {
                                     <td className="font-mono">{m.cycles_completed == null ? '—' : m.cycles_completed}</td>
                                     <td>
                                         {run.error
-                                            ? <span className="badge badge-failed" title={run.error}>失敗</span>
-                                            : <span className="badge badge-stopped">完成</span>}
+                                            ? <span className="badge badge-failed" title={run.error}>{t("失敗")}</span>
+                                            : <span className="badge badge-stopped">{t("完成")}</span>}
                                     </td>
                                 </tr>
                             );
@@ -148,8 +147,7 @@ const DcaSweepTable: React.FC<DcaSweepTableProps> = ({ response }) => {
             </div>
 
             <p className="muted" style={{ fontSize: '0.74rem', marginTop: '0.75rem' }}>
-                所有指標由後端回測引擎計算後回傳；「—」代表該指標無定義（例如無虧損輪時的獲利因子），並非 0。
-            </p>
+                {t("所有指標由後端回測引擎計算後回傳；「—」代表該指標無定義（例如無虧損輪時的獲利因子），並非 0。")}{' '}</p>
         </section>
     );
 };

@@ -3,6 +3,7 @@ import { AlertTriangle, Info } from 'lucide-react';
 import type { DcaPreviewLadder, DcaPreviewResponse } from '../services/api';
 import { money, number } from '../utils/format';
 import { dcaFundsStatus, type DcaDirectionValue } from '../utils/dca';
+import { t } from '../i18n/index.ts';
 
 interface DcaLadderPreviewProps {
     response: DcaPreviewResponse | null;
@@ -25,31 +26,31 @@ const LadderSection: React.FC<{ title: string; ladder: DcaPreviewLadder; require
     const lastLevel = ladder.levels.length > 0 ? ladder.levels[ladder.levels.length - 1] : null;
     const maxSafetyDeviationPercent = lastLevel ? lastLevel.deviation_percent : null;
     return (
-        <section className="glass-panel dca-ladder-section" aria-label={`${title} 階梯`}>
+        <section className="glass-panel dca-ladder-section" aria-label={((title) + t(" 階梯"))}>
             <h4 className="dca-ladder-title">{title}</h4>
             <div className="dca-summary-kpis">
                 <div className="dca-summary-kpi">
-                    <span>入場價 E</span>
+                    <span>{t("入場價 E")}</span>
                     <strong>{money(ladder.entry_price)}</strong>
                 </div>
                 <div className="dca-summary-kpi dca-summary-kpi-required">
-                    <span>所需資金 Required</span>
+                    <span>{t("所需資金 Required")}</span>
                     <strong>{money(requiredCapital)} USD</strong>
                 </div>
                 <div className="dca-summary-kpi">
-                    <span>最大覆蓋跌幅</span>
+                    <span>{t("最大覆蓋跌幅")}</span>
                     <strong>{ladder.max_drawdown_percent == null ? '—' : `${number(ladder.max_drawdown_percent, 2)}%`}</strong>
                 </div>
                 <div className="dca-summary-kpi">
-                    <span>最大安全單偏移</span>
+                    <span>{t("最大安全單偏移")}</span>
                     <strong>{maxSafetyDeviationPercent == null ? '—' : `${number(maxSafetyDeviationPercent, 2)}%`}</strong>
                 </div>
                 <div className="dca-summary-kpi">
-                    <span>最終均價</span>
+                    <span>{t("最終均價")}</span>
                     <strong>{money(ladder.final_average_price)}</strong>
                 </div>
                 <div className="dca-summary-kpi">
-                    <span>最終止盈價</span>
+                    <span>{t("最終止盈價")}</span>
                     <strong>{money(ladder.final_take_profit_price)}</strong>
                 </div>
             </div>
@@ -58,20 +59,20 @@ const LadderSection: React.FC<{ title: string; ladder: DcaPreviewLadder; require
                     <thead>
                         <tr>
                             <th>#</th>
-                            <th>類型</th>
-                            <th>偏移</th>
-                            <th>價格</th>
-                            <th>名目 (USD)</th>
-                            <th>數量</th>
-                            <th>累計均價</th>
-                            <th>止盈價</th>
+                            <th>{t("類型")}</th>
+                            <th>{t("偏移")}</th>
+                            <th>{t("價格")}</th>
+                            <th>{t("名目 (USD)")}</th>
+                            <th>{t("數量")}</th>
+                            <th>{t("累計均價")}</th>
+                            <th>{t("止盈價")}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {ladder.levels.map((level) => (
                             <tr key={level.index}>
                                 <td>{level.index}</td>
-                                <td>{level.index === 0 ? '基礎單' : `安全單 ${level.index}`}</td>
+                                <td>{level.index === 0 ? t("基礎單") : (t("安全單 ") + (level.index))}</td>
                                 <td>{level.deviation_percent == null ? '—' : `${number(level.deviation_percent, 2)}%`}</td>
                                 <td>{money(level.price)}</td>
                                 <td>{money(level.notional)}</td>
@@ -98,18 +99,18 @@ const DcaLadderPreview: React.FC<DcaLadderPreviewProps> = ({
 }) => {
     if (loading && !response) {
         return (
-            <aside className="glass-panel dca-ladder-preview" aria-label="Summary 階梯試算">
-                <p className="muted dca-ladder-placeholder">正在試算階梯（debounce 300ms）…</p>
+            <aside className="glass-panel dca-ladder-preview" aria-label={t("Summary 階梯試算")}>
+                <p className="muted dca-ladder-placeholder">{t("正在試算階梯（debounce 300ms）…")}</p>
             </aside>
         );
     }
 
     if (error) {
         return (
-            <aside className="glass-panel dca-ladder-preview" aria-label="Summary 階梯試算">
+            <aside className="glass-panel dca-ladder-preview" aria-label={t("Summary 階梯試算")}>
                 <div className="notice notice-error" role="alert">
                     <AlertTriangle size={15} />
-                    <span>試算失敗：{error}</span>
+                    <span>{t("試算失敗：")}{error}</span>
                 </div>
             </aside>
         );
@@ -117,10 +118,9 @@ const DcaLadderPreview: React.FC<DcaLadderPreviewProps> = ({
 
     if (!response) {
         return (
-            <aside className="glass-panel dca-ladder-preview" aria-label="Summary 階梯試算">
+            <aside className="glass-panel dca-ladder-preview" aria-label={t("Summary 階梯試算")}>
                 <p className="muted dca-ladder-placeholder">
-                    尚無試算結果：請確認已取得目前價格（交易對有效），並完成前三步必填欄位。
-                </p>
+                    {t("尚無試算結果：請確認已取得目前價格（交易對有效），並完成前三步必填欄位。")}{' '}</p>
             </aside>
         );
     }
@@ -129,20 +129,18 @@ const DcaLadderPreview: React.FC<DcaLadderPreviewProps> = ({
     const both = direction === 'both';
 
     return (
-        <aside className="glass-panel dca-ladder-preview" aria-label="Summary 階梯試算">
+        <aside className="glass-panel dca-ladder-preview" aria-label={t("Summary 階梯試算")}>
             <div className="dca-ladder-preview-head">
-                <h3 className="dca-ladder-preview-title">Summary · 階梯試算</h3>
+                <h3 className="dca-ladder-preview-title">{t("Summary · 階梯試算")}</h3>
                 <span className="muted" style={{ fontSize: '0.72rem' }}>
-                    數值來源：POST /api/v1/dca/preview（前端零階梯運算）
-                </span>
+                    {t("數值來源：POST /api/v1/dca/preview（前端零階梯運算）")}{' '}</span>
             </div>
 
             {both && (
                 <div className="notice notice-info dca-both-note" role="note">
                     <Info size={14} />
                     <span>
-                        雙向（both）：同一時刻<span className="dca-strong">只會執行其中一個方向</span>；
-                        所需資金 = max(多, 空)，<span className="dca-strong">不是兩組相加</span>。
+                        {t("雙向（both）：同一時刻")}<span className="dca-strong">{t("只會執行其中一個方向")}</span>{t("； 所需資金 = max(多, 空)，")}<span className="dca-strong">{t("不是兩組相加")}</span>{t("。")}
                     </span>
                 </div>
             )}
@@ -150,16 +148,16 @@ const DcaLadderPreview: React.FC<DcaLadderPreviewProps> = ({
             {both ? (
                 <div className="dca-ladder-stack">
                     {response.ladder_long && (
-                        <LadderSection title="LONG 階梯" ladder={response.ladder_long} requiredCapital={response.required_capital} />
+                        <LadderSection title={t("LONG 階梯")} ladder={response.ladder_long} requiredCapital={response.required_capital} />
                     )}
                     {response.ladder_short && (
-                        <LadderSection title="SHORT 階梯" ladder={response.ladder_short} requiredCapital={response.required_capital} />
+                        <LadderSection title={t("SHORT 階梯")} ladder={response.ladder_short} requiredCapital={response.required_capital} />
                     )}
                 </div>
             ) : (
                 response.ladder && (
                     <LadderSection
-                        title={direction === 'short' ? 'SHORT 階梯' : 'LONG 階梯'}
+                        title={direction === 'short' ? t("SHORT 階梯") : t("LONG 階梯")}
                         ladder={response.ladder}
                         requiredCapital={response.required_capital}
                     />
@@ -167,15 +165,14 @@ const DcaLadderPreview: React.FC<DcaLadderPreviewProps> = ({
             )}
 
             <div className="dca-funds-row">
-                <span>可用餘額：{availableBalance == null ? '—（本版本無 DCA 專屬餘額端點）' : `${money(availableBalance)} USD`}</span>
+                <span>{t("可用餘額：")}{availableBalance == null ? t("—（本版本無 DCA 專屬餘額端點）") : `${money(availableBalance)} USD`}</span>
                 {funds === 'insufficient' && (
                     <span
                         className={accountMode === 'live' ? 'dca-funds-warning' : 'dca-funds-caution'}
                         role={accountMode === 'live' ? 'alert' : 'status'}
                     >
                         <AlertTriangle size={14} />
-                        所需資金 {money(response.required_capital)} USD 超過可用餘額
-                        {accountMode === 'live' ? '（LIVE 已禁止送出）' : '（PAPER 僅警告）'}
+                        {t("所需資金")}{' '}{money(response.required_capital)} {' '}{t("USD 超過可用餘額")}{' '}{accountMode === 'live' ? t("（LIVE 已禁止送出）") : t("（PAPER 僅警告）")}
                     </span>
                 )}
             </div>

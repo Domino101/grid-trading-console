@@ -11,6 +11,7 @@ import {
     DCA_BACKTEST_MAX_BARS,
     DCA_BACKTEST_TIMEFRAMES,
 } from '../utils/dca';
+import { t } from '../i18n/index.ts';
 
 export interface DcaBacktestPanelProps {
     timeframe: string;
@@ -48,14 +49,14 @@ const DcaBacktestPanel: React.FC<DcaBacktestPanelProps> = ({
 
     return (
         <section className="glass-panel dca-backtest-panel" style={{ padding: '1.25rem' }}>
-            <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.25rem' }}>回測設定</h3>
+            <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.25rem' }}>{t("回測設定")}</h3>
             <p className="muted" style={{ fontSize: '0.8rem' }}>
-                {scopeNote ?? '以歷史 K 線回放此機器人的設定；回測為唯讀操作，不會下任何真實訂單。'}
+                {scopeNote ?? t("以歷史 K 線回放此機器人的設定；回測為唯讀操作，不會下任何真實訂單。")}
             </p>
 
             <div className="dca-backtest-controls">
                 <label className="dca-backtest-field">
-                    <span>時框</span>
+                    <span>{t("時框")}</span>
                     <select
                         value={timeframe}
                         disabled={running}
@@ -68,7 +69,7 @@ const DcaBacktestPanel: React.FC<DcaBacktestPanelProps> = ({
                 </label>
 
                 <label className="dca-backtest-field">
-                    <span>回測長度</span>
+                    <span>{t("回測長度")}</span>
                     <select
                         value={String(bars)}
                         disabled={running}
@@ -81,7 +82,7 @@ const DcaBacktestPanel: React.FC<DcaBacktestPanelProps> = ({
                 </label>
 
                 <label className="dca-backtest-field">
-                    <span>初始資金 (USD)</span>
+                    <span>{t("初始資金 (USD)")}</span>
                     <input
                         type="number"
                         min="1"
@@ -99,18 +100,17 @@ const DcaBacktestPanel: React.FC<DcaBacktestPanelProps> = ({
                         type="button"
                         disabled={running || capitalInvalid || barsInvalid}
                         onClick={onRun}
-                        title={capitalInvalid ? '請輸入大於 0 的初始資金' : undefined}
+                        title={capitalInvalid ? t("請輸入大於 0 的初始資金") : undefined}
                     >
                         {running ? (
-                            <><Loader2 size={15} className="spin" /> 回測中…</>
+                            <><Loader2 size={15} className="spin" /> {' '}{t("回測中…")}</>
                         ) : (
-                            <><Play size={15} /> 執行回測</>
+                            <><Play size={15} /> {' '}{t("執行回測")}</>
                         )}
                     </button>
                     {running && (
                         <button className="btn btn-outline" type="button" onClick={onCancel}>
-                            <XCircle size={15} /> 取消
-                        </button>
+                            <XCircle size={15} /> {' '}{t("取消")}{' '}</button>
                     )}
                 </div>
             </div>
@@ -119,7 +119,7 @@ const DcaBacktestPanel: React.FC<DcaBacktestPanelProps> = ({
             <div className="dca-backtest-disclosure" role="note">
                 <div className="dca-backtest-disclosure-head">
                     <Info size={14} />
-                    <strong>回測簡化事項（務必閱讀）</strong>
+                    <strong>{t("回測簡化事項（務必閱讀）")}</strong>
                 </div>
                 <ul>
                     {disclosures.map((text, i) => (

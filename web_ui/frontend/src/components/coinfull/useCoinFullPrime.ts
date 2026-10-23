@@ -22,6 +22,7 @@ import {
   type SizingComparison,
   type SizingMode,
 } from './format';
+import { t } from '../../i18n/index.ts';
 
 export type RankingFilter = 'baskets' | 'long' | 'short' | 'all';
 export type HistoryView = 'batches' | 'fills';
@@ -76,7 +77,7 @@ const fallbackAccount = (id: string): TradingAccountProfile => {
     id === 'binance_testnet' ? 'testnet' : id === 'binance_live' ? 'live' : 'paper';
   return {
     id,
-    name: environment === 'testnet' ? 'Binance 合約測試網' : environment === 'live' ? 'Binance 合約實盤' : 'Paper 本地模擬盤',
+    name: environment === 'testnet' ? t("Binance 合約測試網") : environment === 'live' ? t("Binance 合約實盤") : t("Paper 本地模擬盤"),
     environment,
     is_ready: environment === 'paper',
     balance_usdt: environment === 'paper' ? 10_000 : null,
@@ -84,6 +85,14 @@ const fallbackAccount = (id: string): TradingAccountProfile => {
     description: '',
     endpoint: '',
   };
+};
+
+const localizeAccount = (account: TradingAccountProfile): TradingAccountProfile => {
+  const name = t(account.name);
+  const description = t(account.description);
+  return name === account.name && description === account.description
+    ? account
+    : { ...account, name, description };
 };
 
 const knownAccount = (id: string | null): id is string => id === 'paper' || id === 'binance_live' || id === 'binance_testnet';
@@ -167,7 +176,7 @@ export const useCoinFullPrime = (onUnauthorized?: () => void) => {
   const handleApiError = useCallback((err: unknown, fallback: string): string => {
     if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
       unauthorizedRef.current?.();
-      return '登入憑證已失效，請重新登入';
+      return t("登入憑證已失效，請重新登入");
     }
     return err instanceof Error ? err.message : fallback;
   }, []);
@@ -185,7 +194,7 @@ export const useCoinFullPrime = (onUnauthorized?: () => void) => {
       setError(null);
     } catch (err: unknown) {
       setPositions([]);
-      setError(handleApiError(err, '無法讀取帳戶持倉'));
+      setError(handleApiError(err, t("無法讀取帳戶持倉")));
     } finally {
       setLoadingPositions(false);
     }
@@ -208,7 +217,7 @@ export const useCoinFullPrime = (onUnauthorized?: () => void) => {
       if (statusResult.status === 'rejected') throw statusResult.reason;
       if (accountsResult.status === 'rejected') throw accountsResult.reason;
       if (positionsResult.status === 'rejected') {
-        setError(handleApiError(positionsResult.reason, '無法讀取帳戶持倉'));
+        setError(handleApiError(positionsResult.reason, t("無法讀取帳戶持倉")));
         setPositions([]);
       } else {
         setPositions(Array.isArray(positionsResult.value.positions) ? positionsResult.value.positions : []);
@@ -218,7 +227,7 @@ export const useCoinFullPrime = (onUnauthorized?: () => void) => {
       const accountsData = accountsResult.value;
       setRankResult(rankings);
       setStatusInfo(status);
-      setAccounts(Array.isArray(accountsData.accounts) ? accountsData.accounts : []);
+      setAccounts(Array.isArray(accountsData.accounts) ? accountsData.accounts.map(localizeAccount) : []);
 
       if (!initializedRef.current) {
         const saved = read(STORAGE.account);
@@ -238,7 +247,7 @@ export const useCoinFullPrime = (onUnauthorized?: () => void) => {
         if (nextAccount !== accountId) void loadPositions(nextAccount);
       }
     } catch (err: unknown) {
-      setError(handleApiError(err, '載入 CoinFull Prime 數據失敗'));
+      setError(handleApiError(err, t("載入 CoinFull Prime 數據失敗")));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -261,7 +270,7 @@ export const useCoinFullPrime = (onUnauthorized?: () => void) => {
       if (Array.isArray(history.batches)) setHistoryBatches(history.batches);
       if (Array.isArray(fills.fills)) setTradeFills(fills.fills);
     } catch (err: unknown) {
-      notify('error', handleApiError(err, '載入調倉歷史失敗'));
+      notify('error', handleApiError(err, t("載入調倉歷史失敗")));
     } finally {
       setHistoryLoading(false);
     }
@@ -329,10 +338,10 @@ export const useCoinFullPrime = (onUnauthorized?: () => void) => {
 
   const scheduleReasons = useMemo(() => {
     const reasons = [...comparison.reasons];
-    if (scheduleAccountId !== selectedAccount) reasons.unshift(`排程目標為 ${scheduleAccount.name}，目前檢視 ${currentAccount.name}`);
-    if (scheduleDryRun !== dryRunMode) reasons.push(`排程模式為 ${scheduleDryRun ? '僅試算' : '真實發單'}，目前執行模式為 ${dryRunMode ? '僅試算' : '真實發單'}`);
+    if (scheduleAccountId !== selectedAccount) reasons.unshift((t("排程目標為 ") + (scheduleAccount.name) + t("，目前檢視 ") + (currentAccount.name)));
+    if (scheduleDryRun !== dryRunMode) reasons.push((t("排程模式為 ") + (scheduleDryRun ? t('僅試算') : t('真實發單')) + t("，目前執行模式為 ") + (dryRunMode ? t('僅試算') : t('真實發單'))));
     if (scheduleConfig?.exclude_tradfi !== undefined && Boolean(scheduleConfig.exclude_tradfi) !== excludeTradfi) {
-      reasons.push('排程的 TradFi 過濾與目前設定不同');
+      reasons.push(t("排程的 TradFi 過濾與目前設定不同"));
     }
     return reasons;
   }, [comparison.reasons, currentAccount.name, dryRunMode, excludeTradfi, scheduleAccount.name, scheduleAccountId, scheduleConfig, scheduleDryRun, selectedAccount]);
@@ -363,8 +372,8 @@ export const useCoinFullPrime = (onUnauthorized?: () => void) => {
     setDryRunMode(next);
     write(STORAGE.dryRun, String(next));
     notify('info', next
-      ? '執行模式已切換為僅試算。背景排程未變更，需按「套用至排程」才會影響自動換倉。'
-      : '執行模式已切換為真實發單。背景排程未變更，手動換倉將在確認後送出真單。');
+      ? t("執行模式已切換為僅試算。背景排程未變更，需按「套用至排程」才會影響自動換倉。")
+      : t("執行模式已切換為真實發單。背景排程未變更，手動換倉將在確認後送出真單。"));
   }, [notify]);
 
   const requestModeChange = useCallback((next: boolean) => {
@@ -419,9 +428,9 @@ export const useCoinFullPrime = (onUnauthorized?: () => void) => {
     try {
       const rankings = await api.getCoinFullPrimeRankings(true, next);
       setRankResult(rankings);
-      notify('info', next ? '已切換為純加密宇宙，並重新計算排行。' : '已納入 TradFi 合約，並重新計算排行。');
+      notify('info', next ? t("已切換為純加密宇宙，並重新計算排行。") : t("已納入 TradFi 合約，並重新計算排行。"));
     } catch (err: unknown) {
-      notify('error', handleApiError(err, '重新計算排行失敗'));
+      notify('error', handleApiError(err, t("重新計算排行失敗")));
     } finally {
       setRefreshing(false);
     }
@@ -429,11 +438,11 @@ export const useCoinFullPrime = (onUnauthorized?: () => void) => {
 
   const requestRebalance = useCallback(() => {
     if (!manualSizing.affordable) {
-      notify('error', `本金 ${manualSizing.capital.toFixed(2)} USDT 超過帳戶可用保證金，還差 ${manualSizing.shortfall.toFixed(2)} USDT。請改用餘額百分比或降低本金。`);
+      notify('error', (t("本金 ") + (manualSizing.capital.toFixed(2)) + t(" USDT 超過帳戶可用保證金，還差 ") + (manualSizing.shortfall.toFixed(2)) + t(" USDT。請改用餘額百分比或降低本金。")));
       return;
     }
     if (!dryRunMode && !currentAccount.is_ready) {
-      notify('error', `帳號「${currentAccount.name}」尚未就緒：缺少 ${currentAccount.missing_keys.join(', ') || 'API 金鑰'}。請先補齊設定或改用 Paper。`);
+      notify('error', (t("帳號「") + (currentAccount.name) + t("」尚未就緒：缺少 ") + (currentAccount.missing_keys.join(', ') || t('API 金鑰')) + t("。請先補齊設定或改用 Paper。")));
       return;
     }
     setDialog({ kind: 'rebalance' });
@@ -451,18 +460,18 @@ export const useCoinFullPrime = (onUnauthorized?: () => void) => {
       const reportStatus = report?.status as string | undefined;
       const reportError = report?.error as string | undefined;
       if (reportStatus === 'failed') {
-        notify('error', `換倉失敗：${reportError || '下單發生異常'}`);
+        notify('error', (t("換倉失敗：") + (reportError || t('下單發生異常'))));
       } else if (reportStatus === 'partial') {
         const orders = (report?.orders as Array<{ status: string }> | undefined) ?? [];
         const filled = orders.filter((order) => order.status === 'filled' || order.status === 'simulated').length;
         const failed = orders.filter((order) => order.status === 'failed').length;
         const skipped = orders.filter((order) => order.status === 'skipped').length;
-        notify('warning', `換倉部分成功：完成 ${filled} 筆、失敗 ${failed} 筆、跳過 ${skipped} 筆。${reportError ? `原因：${reportError}` : ''}`);
+        notify('warning', (t("換倉部分成功：完成 ") + (filled) + t(" 筆、失敗 ") + (failed) + t(" 筆、跳過 ") + (skipped) + t(" 筆。") + (reportError ? t("原因：") + reportError : '')));
       } else {
         const ordersCount = typeof result.orders_count === 'number' ? result.orders_count : 0;
         const closed = Array.isArray(result.closed_symbols) ? result.closed_symbols.length : 0;
         const opened = Array.isArray(result.opened_symbols) ? result.opened_symbols.length : 0;
-        notify('success', `換倉完成：${ordersCount} 筆訂單（平倉 ${closed}、開倉 ${opened}），模式 ${result.dry_run ? '僅試算' : '真實發單'}。`);
+        notify('success', (t("換倉完成：") + (ordersCount) + t(" 筆訂單（平倉 ") + (closed) + t("、開倉 ") + (opened) + t("），模式 ") + (result.dry_run ? t('僅試算') : t('真實發單')) + t("。")));
       }
       await Promise.all([loadPositions(selectedAccount), loadHistory()]);
       try {
@@ -471,7 +480,7 @@ export const useCoinFullPrime = (onUnauthorized?: () => void) => {
         // The orders already succeeded; a status refresh failure must not be reported as a failed rebalance.
       }
     } catch (err: unknown) {
-      notify('error', handleApiError(err, '執行換倉失敗'));
+      notify('error', handleApiError(err, t("執行換倉失敗")));
     } finally {
       setRebalancing(false);
     }
@@ -479,7 +488,7 @@ export const useCoinFullPrime = (onUnauthorized?: () => void) => {
 
   const requestApplySchedule = useCallback(() => {
     if (!manualSizing.affordable) {
-      notify('error', `本金 ${manualSizing.capital.toFixed(2)} USDT 超過帳戶可用保證金，請先改用餘額百分比或降低本金。`);
+      notify('error', (t("本金 ") + (manualSizing.capital.toFixed(2)) + t(" USDT 超過帳戶可用保證金，請先改用餘額百分比或降低本金。")));
       return;
     }
     setDialog({ kind: 'apply-schedule' });
@@ -500,9 +509,9 @@ export const useCoinFullPrime = (onUnauthorized?: () => void) => {
       } catch {
         // Keep the optimistic status strip; the target write itself succeeded.
       }
-      notify('success', `排程目標已同步為「${currentAccount.name}」／${dryRunMode ? '僅試算' : '真實發單'}。`);
+      notify('success', (t("排程目標已同步為「") + (currentAccount.name) + t("」／") + (dryRunMode ? t('僅試算') : t('真實發單')) + t("。")));
     } catch (err: unknown) {
-      notify('error', handleApiError(err, '同步排程目標失敗'));
+      notify('error', handleApiError(err, t("同步排程目標失敗")));
     }
   }, [balancePct, currentAccount.name, dryRunMode, excludeTradfi, handleApiError, leverage, manualSizing.capital, notify, selectedAccount, sizingMode]);
 
@@ -511,21 +520,21 @@ export const useCoinFullPrime = (onUnauthorized?: () => void) => {
       setTogglingScheduler(true);
       try {
         await api.controlCoinFullPrimeScheduler('stop');
-        notify('info', '定時自動換倉已停止。');
+        notify('info', t("定時自動換倉已停止。"));
         try {
           setStatusInfo(await api.getCoinFullPrimeStatus());
         } catch {
           // The stop request succeeded; the next refresh will confirm the state.
         }
       } catch (err: unknown) {
-        notify('error', handleApiError(err, '停止排程失敗'));
+        notify('error', handleApiError(err, t("停止排程失敗")));
       } finally {
         setTogglingScheduler(false);
       }
       return;
     }
     if (!manualSizing.affordable) {
-      notify('error', `本金 ${manualSizing.capital.toFixed(2)} USDT 超過帳戶可用保證金，請先調整倉位。`);
+      notify('error', (t("本金 ") + (manualSizing.capital.toFixed(2)) + t(" USDT 超過帳戶可用保證金，請先調整倉位。")));
       return;
     }
     setDialog({ kind: 'scheduler-start' });
@@ -547,9 +556,9 @@ export const useCoinFullPrime = (onUnauthorized?: () => void) => {
       } catch {
         // The scheduler start succeeded; the next refresh will pick up its state.
       }
-      notify('success', '定時自動換倉已啟動，將依排程執行。');
+      notify('success', t("定時自動換倉已啟動，將依排程執行。"));
     } catch (err: unknown) {
-      notify('error', handleApiError(err, '啟動排程失敗'));
+      notify('error', handleApiError(err, t("啟動排程失敗")));
     } finally {
       setTogglingScheduler(false);
     }

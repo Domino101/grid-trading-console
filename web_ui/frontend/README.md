@@ -1,3 +1,17 @@
+# Grid Trading Console — Web UI
+
+React 19 + TypeScript + Vite frontend for the grid-trading console.
+
+## Internationalization (zh-Hant / en)
+
+- UI copy is authored in Traditional Chinese and passed through `t("...")` from `src/i18n/index.ts`.
+- English copy lives in `src/i18n/messages.en.ts`, keyed by the exact Chinese source string (including leading/trailing spaces used by concatenated fragments).
+- The language toggle appears in the sidebar, the mobile top bar, and the login page. The choice persists in `localStorage` under `gtc.lang`; `?lang=en` or `?lang=zh` seeds a session.
+- Changing language reloads once so module-level label maps, memoised copy, and messages already held in component state flip together.
+- `npm test` runs `tests/i18n.test.ts`, which fails when a `t()` key has no English entry or when Chinese UI text bypasses `t()`.
+
+---
+
 # React + TypeScript + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.

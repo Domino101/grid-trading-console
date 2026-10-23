@@ -31,6 +31,7 @@ import {
 } from '../services/api';
 import { ApiError } from '../utils/auth';
 import { freshnessText, money, number } from '../utils/format';
+import { t } from '../i18n/index.ts';
 
 interface GridDetailProps {
   gridId: string;
@@ -71,14 +72,14 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
         onUnauthorized();
         return;
       }
-      setActionError(caught instanceof Error ? caught.message : '啟動策略失敗');
+      setActionError(caught instanceof Error ? caught.message : t("啟動策略失敗"));
     } finally {
       setActionLoading(false);
     }
   };
 
   const handleStop = async () => {
-    if (!window.confirm(`確定要停止策略 ${grid?.symbol ?? gridId} 嗎？`)) {
+    if (!window.confirm((t("確定要停止策略 ") + (grid?.symbol ?? gridId) + t(" 嗎？")))) {
       return;
     }
     setActionLoading(true);
@@ -91,7 +92,7 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
         onUnauthorized();
         return;
       }
-      setActionError(caught instanceof Error ? caught.message : '停止策略失敗');
+      setActionError(caught instanceof Error ? caught.message : t("停止策略失敗"));
     } finally {
       setActionLoading(false);
     }
@@ -127,7 +128,7 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
         return;
       }
       if (caught instanceof DOMException && caught.name === 'AbortError') return;
-      setError(caught instanceof Error ? caught.message : '無法載入策略詳情');
+      setError(caught instanceof Error ? caught.message : t("無法載入策略詳情"));
     } finally {
       setLoading(false);
     }
@@ -162,7 +163,7 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
         <div>
           <button className="btn btn-outline" type="button" onClick={onBack} style={{ marginBottom: '0.5rem', padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}>
             <ArrowLeft size={14} />
-            <span>返回總覽</span>
+            <span>{t("返回總覽")}</span>
           </button>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
             <h2>{grid?.symbol ?? gridId}</h2>
@@ -170,17 +171,17 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
             {item && (
               <span className={`badge badge-${item.status}`}>
                 {item.status === 'running'
-                  ? '運行中'
+                  ? t("運行中")
                   : item.status === 'stopped'
-                  ? '已停止'
+                  ? t("已停止")
                   : item.status === 'starting'
-                  ? '啟動中'
+                  ? t("啟動中")
                   : item.status === 'stopping'
-                  ? '停止中'
+                  ? t("停止中")
                   : item.status}
               </span>
             )}
-            <span className="exchange-pill">{grid?.exchange ?? '未知交易所'}</span>
+            <span className="exchange-pill">{grid?.exchange ?? t("未知交易所")}</span>
             {item && (
               <span className={`freshness-tag ${item.data_status}`} style={{ fontSize: '0.75rem' }}>
                 {freshnessText(item.data_status, item.last_updated_at)}
@@ -196,10 +197,10 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
               type="button"
               onClick={() => void handleStart()}
               disabled={actionLoading || Boolean(item.start_blocked_reason)}
-              title={item.start_blocked_reason ?? '啟動策略'}
+              title={item.start_blocked_reason ?? t("啟動策略")}
             >
               <Play size={14} />
-              <span>{actionLoading ? '處理中…' : '啟動策略'}</span>
+              <span>{actionLoading ? t("處理中…") : t("啟動策略")}</span>
             </button>
           )}
 
@@ -209,16 +210,16 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
               type="button"
               onClick={() => void handleStop()}
               disabled={actionLoading}
-              title="停止策略"
+              title={t("停止策略")}
             >
               <Square size={14} />
-              <span>{actionLoading ? '處理中…' : '停止策略'}</span>
+              <span>{actionLoading ? t("處理中…") : t("停止策略")}</span>
             </button>
           )}
 
           <button className="btn btn-outline" type="button" onClick={() => void load()} disabled={loading}>
             <RefreshCcw size={14} className={loading ? 'spin' : ''} />
-            <span>{loading ? '更新中…' : '重新整理'}</span>
+            <span>{loading ? t("更新中…") : t("重新整理")}</span>
           </button>
         </div>
       </header>
@@ -230,39 +231,39 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
       {/* Mini KPI Bar */}
       <section className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
         <article className="kpi-card" style={{ minHeight: 'auto', padding: '1rem' }}>
-          <span className="text-secondary" style={{ fontSize: '0.75rem' }}>策略總收益 (Total PnL)</span>
+          <span className="text-secondary" style={{ fontSize: '0.75rem' }}>{t("策略總收益 (Total PnL)")}</span>
           <strong className={`font-mono ${totalPnl === null ? '' : isPositiveTotal ? 'positive' : 'negative'}`} style={{ fontSize: '1.4rem' }}>
             {money(totalPnl)}
           </strong>
           <small className="font-mono">
-            毛利: {money(grossProfit)} · 浮動: {money(unrealized)} · 手續費: {money(fees)} (純淨: {money(netPnl)})
+            {t("毛利:")}{' '}{money(grossProfit)} {' '}{t("· 浮動:")}{' '}{money(unrealized)} {' '}{t("· 手續費:")}{' '}{money(fees)} {' '}{t("(純淨:")}{' '}{money(netPnl)})
           </small>
         </article>
 
         <article className="kpi-card" style={{ minHeight: 'auto', padding: '1rem' }}>
-          <span className="text-secondary" style={{ fontSize: '0.75rem' }}>網格持倉 / 全帳戶持倉</span>
+          <span className="text-secondary" style={{ fontSize: '0.75rem' }}>{t("網格持倉 / 全帳戶持倉")}</span>
           <strong className="font-mono" style={{ fontSize: '1.4rem' }}>
             {number(item?.grid_position ?? item?.current_position, 4)}
           </strong>
           <small className="font-mono">
-            {item?.account_position != null ? `全帳戶: ${number(item.account_position, 4)} · ` : ''}手續費: {money(item?.fees)}
+            {item?.account_position != null ? (t("全帳戶: ") + (number(item.account_position, 4)) + " · ") : ''}{t("手續費:")}{' '}{money(item?.fees)}
           </small>
         </article>
 
         <article className="kpi-card" style={{ minHeight: 'auto', padding: '1rem' }}>
-          <span className="text-secondary" style={{ fontSize: '0.75rem' }}>網格區間 / 格距</span>
+          <span className="text-secondary" style={{ fontSize: '0.75rem' }}>{t("網格區間 / 格距")}</span>
           <strong className="font-mono" style={{ fontSize: '1.3rem' }}>
             {grid?.lower_price != null && grid?.upper_price != null ? `${number(grid.lower_price)} - ${number(grid.upper_price)}` : '—'}
           </strong>
-          <small className="font-mono">格距: {number(grid?.grid_interval)} · 每格量: {number(grid?.order_amount, 4)}</small>
+          <small className="font-mono">{t("格距:")}{' '}{number(grid?.grid_interval)} {' '}{t("· 每格量:")}{' '}{number(grid?.order_amount, 4)}</small>
         </article>
 
         <article className="kpi-card" style={{ minHeight: 'auto', padding: '1rem' }}>
-          <span className="text-secondary" style={{ fontSize: '0.75rem' }}>掛單 / 成交套利</span>
+          <span className="text-secondary" style={{ fontSize: '0.75rem' }}>{t("掛單 / 成交套利")}</span>
           <strong className="font-mono" style={{ fontSize: '1.4rem' }}>
-            {number(item?.pending_orders, 0)} <small style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>掛單</small>
+            {number(item?.pending_orders, 0)} <small style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{t("掛單")}</small>
           </strong>
-          <small className="font-mono positive">已套利 {number(item?.completed_cycles, 0)} 格 (買 {item?.filled_buy ?? 0} / 賣 {item?.filled_sell ?? 0})</small>
+          <small className="font-mono positive">{t("已套利")}{' '}{number(item?.completed_cycles, 0)} {' '}{t("格 (買")}{' '}{item?.filled_buy ?? 0} {' '}{t("/ 賣")}{' '}{item?.filled_sell ?? 0})</small>
         </article>
       </section>
 
@@ -274,7 +275,7 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
           onClick={() => setActiveTab('chart')}
         >
           <TrendingUp size={15} />
-          <span>收益走勢</span>
+          <span>{t("收益走勢")}</span>
         </button>
 
         <button
@@ -283,7 +284,7 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
           onClick={() => setActiveTab('orders')}
         >
           <Layers size={15} />
-          <span>掛單深度 ({orders?.orders.length ?? 0})</span>
+          <span>{t("掛單深度 (")}{orders?.orders.length ?? 0})</span>
         </button>
 
         <button
@@ -292,7 +293,7 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
           onClick={() => setActiveTab('fills')}
         >
           <Activity size={15} />
-          <span>成交紀錄 ({fills?.fills.length ?? 0})</span>
+          <span>{t("成交紀錄 (")}{fills?.fills.length ?? 0})</span>
         </button>
 
         <button
@@ -301,7 +302,7 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
           onClick={() => setActiveTab('audit')}
         >
           <Clock size={15} />
-          <span>命令與事件 ({commands.length + events.length})</span>
+          <span>{t("命令與事件 (")}{commands.length + events.length})</span>
         </button>
 
         <button
@@ -310,7 +311,7 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
           onClick={() => setActiveTab('specs')}
         >
           <Sliders size={15} />
-          <span>策略參數</span>
+          <span>{t("策略參數")}</span>
         </button>
       </nav>
 
@@ -319,10 +320,10 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
         <section className="glass-panel chart-card" style={{ padding: '1.25rem' }}>
           <div className="chart-heading">
             <div>
-              <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>策略收益歷史走勢</h3>
-              <p className="muted">展示策略總收益（毛利 + 浮動）與扣除手續費後的純淨收益走勢</p>
+              <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>{t("策略收益歷史走勢")}</h3>
+              <p className="muted">{t("展示策略總收益（毛利 + 浮動）與扣除手續費後的純淨收益走勢")}</p>
             </div>
-            <div className="range-tabs" aria-label="查詢時段">
+            <div className="range-tabs" aria-label={t("查詢時段")}>
               {[24, 168].map((hours) => (
                 <button
                   key={hours}
@@ -330,7 +331,7 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
                   type="button"
                   onClick={() => setRangeHours(hours)}
                 >
-                  {hours === 24 ? '24 小時' : '7 天'}
+                  {hours === 24 ? t("24 小時") : t("7 天")}
                 </button>
               ))}
             </div>
@@ -338,8 +339,7 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
 
           {history.length < 2 ? (
             <div style={{ padding: '3rem 1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
-              尚無足夠歷史快照數據可繪製曲線（至少需 2 筆紀錄）。
-            </div>
+              {t("尚無足夠歷史快照數據可繪製曲線（至少需 2 筆紀錄）。")}{' '}</div>
           ) : (
             <div className="history-chart-wrapper">
               <ResponsiveContainer width="100%" height={280}>
@@ -387,7 +387,7 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
                   <Area
                     type="monotone"
                     dataKey="total_pnl"
-                    name="總收益 (Total PnL)"
+                    name={t("總收益 (Total PnL)")}
                     stroke="var(--trading-green)"
                     strokeWidth={2}
                     fillOpacity={1}
@@ -397,7 +397,7 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
                   <Area
                     type="monotone"
                     dataKey="net_pnl"
-                    name="純淨收益 (Net PnL)"
+                    name={t("純淨收益 (Net PnL)")}
                     stroke="#38bdf8"
                     strokeWidth={1.5}
                     strokeDasharray="4 4"
@@ -415,20 +415,20 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
       {/* Tab 2: Orders Ladder */}
       {activeTab === 'orders' && (
         <section className="glass-panel" style={{ padding: '1.25rem' }}>
-          <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.5rem' }}>當前網格掛單階梯</h3>
+          <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.5rem' }}>{t("當前網格掛單階梯")}</h3>
           {!orders?.available || orders.orders.length === 0 ? (
             <p className="muted" style={{ padding: '2rem 0', textAlign: 'center' }}>
-              {orders?.message || '引擎目前無活躍掛單或尚未同步'}
+              {orders?.message || t("引擎目前無活躍掛單或尚未同步")}
             </p>
           ) : (
             <div className="table-wrapper" style={{ marginTop: '0.75rem' }}>
               <table className="pro-table">
                 <thead>
                   <tr>
-                    <th>方向 (Side)</th>
-                    <th>價格 (Price)</th>
-                    <th>數量 (Amount)</th>
-                    <th>狀態 (Status)</th>
+                    <th>{t("方向 (Side)")}</th>
+                    <th>{t("價格 (Price)")}</th>
+                    <th>{t("數量 (Amount)")}</th>
+                    <th>{t("狀態 (Status)")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -461,22 +461,22 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
       {/* Tab 3: Fills */}
       {activeTab === 'fills' && (
         <section className="glass-panel" style={{ padding: '1.25rem' }}>
-          <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.5rem' }}>成交與套利紀錄</h3>
+          <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.5rem' }}>{t("成交與套利紀錄")}</h3>
           {!fills?.available || fills.fills.length === 0 ? (
             <p className="muted" style={{ padding: '2rem 0', textAlign: 'center' }}>
-              {fills?.message || '尚無成交明細紀錄'}
+              {fills?.message || t("尚無成交明細紀錄")}
             </p>
           ) : (
             <div className="table-wrapper" style={{ marginTop: '0.75rem' }}>
               <table className="pro-table">
                 <thead>
                   <tr>
-                    <th>方向 (Side)</th>
-                    <th>成交價格 (Price)</th>
-                    <th>成交量 (Amount)</th>
-                    <th>實現盈虧 (PnL)</th>
-                    <th>手續費 (Fee)</th>
-                    <th>成交時間 (Time)</th>
+                    <th>{t("方向 (Side)")}</th>
+                    <th>{t("成交價格 (Price)")}</th>
+                    <th>{t("成交量 (Amount)")}</th>
+                    <th>{t("實現盈虧 (PnL)")}</th>
+                    <th>{t("手續費 (Fee)")}</th>
+                    <th>{t("成交時間 (Time)")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -519,9 +519,9 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
       {activeTab === 'audit' && (
         <div className="detail-layout-grid">
           <section className="glass-panel" style={{ padding: '1.25rem' }}>
-            <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem' }}>命令審計日誌</h3>
+            <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem' }}>{t("命令審計日誌")}</h3>
             {commands.length === 0 ? (
-              <p className="muted">尚無命令紀錄。</p>
+              <p className="muted">{t("尚無命令紀錄。")}</p>
             ) : (
               <ol className="timeline-stream">
                 {commands.map((cmd) => (
@@ -531,10 +531,10 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
                       <span>{cmd.status}</span>
                     </div>
                     <span className="timeline-time">
-                      {new Date(cmd.updated_at * 1000).toLocaleString('zh-TW')} · 來源: {cmd.source}
+                      {new Date(cmd.updated_at * 1000).toLocaleString('zh-TW', { hour12: false })} {' '}{t("· 來源:")}{' '}{cmd.source}
                     </span>
-                    {cmd.reason && <small className="text-secondary">原因: {cmd.reason}</small>}
-                    {cmd.detail && <small className="text-muted">詳情: {cmd.detail}</small>}
+                    {cmd.reason && <small className="text-secondary">{t("原因:")}{' '}{cmd.reason}</small>}
+                    {cmd.detail && <small className="text-muted">{t("詳情:")}{' '}{cmd.detail}</small>}
                   </li>
                 ))}
               </ol>
@@ -542,9 +542,9 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
           </section>
 
           <section className="glass-panel" style={{ padding: '1.25rem' }}>
-            <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem' }}>引擎生命週期事件</h3>
+            <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem' }}>{t("引擎生命週期事件")}</h3>
             {events.length === 0 ? (
-              <p className="muted">尚未收到引擎事件。</p>
+              <p className="muted">{t("尚未收到引擎事件。")}</p>
             ) : (
               <ol className="timeline-stream">
                 {events.map((evt, idx) => (
@@ -554,7 +554,7 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
                       <span>{evt.status}</span>
                     </div>
                     <span className="timeline-time">
-                      {new Date(evt.occurred_at * 1000).toLocaleString('zh-TW')}
+                      {new Date(evt.occurred_at * 1000).toLocaleString('zh-TW', { hour12: false })}
                     </span>
                     {evt.detail && <small className="text-muted">{evt.detail}</small>}
                   </li>
@@ -568,30 +568,30 @@ const GridDetail: React.FC<GridDetailProps> = ({ gridId, onBack, onUnauthorized 
       {/* Tab 5: Strategy Specs */}
       {activeTab === 'specs' && (
         <section className="glass-panel" style={{ padding: '1.5rem' }}>
-          <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>完整策略與風控規格</h3>
+          <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>{t("完整策略與風控規格")}</h3>
           <div className="form-fields-grid">
             <div className="metric-cell">
-              <dt>策略識別碼 (Grid ID)</dt>
+              <dt>{t("策略識別碼 (Grid ID)")}</dt>
               <dd className="font-mono">{grid?.grid_id ?? gridId}</dd>
             </div>
             <div className="metric-cell">
-              <dt>配置路徑 (Config Path)</dt>
+              <dt>{t("配置路徑 (Config Path)")}</dt>
               <dd className="font-mono text-muted">{grid?.config_path ?? '—'}</dd>
             </div>
             <div className="metric-cell">
-              <dt>槓桿倍數 (Leverage)</dt>
+              <dt>{t("槓桿倍數 (Leverage)")}</dt>
               <dd className="font-mono">{grid?.leverage ?? 1}x</dd>
             </div>
             <div className="metric-cell">
-              <dt>網格方向 (Grid Type)</dt>
+              <dt>{t("網格方向 (Grid Type)")}</dt>
               <dd className="font-mono">{grid?.grid_type?.toUpperCase() ?? 'NEUTRAL'}</dd>
             </div>
             <div className="metric-cell">
-              <dt>建立者 (Created By)</dt>
+              <dt>{t("建立者 (Created By)")}</dt>
               <dd className="font-mono">{grid?.created_by ?? 'system'}</dd>
             </div>
             <div className="metric-cell">
-              <dt>當前命令狀態</dt>
+              <dt>{t("當前命令狀態")}</dt>
               <dd className="font-mono">{grid?.command_status ?? 'NORMAL'}</dd>
             </div>
           </div>

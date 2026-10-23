@@ -2,6 +2,7 @@ import React from 'react';
 import { Play, RefreshCcw, Square, Trash2, ChevronRight } from 'lucide-react';
 import { freshnessText, money, number } from '../utils/format';
 import type { DashboardGridItem } from '../services/api';
+import { t } from '../i18n/index.ts';
 
 interface GridTableProps {
   grids: DashboardGridItem[];
@@ -22,18 +23,18 @@ const GridTable: React.FC<GridTableProps> = ({
 }) => {
   return (
     <div className="table-wrapper">
-      <table className="pro-table" aria-label="網格策略一覽表">
+      <table className="pro-table" aria-label={t("網格策略一覽表")}>
         <thead>
           <tr>
-            <th>交易對 / 模式</th>
-            <th>交易所</th>
-            <th>總盈虧 / 純淨 (PnL)</th>
-            <th>現價 / 區間</th>
-            <th>權益 / 持倉</th>
-            <th>成交 / 套利</th>
-            <th>掛單</th>
-            <th>狀態</th>
-            <th style={{ textAlign: 'right' }}>操作</th>
+            <th>{t("交易對 / 模式")}</th>
+            <th>{t("交易所")}</th>
+            <th>{t("總盈虧 / 純淨 (PnL)")}</th>
+            <th>{t("現價 / 區間")}</th>
+            <th>{t("權益 / 持倉")}</th>
+            <th>{t("成交 / 套利")}</th>
+            <th>{t("掛單")}</th>
+            <th>{t("狀態")}</th>
+            <th style={{ textAlign: 'right' }}>{t("操作")}</th>
           </tr>
         </thead>
         <tbody>
@@ -74,7 +75,7 @@ const GridTable: React.FC<GridTableProps> = ({
                       {money(totalPnl)}
                     </strong>
                     <small className="text-muted font-mono" style={{ fontSize: '0.75rem' }}>
-                      純淨: <span className={netPnl >= 0 ? 'positive' : 'negative'}>{money(netPnl)}</span>
+                      {t("純淨:")}{' '}<span className={netPnl >= 0 ? 'positive' : 'negative'}>{money(netPnl)}</span>
                       {grid.pnl_rate != null ? ` (${number(grid.pnl_rate)}%)` : ''}
                     </small>
                   </div>
@@ -95,8 +96,8 @@ const GridTable: React.FC<GridTableProps> = ({
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
                     <span className="font-mono">{money(grid.equity)}</span>
                     <small className="text-muted font-mono">
-                      網格: {number(grid.grid_position ?? grid.current_position, 4)}
-                      {grid.account_position != null ? ` · 帳戶: ${number(grid.account_position, 4)}` : ''}
+                      {t("網格:")}{' '}{number(grid.grid_position ?? grid.current_position, 4)}
+                      {grid.account_position != null ? (t(" · 帳戶: ") + (number(grid.account_position, 4))) : ''}
                     </small>
                   </div>
                 </td>
@@ -108,7 +109,7 @@ const GridTable: React.FC<GridTableProps> = ({
                       : '—'}
                   </span>
                   <br />
-                  <small className="positive font-mono">{number(grid.completed_cycles, 0)} 格</small>
+                  <small className="positive font-mono">{number(grid.completed_cycles, 0)} {' '}{t("格")}</small>
                 </td>
 
                 <td className="font-mono">
@@ -118,7 +119,7 @@ const GridTable: React.FC<GridTableProps> = ({
                 <td>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
                     <span className={`badge badge-${grid.status}`}>
-                      {isRunning ? '運行中' : isStarting ? '啟動中' : isStopping ? '停止中' : grid.status === 'stopped' ? '已停止' : grid.status}
+                      {isRunning ? t("運行中") : isStarting ? t("啟動中") : isStopping ? t("停止中") : grid.status === 'stopped' ? t("已停止") : grid.status}
                     </span>
                     <span className={`freshness-tag ${grid.data_status}`}>
                       {freshnessText(grid.data_status, grid.last_updated_at)}
@@ -133,9 +134,9 @@ const GridTable: React.FC<GridTableProps> = ({
                       style={{ padding: '0.35rem 0.6rem', fontSize: '0.78rem' }}
                       type="button"
                       onClick={() => onOpen(grid.grid_id)}
-                      title="開啟策略工作台"
+                      title={t("開啟策略工作台")}
                     >
-                      <span>工作台</span>
+                      <span>{t("工作台")}</span>
                       <ChevronRight size={13} />
                     </button>
 
@@ -150,7 +151,7 @@ const GridTable: React.FC<GridTableProps> = ({
                         type="button"
                         disabled={isBusy}
                         onClick={() => onStop(grid)}
-                        title="停止策略"
+                        title={t("停止策略")}
                       >
                         <Square size={13} />
                       </button>
@@ -161,7 +162,7 @@ const GridTable: React.FC<GridTableProps> = ({
                         type="button"
                         disabled={isBusy || Boolean(grid.start_blocked_reason)}
                         onClick={() => onStart(grid)}
-                        title={grid.start_blocked_reason ?? '啟動策略'}
+                        title={grid.start_blocked_reason ?? t("啟動策略")}
                       >
                         <Play size={13} />
                       </button>
@@ -173,7 +174,7 @@ const GridTable: React.FC<GridTableProps> = ({
                       type="button"
                       disabled={isBusy}
                       onClick={() => onDelete(grid)}
-                      title={isRunning || isStarting || isStopping ? '停止並刪除策略' : '刪除策略'}
+                      title={isRunning || isStarting || isStopping ? t("停止並刪除策略") : t("刪除策略")}
                     >
                       <Trash2 size={13} />
                     </button>

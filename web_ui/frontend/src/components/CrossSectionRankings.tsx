@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, AlertTriangle, ArrowRight, Bot, RefreshCw, Sliders, TrendingDown, TrendingUp } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowRight, Bot, RefreshCw } from 'lucide-react';
 import { api, ApiError } from '../services/api';
 import type { RankedItem, UniverseRankResult } from '../services/api';
 import { RankingsToolbar } from './coinfull/RankingsToolbar';
 import { RankingsTable } from './coinfull/RankingsTable';
 import { RankingsHelp } from './coinfull/RankingsHelp';
-import { formatPct, formatPrice, formatScore, formatTaipei, relativeAge } from './coinfull/format';
+import { formatPct, formatPrice, formatScore, formatTaipei, localizeEvaluation, relativeAge } from './coinfull/format';
 import type { RankingFilter } from './coinfull/useCoinFullPrime';
+import { t } from '../i18n/index.ts';
 
 interface CrossSectionRankingsProps {
   onUnauthorized?: () => void;
@@ -53,7 +54,7 @@ export const CrossSectionRankings: React.FC<CrossSectionRankingsProps> = ({
         unauthorizedRef.current?.();
         return;
       }
-      setError(err instanceof Error ? err.message : '載入多空截面排行失敗');
+      setError(err instanceof Error ? err.message : t("載入多空截面排行失敗"));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -99,8 +100,8 @@ export const CrossSectionRankings: React.FC<CrossSectionRankingsProps> = ({
       <div className="coinfull-container cfp-page">
         <div className="cfp-panel cfp-loading">
           <Activity size={30} className="spin text-accent" aria-hidden="true" />
-          <h3>正在計算多空截面排行</h3>
-          <p>聚合多時距動能與資金費率因子。</p>
+          <h3>{t("正在計算多空截面排行")}</h3>
+          <p>{t("聚合多時距動能與資金費率因子。")}</p>
         </div>
       </div>
     );
@@ -111,26 +112,25 @@ export const CrossSectionRankings: React.FC<CrossSectionRankingsProps> = ({
       <header className="cfp-header">
         <div className="cfp-header-title">
           <div className="cfp-title-row">
-            <h2>多空截面排行</h2>
-            <span className="badge badge-accent">市場中性 Alpha</span>
-            <span className="badge badge-neutral">盤面分析視角</span>
+            <h2>{t("多空截面排行")}</h2>
+            <span className="badge badge-accent">{t("市場中性 Alpha")}</span>
+            <span className="badge badge-neutral">{t("盤面分析視角")}</span>
           </div>
           <p className="cfp-subtitle">
-            對 {universeSize || '—'} 個主流幣合約計算動能（60%）與資金費率反向（40%），只用來選幣，不下單。
-          </p>
+            {t("對")}{' '}{universeSize || '—'} {' '}{t("個主流幣合約計算動能（60%）與資金費率反向（40%），只用來選幣，不下單。")}{' '}</p>
         </div>
         <div className="cfp-header-actions">
           <span className="cfp-data-time">
-            {rankResult?.timestamp ? `資料 ${formatTaipei(rankResult.timestamp)} · ${relativeAge(rankResult.timestamp)}` : '尚無資料'}
+            {rankResult?.timestamp ? (t("資料 ") + (formatTaipei(rankResult.timestamp)) + " · " + (relativeAge(rankResult.timestamp))) : t("尚無資料")}
           </span>
           <button type="button" className="btn btn-outline" onClick={() => void loadData(true)} disabled={refreshing}>
             <RefreshCw size={15} className={refreshing ? 'spin' : ''} aria-hidden="true" />
-            <span>{refreshing ? '重新計算中…' : '重新計算'}</span>
+            <span>{refreshing ? t("重新計算中…") : t("重新計算")}</span>
           </button>
           {onGoToBot && (
             <button type="button" className="btn btn-primary" onClick={onGoToBot}>
               <Bot size={15} aria-hidden="true" />
-              <span>前往機器人</span>
+              <span>{t("前往機器人")}</span>
               <ArrowRight size={14} aria-hidden="true" />
             </button>
           )}
@@ -141,63 +141,93 @@ export const CrossSectionRankings: React.FC<CrossSectionRankingsProps> = ({
         <div className="alert-banner alert-danger" role="alert">
           <AlertTriangle size={18} aria-hidden="true" />
           <span>{error}</span>
-          <button type="button" className="close-btn" onClick={() => setError(null)} aria-label="關閉錯誤訊息">×</button>
+          <button type="button" className="close-btn" onClick={() => setError(null)} aria-label={t("關閉錯誤訊息")}>×</button>
         </div>
       )}
 
-      <section className="cfp-summary" aria-label="排行摘要">
-        <article className="cfp-summary-card is-long">
-          <header><span>多頭首選</span><TrendingUp size={18} aria-hidden="true" /></header>
-          <div className="cfp-symbol">{top1Long?.symbol ?? '—'}</div>
-          <div className="cfp-score-row">
-            <span className="cfp-score is-long">{formatScore(top1Long?.score)}</span>
-            <span className="cfp-eval">{top1Long?.evaluations?.overall_eval ?? '—'}</span>
+      <section className="cfp-summary" aria-label={t("排行摘要")}>
+        <article className="cfp-card cfp-card-feature is-long">
+          <header className="cfp-card-head">
+            <span className="cfp-card-code">01</span>
+            <span className="cfp-card-label">{t("多頭首選")}{' '}<em>/ MOMENTUM</em></span>
+          </header>
+          <div className="cfp-feature-main">
+            <div className="cfp-feature-id">
+              <div className="cfp-symbol">{top1Long?.symbol ?? '—'}</div>
+              <span className="cfp-eval">{localizeEvaluation(top1Long?.evaluations?.overall_eval) || '—'}</span>
+            </div>
+            <div className="cfp-feature-score is-long">{formatScore(top1Long?.score)}</div>
           </div>
-          <footer>動能 {formatPct(top1Long?.raw_params?.price_change_pct ?? 0)} · 費率 {formatPct(top1Long?.raw_params?.funding_rate_pct ?? 0, 4)}</footer>
-        </article>
-
-        <article className="cfp-summary-card is-short">
-          <header><span>{isBenchmarkHedge ? '基準對沖' : '空頭首選'}</span><TrendingDown size={18} aria-hidden="true" /></header>
-          <div className="cfp-symbol">
-            {isBenchmarkHedge
-              ? (shortList.length > 0 ? shortList.map((item) => item.symbol.replace('USDT', '')).join(' + ') : 'BTC')
-              : (top1Short?.symbol ?? '—')}
-          </div>
-          <div className="cfp-score-row">
-            {isBenchmarkHedge ? (
-              <><span className="cfp-score is-short">50.0%</span><span className="cfp-eval">對沖空頭名義</span></>
-            ) : (
-              <><span className="cfp-score is-short">{formatScore(top1Short?.score)}</span><span className="cfp-eval">{top1Short?.evaluations?.overall_eval ?? '—'}</span></>
-            )}
-          </div>
-          <footer>市價 {formatPrice(top1Short?.raw_params?.price)} · 對沖系統性 Beta</footer>
-        </article>
-
-        <article className="cfp-summary-card is-neutral">
-          <header><span>籃子配置</span><Sliders size={18} aria-hidden="true" /></header>
-          <div className="cfp-metric-row">
-            <span className="cfp-metric">{targetCount} 多</span>
-            <span className="cfp-metric-sub">vs {isBenchmarkHedge ? `${shortList.length || 1} 對沖` : `${shortList.length || targetCount} 空`}</span>
-          </div>
-          <footer>
-            {isBenchmarkHedge
-              ? `多頭各 ${(50 / targetCount).toFixed(1)}% · 基準對沖 50%`
-              : `多頭各 ${(50 / targetCount).toFixed(1)}% · 空頭各 ${(50 / (shortList.length || targetCount)).toFixed(1)}%`}
+          <footer className="cfp-card-foot">
+            <span>{t("動能")}{' '}<b className="text-positive">{formatPct(top1Long?.raw_params?.price_change_pct ?? 0)}</b></span>
+            <span>{t("費率")}{' '}<b>{formatPct(top1Long?.raw_params?.funding_rate_pct ?? 0, 4)}</b></span>
           </footer>
         </article>
 
-        <article className="cfp-summary-card is-risk">
-          <header><span>執行導引</span><Bot size={18} aria-hidden="true" /></header>
+        <article className="cfp-card is-short">
+          <header className="cfp-card-head">
+            <span className="cfp-card-code">02</span>
+            <span className="cfp-card-label">{isBenchmarkHedge ? t("基準對沖") : t("空頭首選")} <em>/ HEDGE</em></span>
+          </header>
+          <div className="cfp-hedge-main">
+            <div className="cfp-feature-id">
+              <div className="cfp-symbol">
+                {isBenchmarkHedge
+                  ? (shortList.length > 0 ? shortList.map((item) => item.symbol.replace('USDT', '')).join(' + ') : 'BTC')
+                  : (top1Short?.symbol ?? '—')}
+              </div>
+              <span className="cfp-eval">
+                {isBenchmarkHedge ? t("對沖空頭名義") : (localizeEvaluation(top1Short?.evaluations?.overall_eval) || '—')}
+              </span>
+            </div>
+            {isBenchmarkHedge ? (
+              <div className="cfp-ring" aria-label={t("對沖比重 50%")}>
+                <svg viewBox="0 0 64 64" aria-hidden="true">
+                  <circle cx="32" cy="32" r="25" className="cfp-ring-track" />
+                  <circle cx="32" cy="32" r="25" className="cfp-ring-value" />
+                </svg>
+                <span>50.0%</span>
+              </div>
+            ) : (
+              <div className="cfp-feature-score is-short">{formatScore(top1Short?.score)}</div>
+            )}
+          </div>
+          <div className="cfp-feature-meta">{t("市價")}{' '}{formatPrice(top1Short?.raw_params?.price)} {' '}{t("· 對沖系統性 Beta")}</div>
+          <footer className="cfp-card-foot"><span>{t("單腿空 · 基準指數")}</span></footer>
+        </article>
+
+        <article className="cfp-card is-neutral">
+          <header className="cfp-card-head">
+            <span className="cfp-card-code">03</span>
+            <span className="cfp-card-label">{t("籃子配置")}{' '}<em>/ ALLOCATION</em></span>
+          </header>
+          <div className="cfp-zero"><b>{targetCount}</b><span>{t("多")}</span></div>
+          <div className="cfp-duo">
+            <div><span>{t("多頭")}</span><b>{longList.length}</b></div>
+            <div><span>{t("空頭")}</span><b>{isBenchmarkHedge ? 1 : shortList.length}</b></div>
+          </div>
+          <p className="cfp-empty-note">
+            {isBenchmarkHedge
+              ? (t("多頭各 ") + ((50 / targetCount).toFixed(1)) + t("% · 基準對沖 50%"))
+              : (t("多頭各 ") + ((50 / targetCount).toFixed(1)) + t("% · 空頭各 ") + ((50 / (shortList.length || targetCount)).toFixed(1)) + "%")}
+          </p>
+        </article>
+
+        <article className="cfp-card is-risk">
+          <header className="cfp-card-head">
+            <span className="cfp-card-code">04</span>
+            <span className="cfp-card-label">{t("執行導引")}{' '}<em>/ GUIDE</em></span>
+          </header>
           <dl className="cfp-risk-list">
-            <div><dt>母體覆蓋</dt><dd>{universeSize} 幣</dd></div>
-            <div><dt>多空籃子</dt><dd>{longList.length} / {shortList.length}</dd></div>
-            <div><dt>本頁</dt><dd>只讀排行</dd></div>
+            <div><dt>{t("母體覆蓋")}</dt><dd>{universeSize} {' '}{t("幣")}</dd></div>
+            <div><dt>{t("多空籃子")}</dt><dd>{longList.length} / {shortList.length}</dd></div>
+            <div><dt>{t("本頁")}</dt><dd>{t("只讀排行")}</dd></div>
           </dl>
-          <footer>
-            <span className="cfp-muted">調倉與排程請到機器人頁</span>
+          <footer className="cfp-card-foot is-split">
+            <span className="cfp-muted">{t("調倉與排程請到機器人頁")}</span>
             {onGoToBot && (
               <button type="button" className="cfp-text-link" onClick={onGoToBot}>
-                前往 <ArrowRight size={13} aria-hidden="true" />
+                {t("前往")}{' '}<ArrowRight size={13} aria-hidden="true" />
               </button>
             )}
           </footer>

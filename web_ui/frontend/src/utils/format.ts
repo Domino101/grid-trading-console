@@ -1,3 +1,4 @@
+import { t } from '../i18n/index.ts';
 export const money = (value: number | null | undefined, maximumFractionDigits = 2) => (
   value === null || value === undefined
     ? '—'
@@ -11,10 +12,10 @@ export const number = (value: number | null | undefined, digits = 4) => (
 );
 
 export const freshnessText = (dataStatus: string, lastUpdatedAt: number | null) => {
-  if (dataStatus === 'unavailable') return '尚未同步';
-  if (dataStatus === 'stale') return '資料過期';
-  if (!lastUpdatedAt) return '已同步';
-  return `同步於 ${new Date(lastUpdatedAt * 1000).toLocaleTimeString('zh-TW')}`;
+  if (dataStatus === 'unavailable') return t("尚未同步");
+  if (dataStatus === 'stale') return t("資料過期");
+  if (!lastUpdatedAt) return t("已同步");
+  return (t("同步於 ") + (new Date(lastUpdatedAt * 1000).toLocaleTimeString('zh-TW', { hour12: false })));
 };
 
 export const canAdvanceCreateStep = (step: number, form: {

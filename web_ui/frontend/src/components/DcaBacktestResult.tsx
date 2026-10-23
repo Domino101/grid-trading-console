@@ -21,6 +21,7 @@ import {
 } from '../utils/dca';
 import { chartDataNotice } from '../utils/dcaChart';
 import { money, number } from '../utils/format';
+import { t } from '../i18n/index.ts';
 
 // 與 DcaDetail 同一個動態匯入模式，維持 E-6.2 隔離與獨立 chunk。
 const DcaChart = lazy(() => import('./DcaChart'));
@@ -81,75 +82,75 @@ const DcaBacktestResult: React.FC<DcaBacktestResultProps> = ({ result, candles, 
             )}
 
             {/* 稽核 7.3：DCA 報酬與買入持有並排，alpha 為負以警示色呈現。 */}
-            <section className="kpi-grid dca-metric-grid" aria-label="回測績效指標">
+            <section className="kpi-grid dca-metric-grid" aria-label={t("回測績效指標")}>
                 <MetricCard
-                    label="DCA 總報酬"
+                    label={t("DCA 總報酬")}
                     value={backtestSignedPercentText(m.total_return_pct)}
                     tone={backtestTone(m.total_return_pct)}
-                    hint={`期末 ${money(m.final_equity)} / 初始 ${money(m.initial_capital)}`}
+                    hint={(t("期末 ") + (money(m.final_equity)) + t(" / 初始 ") + (money(m.initial_capital)))}
                 />
                 <MetricCard
-                    label="買入持有報酬"
+                    label={t("買入持有報酬")}
                     value={backtestSignedPercentText(m.buy_hold_return_pct)}
                     tone={backtestTone(m.buy_hold_return_pct)}
-                    hint="同期間單純持有的對照基準"
+                    hint={t("同期間單純持有的對照基準")}
                 />
                 <MetricCard
-                    label="超額報酬 Alpha"
+                    label={t("超額報酬 Alpha")}
                     value={backtestSignedPercentText(m.alpha_pct)}
                     tone={backtestTone(m.alpha_pct)}
                     hint={
                         typeof m.alpha_pct === 'number' && m.alpha_pct < 0
-                            ? '策略落後買入持有'
-                            : '策略相對買入持有的超額'
+                            ? t("策略落後買入持有")
+                            : t("策略相對買入持有的超額")
                     }
                 />
                 <MetricCard
-                    label="最大回撤"
+                    label={t("最大回撤")}
                     value={backtestPercentText(m.max_drawdown_pct)}
                     tone={typeof m.max_drawdown_pct === 'number' && m.max_drawdown_pct > 0 ? 'negative' : 'neutral'}
-                    hint="峰值到谷底的最大跌幅"
+                    hint={t("峰值到谷底的最大跌幅")}
                 />
                 <MetricCard
-                    label="已實現損益 / 手續費"
+                    label={t("已實現損益 / 手續費")}
                     value={money(m.realized_pnl)}
                     tone={backtestTone(m.realized_pnl)}
-                    hint={`手續費 ${money(m.total_fees)}`}
+                    hint={(t("手續費 ") + (money(m.total_fees)))}
                 />
                 <MetricCard
-                    label="完成輪次 / 勝率"
+                    label={t("完成輪次 / 勝率")}
                     value={m.cycles_completed == null ? '—' : String(m.cycles_completed)}
-                    hint={`勝率 ${backtestPercentText(m.win_rate_pct)}`}
+                    hint={(t("勝率 ") + (backtestPercentText(m.win_rate_pct)))}
                 />
                 <MetricCard
-                    label="獲利因子"
+                    label={t("獲利因子")}
                     value={backtestNumberText(m.profit_factor)}
-                    hint="無虧損輪時為 —（非 0）"
+                    hint={t("無虧損輪時為 —（非 0）")}
                 />
                 <MetricCard
-                    label="持倉時間占比"
+                    label={t("持倉時間占比")}
                     value={backtestPercentText(m.exposure_pct)}
-                    hint={`平均每輪 ${backtestNumberText(m.avg_cycle_bars, 1)} 根`}
+                    hint={(t("平均每輪 ") + (backtestNumberText(m.avg_cycle_bars, 1)) + t(" 根"))}
                 />
             </section>
 
             <p className="muted dca-backtest-meta">
-                {result.bars} 根 {result.timeframe} K 棒 · {backtestRangeText(result.first_ts, result.last_ts)}
+                {result.bars} {' '}{t("根")}{' '}{result.timeframe} {' '}{t("K 棒 ·")}{' '}{backtestRangeText(result.first_ts, result.last_ts)}
                 {notice.sourceBadge && <span className="badge badge-paper" style={{ marginLeft: '0.5rem' }}>{notice.sourceBadge}</span>}
             </p>
 
             {/* 結果圖：複用 C6 的 DcaChart（同一元件，標記語意一致）。 */}
             {!unavailableText && !notice.unavailable && (
                 <section className="glass-panel" style={{ padding: '1rem', marginTop: '0.85rem' }}>
-                    <h4 className="dca-backtest-subhead"><TrendingUp size={15} /> 回測交易標記與權益曲線</h4>
-                    <Suspense fallback={<p className="muted" style={{ padding: '2rem 0', textAlign: 'center' }}>載入圖表中…</p>}>
+                    <h4 className="dca-backtest-subhead"><TrendingUp size={15} /> {' '}{t("回測交易標記與權益曲線")}</h4>
+                    <Suspense fallback={<p className="muted" style={{ padding: '2rem 0', textAlign: 'center' }}>{t("載入圖表中…")}</p>}>
                         <DcaChart
                             candles={candles ?? result.candles}
                             marks={result.marks}
                             equity={result.equity}
                             direction={direction}
                             height={400}
-                            ariaLabel={`回測結果 K 線與交易標記，共 ${result.marks.length} 個標記`}
+                            ariaLabel={(t("回測結果 K 線與交易標記，共 ") + (result.marks.length) + t(" 個標記"))}
                         />
                     </Suspense>
                 </section>
@@ -160,7 +161,7 @@ const DcaBacktestResult: React.FC<DcaBacktestResultProps> = ({ result, candles, 
                 <div className="notice notice-warning dca-backtest-warnings" role="note">
                     <AlertTriangle size={18} style={{ flexShrink: 0 }} />
                     <div>
-                        <strong>回測簡化事項</strong>
+                        <strong>{t("回測簡化事項")}</strong>
                         <ul>
                             {result.warnings.map((w, i) => (
                                 <li key={`${i}-${w}`}>{w}</li>
@@ -172,11 +173,10 @@ const DcaBacktestResult: React.FC<DcaBacktestResultProps> = ({ result, candles, 
 
             {/* 輪次表（稽核 7.8 分頁） */}
             <section className="glass-panel" style={{ padding: '1rem', marginTop: '0.85rem' }}>
-                <h4 className="dca-backtest-subhead">輪次明細（{result.cycles.length}）</h4>
+                <h4 className="dca-backtest-subhead">{t("輪次明細（")}{result.cycles.length})</h4>
                 {result.cycles.length === 0 ? (
                     <p className="muted" style={{ padding: '1.5rem 0', textAlign: 'center' }}>
-                        此期間沒有完成任何輪次。
-                    </p>
+                        {t("此期間沒有完成任何輪次。")}{' '}</p>
                 ) : (
                     <>
                         <div className="table-wrapper">
@@ -184,22 +184,22 @@ const DcaBacktestResult: React.FC<DcaBacktestResultProps> = ({ result, candles, 
                                 <thead>
                                     <tr>
                                         <th>#</th>
-                                        <th>方向</th>
-                                        <th>進場時間</th>
-                                        <th>均價</th>
-                                        <th>出場價</th>
-                                        <th>安全單</th>
-                                        <th>報酬%</th>
-                                        <th>損益</th>
-                                        <th>棒數</th>
-                                        <th>出場原因</th>
+                                        <th>{t("方向")}</th>
+                                        <th>{t("進場時間")}</th>
+                                        <th>{t("均價")}</th>
+                                        <th>{t("出場價")}</th>
+                                        <th>{t("安全單")}</th>
+                                        <th>{t("報酬%")}</th>
+                                        <th>{t("損益")}</th>
+                                        <th>{t("棒數")}</th>
+                                        <th>{t("出場原因")}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {pagedCycles.map((c) => (
                                         <tr key={c.index}>
                                             <td className="font-mono">{c.index}</td>
-                                            <td>{c.direction === 'short' ? '空' : '多'}</td>
+                                            <td>{c.direction === 'short' ? t("空") : t("多")}</td>
                                             <td className="font-mono" style={{ fontSize: '0.74rem' }}>{backtestTimeText(c.entry_ts)}</td>
                                             <td className="font-mono">{number(c.average_cost)}</td>
                                             <td className="font-mono">{number(c.exit_price)}</td>
@@ -223,8 +223,7 @@ const DcaBacktestResult: React.FC<DcaBacktestResultProps> = ({ result, candles, 
                                     disabled={cyclePage === 0}
                                     onClick={() => setCyclePage((p) => Math.max(0, p - 1))}
                                 >
-                                    上一頁
-                                </button>
+                                    {t("上一頁")}{' '}</button>
                                 <span className="muted font-mono">{cyclePage + 1} / {totalCyclePages}</span>
                                 <button
                                     className="btn btn-outline"
@@ -232,8 +231,7 @@ const DcaBacktestResult: React.FC<DcaBacktestResultProps> = ({ result, candles, 
                                     disabled={cyclePage >= totalCyclePages - 1}
                                     onClick={() => setCyclePage((p) => Math.min(totalCyclePages - 1, p + 1))}
                                 >
-                                    下一頁
-                                </button>
+                                    {t("下一頁")}{' '}</button>
                             </div>
                         )}
                     </>

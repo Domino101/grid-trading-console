@@ -41,24 +41,25 @@ import IndicatorConfigPanel from './IndicatorConfigPanel';
 import DcaLadderPreview from './DcaLadderPreview';
 import DcaBacktestPanel from './DcaBacktestPanel';
 import { SymbolSelect } from './SymbolSelect';
+import { t } from '../i18n/index.ts';
 
 // 與 DcaDetail 相同的動態匯入，維持圖表函式庫的獨立 chunk（E-6.2）。
 const DcaBacktestResult = lazy(() => import('./DcaBacktestResult'));
 
 // DCA 建立步驟定義
 const DCA_STEPS = [
-    { num: 1, title: '基本設定', en: 'General', desc: '帳戶模式與市場方向' },
-    { num: 2, title: '入場條件', en: 'Entry', desc: '即時進場與指標條件' },
-    { num: 3, title: '攤平參數', en: 'DCA', desc: '網格階梯倍率與風控' },
-    { num: 4, title: '摘要審查', en: 'Summary', desc: '試算預覽與送出' },
+    { num: 1, title: t("基本設定"), en: 'General', desc: t("帳戶模式與市場方向") },
+    { num: 2, title: t("入場條件"), en: 'Entry', desc: t("即時進場與指標條件") },
+    { num: 3, title: t("攤平參數"), en: 'DCA', desc: t("網格階梯倍率與風控") },
+    { num: 4, title: t("摘要審查"), en: 'Summary', desc: t("試算預覽與送出") },
 ] as const;
 
 // D-11 固定簡化事項（與 DcaDetail 同一份文案）。
 const WIZARD_BACKTEST_DISCLOSURES = [
-    '回測不模擬部分成交：每張單一次整張成交或完全不成交。',
-    '除跳空外不套用滑價模型；手續費採表單的 fee_rate。',
-    '未套用交易所最小名目限制（與實盤路徑一致）。',
-    '歷史績效不代表未來，回測結果僅供參考。',
+    t("回測不模擬部分成交：每張單一次整張成交或完全不成交。"),
+    t("除跳空外不套用滑價模型；手續費採表單的 fee_rate。"),
+    t("未套用交易所最小名目限制（與實盤路徑一致）。"),
+    t("歷史績效不代表未來，回測結果僅供參考。"),
 ] as const;
 
 interface DcaFormProps {
@@ -114,7 +115,7 @@ const OptionalNumberInput: React.FC<{
             min={min}
             max={max}
             step={step}
-            placeholder={placeholder ?? '留空停用'}
+            placeholder={placeholder ?? t("留空停用")}
             onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
         />
     </label>
@@ -174,8 +175,8 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
     const preview = previewState.kind === 'ready' ? previewState.response ?? null : null;
     const previewError =
         previewState.kind === 'error' ? previewState.message ?? null
-        : currentPrice == null ? '尚未取得目前價格（交易對未確認或行情端點不可用），無法試算。'
-        : validateDcaStep3(form).length > 0 ? '第三步還有參數未完成，請先回上一步補齊。'
+        : currentPrice == null ? t("尚未取得目前價格（交易對未確認或行情端點不可用），無法試算。")
+        : validateDcaStep3(form).length > 0 ? t("第三步還有參數未完成，請先回上一步補齊。")
         : null;
     const previewLoading = previewState.kind === 'loading';
 
@@ -217,9 +218,9 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                     scope: { ...scope },
                     message: e instanceof ApiError
                         ? (e.status === 404
-                            ? `找不到交易對 ${symbol}（exchange=${form.exchange}），請檢查符號格式，例如 BTC/USDT。`
-                            : `市場資料端點錯誤：${e.message}`)
-                        : '市場資料端點暫時無法連線（可能離線或交易所 API 不可用）。',
+                            ? (t("找不到交易對 ") + (symbol) + t("（exchange=") + (form.exchange) + t("），請檢查符號格式，例如 BTC/USDT。"))
+                            : (t("市場資料端點錯誤：") + (e.message)))
+                        : t("市場資料端點暫時無法連線（可能離線或交易所 API 不可用）。"),
                 });
             }
         }, 600);
@@ -247,7 +248,7 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                 }
             } catch (e) {
                 if (controller.signal.aborted) return;
-                setPreviewState({ kind: 'error', message: e instanceof ApiError ? e.message : '試算失敗，請稍後再試。' });
+                setPreviewState({ kind: 'error', message: e instanceof ApiError ? e.message : t("試算失敗，請稍後再試。") });
             }
         }, 300);
         return () => {
@@ -300,7 +301,7 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
         } catch (e) {
             if (controller.signal.aborted) return;
             const status = e instanceof ApiError ? e.status : null;
-            const fallback = e instanceof Error ? e.message : '回測失敗';
+            const fallback = e instanceof Error ? e.message : t("回測失敗");
             setWizardBtError(backtestErrorText(status, fallback));
             setWizardBtResult(null);
             setWizardBtCandles(null);
@@ -334,7 +335,7 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
 
     const submit = async () => {
         if (currentPrice == null) {
-            setNotice({ type: 'error', text: '尚未取得目前價格，無法送出。' });
+            setNotice({ type: 'error', text: t("尚未取得目前價格，無法送出。") });
             return;
         }
         setSubmitting(true);
@@ -346,7 +347,7 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
             setStep(5);
             setNotice({ type: 'success', text: res.message });
         } catch (e) {
-            setNotice({ type: 'error', text: e instanceof ApiError ? e.message : '建立失敗，請稍後再試。' });
+            setNotice({ type: 'error', text: e instanceof ApiError ? e.message : t("建立失敗，請稍後再試。") });
         } finally {
             setSubmitting(false);
         }
@@ -368,21 +369,19 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
             <main className="dca-wizard">
                 <div className="glass-panel dca-success-card" role="status">
                     <CheckCircle size={28} className="dca-success-icon" />
-                    <h2>DCA 機器人已建立</h2>
+                    <h2>{t("DCA 機器人已建立")}</h2>
                     <p className="dca-success-bid" style={{ fontFamily: 'monospace' }}>{created.bot_id}</p>
                     <p className="muted">{created.message}</p>
                     <p className="muted" style={{ fontSize: '0.78rem' }}>
                         {created.status === 'pending_engine'
-                            ? '引擎將在 5 秒內接手並開始監控（熱插拔）。'
-                            : '已寫入設定檔；可在 DCA 總覽手動啟動。'}
+                            ? t("引擎將在 5 秒內接手並開始監控（熱插拔）。")
+                            : t("已寫入設定檔；可在 DCA 總覽手動啟動。")}
                     </p>
                     <div className="dca-success-actions">
                         <button className="btn btn-primary" type="button" onClick={onNavigateDashboard}>
-                            前往 DCA 總覽
-                        </button>
+                            {t("前往 DCA 總覽")}{' '}</button>
                         <button className="btn btn-outline" type="button" onClick={reset}>
-                            再建立一台
-                        </button>
+                            {t("再建立一台")}{' '}</button>
                     </div>
                 </div>
             </main>
@@ -415,15 +414,13 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                             <Layers size={20} color="var(--accent-primary)" />
                         </div>
                         <div>
-                            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0, letterSpacing: '-0.02em' }}>建立 DCA 馬丁格爾策略</h2>
+                            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0, letterSpacing: '-0.02em' }}>{t("建立 DCA 馬丁格爾策略")}</h2>
                             <p className="muted" style={{ fontSize: '0.8rem', margin: 0 }}>
-                                引導式參數配置。支援立即入場與多指標觸發、固定/口徑等差等比階梯試算與即時回測。
-                            </p>
+                                {t("引導式參數配置。支援立即入場與多指標觸發、固定/口徑等差等比階梯試算與即時回測。")}{' '}</p>
                         </div>
                     </div>
                     <button className="btn btn-outline" type="button" onClick={onNavigateDashboard} style={{ fontSize: '0.82rem', padding: '0.45rem 0.85rem' }}>
-                        <ChevronLeft size={15} /> 返回 DCA 總覽
-                    </button>
+                        <ChevronLeft size={15} /> {' '}{t("返回 DCA 總覽")}{' '}</button>
                 </div>
             </header>
 
@@ -431,7 +428,7 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                 <div className="stepper-progress-track" role="progressbar" aria-valuenow={progressPercent} aria-valuemin={0} aria-valuemax={100}>
                     <div className="stepper-progress-fill" style={{ width: `${progressPercent}%` }} />
                 </div>
-                <div className="dca-stepper-header" role="navigation" aria-label="建立 DCA 步驟">
+                <div className="dca-stepper-header" role="navigation" aria-label={t("建立 DCA 步驟")}>
                     {DCA_STEPS.map((s) => {
                         const isCurrent = step === s.num;
                         const isCompleted = step > s.num;
@@ -479,12 +476,12 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                     {step === 1 && (
                         <div className="form-fields-grid">
                             <div className="field-full">
-                                <h3 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: '0.25rem' }}>帳戶模式與交易市場</h3>
-                                <p className="muted">指定本 DCA 机器人的執行環境、對接市場與方向</p>
+                                <h3 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: '0.25rem' }}>{t("帳戶模式與交易市場")}</h3>
+                                <p className="muted">{t("指定本 DCA 机器人的執行環境、對接市場與方向")}</p>
                             </div>
 
                             <div className="field-full">
-                                <span className="input-label" style={{ marginBottom: '0.5rem' }}>帳戶模式 (Account Mode)</span>
+                                <span className="input-label" style={{ marginBottom: '0.5rem' }}>{t("帳戶模式 (Account Mode)")}</span>
                                 <div className="mode-selector-grid">
                                     <button
                                         type="button"
@@ -492,12 +489,11 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                                         onClick={() => update('account_mode', 'paper')}
                                     >
                                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                            <strong>PAPER 模擬盤</strong>
-                                            <span className="badge badge-paper">零風險</span>
+                                            <strong>{t("PAPER 模擬盤")}</strong>
+                                            <span className="badge badge-paper">{t("零風險")}</span>
                                         </div>
                                         <p className="muted" style={{ fontSize: '0.78rem' }}>
-                                            使用公開行情進行虛擬撮合，不涉及任何真實資產。
-                                        </p>
+                                            {t("使用公開行情進行虛擬撮合，不涉及任何真實資產。")}{' '}</p>
                                     </button>
                                     <button
                                         type="button"
@@ -505,12 +501,11 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                                         onClick={() => update('account_mode', 'live')}
                                     >
                                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                            <strong>LIVE 實盤交易</strong>
-                                            <span className="badge badge-live">實盤資金</span>
+                                            <strong>{t("LIVE 實盤交易")}</strong>
+                                            <span className="badge badge-live">{t("實盤資金")}</span>
                                         </div>
                                         <p className="muted" style={{ fontSize: '0.78rem' }}>
-                                            直接對接交易所 API 進行真實下單。
-                                        </p>
+                                            {t("直接對接交易所 API 進行真實下單。")}{' '}</p>
                                     </button>
                                 </div>
 
@@ -519,12 +514,12 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                                         {liveTradingEnabled === true ? (
                                             <div className="notice notice-success" style={{ fontSize: '0.78rem', padding: '0.5rem 0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                                 <CheckCircle size={15} />
-                                                <span>🟢 實盤環境已解鎖，可直接建立並啟動實盤 DCA。</span>
+                                                <span>{t("🟢 實盤環境已解鎖，可直接建立並啟動實盤 DCA。")}</span>
                                             </div>
                                         ) : liveTradingEnabled === false ? (
                                             <div className="notice notice-warning" style={{ fontSize: '0.78rem', padding: '0.5rem 0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                                 <AlertTriangle size={15} />
-                                                <span>⚠️ 實盤開關尚未啟用：伺服器 .env 需設定 <code>GRID_LIVE_TRADING_ENABLED=1</code>，否則建立 LIVE DCA 會被拒絕（403）。</span>
+                                                <span>{t("⚠️ 實盤開關尚未啟用：伺服器 .env 需設定")}{' '}<code>GRID_LIVE_TRADING_ENABLED=1</code>{t("，否則建立 LIVE DCA 會被拒絕（403）。")}</span>
                                             </div>
                                         ) : null}
                                     </div>
@@ -532,10 +527,10 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                             </div>
 
                             <label className="input-label">
-                                <span>交易所 (Exchange)</span>
+                                <span>{t("交易所 (Exchange)")}</span>
                                 <select value={form.exchange} onChange={(e) => update('exchange', e.target.value)}>
-                                    <option value="binance">Binance (幣安)</option>
-                                    <option value="okx">OKX (歐易)</option>
+                                    <option value="binance">{t("Binance (幣安)")}</option>
+                                    <option value="okx">{t("OKX (歐易)")}</option>
                                     <option value="hyperliquid">Hyperliquid L1</option>
                                     <option value="lighter">Lighter DEX</option>
                                     <option value="backpack">Backpack</option>
@@ -543,28 +538,28 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                             </label>
 
                             <label className="input-label">
-                                <span>交易對 (Symbol)</span>
+                                <span>{t("交易對 (Symbol)")}</span>
                                 <SymbolSelect
                                     value={form.symbol}
                                     exchange={form.exchange}
                                     onChange={(val) => update('symbol', val)}
                                     placeholder={
-                                        form.exchange === 'okx' ? '例如: ETH-USDT-SWAP 或 BTC-USDT-SWAP' :
-                                        form.exchange === 'hyperliquid' ? '例如: ETH/USDC:USDC 或 SOL/USDC:USDC' :
-                                        form.exchange === 'lighter' ? '例如: ETH-USD 或 BTC-USD' :
-                                        form.exchange === 'backpack' ? '例如: ETH_USDC_PERP' :
-                                        '例如: ETH/USDC:USDC 或 牛来USDT'
+                                        form.exchange === 'okx' ? t("例如: ETH-USDT-SWAP 或 BTC-USDT-SWAP") :
+                                        form.exchange === 'hyperliquid' ? t("例如: ETH/USDC:USDC 或 SOL/USDC:USDC") :
+                                        form.exchange === 'lighter' ? t("例如: ETH-USD 或 BTC-USD") :
+                                        form.exchange === 'backpack' ? t("例如: ETH_USDC_PERP") :
+                                        t("例如: ETH/USDC:USDC 或 牛来USDT")
                                     }
                                     ariaDescribedBy="dca-market-info"
                                 />
                             </label>
 
                             <label className="input-label">
-                                <span>方向 (Direction)</span>
+                                <span>{t("方向 (Direction)")}</span>
                                 <select value={form.direction} onChange={(e) => update('direction', e.target.value as DcaWizardForm['direction'])}>
-                                    <option value="long">做多 (Long)</option>
-                                    <option value="short">做空 (Short)</option>
-                                    <option value="both">雙向 (Both，單向互斥)</option>
+                                    <option value="long">{t("做多 (Long)")}</option>
+                                    <option value="short">{t("做空 (Short)")}</option>
+                                    <option value="both">{t("雙向 (Both，單向互斥)")}</option>
                                 </select>
                             </label>
 
@@ -572,8 +567,7 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                                 <div className="glass-panel dca-market-info-strip">
                                     {marketLoading ? (
                                         <span className="muted" style={{ fontSize: '0.8rem' }}>
-                                            <Loader2 size={14} className="spin" /> 正在確認交易對與精度…
-                                        </span>
+                                            <Loader2 size={14} className="spin" /> {' '}{t("正在確認交易對與精度…")}{' '}</span>
                                     ) : scopedMarketError ? (
                                         <span className="dca-market-info-error" role="alert">
                                             <AlertTriangle size={14} /> {scopedMarketError}
@@ -581,15 +575,12 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                                     ) : marketInfoOk && marketState.info ? (
                                         <span style={{ fontSize: '0.8rem' }}>
                                             <CheckCircle size={14} className="dca-market-info-ok" />
-                                            交易對已確認：價格精度 {marketState.info.price_precision ?? '—'} 位 ·
-                                            數量精度 {marketState.info.quantity_precision ?? '—'} 位 ·
-                                            最小名義額 {marketState.info.min_notional ?? '—'}
-                                            {currentPrice != null && <> · 目前價格 {money(currentPrice)}</>}
+                                            {t("交易對已確認：價格精度")}{' '}{marketState.info.price_precision ?? '—'} {' '}{t("位 · 數量精度")}{' '}{marketState.info.quantity_precision ?? '—'} {' '}{t("位 · 最小名義額")}{' '}{marketState.info.min_notional ?? '—'}
+                                            {currentPrice != null && <> {' '}{t("· 目前價格")}{' '}{money(currentPrice)}</>}
                                         </span>
                                     ) : (
                                         <span className="muted" style={{ fontSize: '0.8rem' }}>
-                                            <Info size={14} /> 輸入交易對後自動確認（market/info 精度查詢）。
-                                        </span>
+                                            <Info size={14} /> {' '}{t("輸入交易對後自動確認（market/info 精度查詢）。")}{' '}</span>
                                     )}
                                 </div>
                             </div>
@@ -600,8 +591,8 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                     {step === 2 && (
                         <div className="form-fields-grid">
                             <div className="field-full">
-                                <h3 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: '0.25rem' }}>Bot 啟動條件（入場）</h3>
-                                <p className="muted">選擇立即入場，或等待指標條件成立後入場</p>
+                                <h3 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: '0.25rem' }}>{t("Bot 啟動條件（入場）")}</h3>
+                                <p className="muted">{t("選擇立即入場，或等待指標條件成立後入場")}</p>
                             </div>
 
                             <div className="field-full dca-entry-mode-cards">
@@ -611,12 +602,11 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                                     onClick={() => update('entry', { ...form.entry, mode: 'immediate' })}
                                 >
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                        <strong>Immediate 立即入場</strong>
-                                        <span className="badge badge-dca-averaging">啟動即進場</span>
+                                        <strong>{t("Immediate 立即入場")}</strong>
+                                        <span className="badge badge-dca-averaging">{t("啟動即進場")}</span>
                                     </div>
                                     <p className="muted" style={{ fontSize: '0.78rem' }}>
-                                        引擎接手後立即以市價建立基礎單，不等待任何指標。
-                                    </p>
+                                        {t("引擎接手後立即以市價建立基礎單，不等待任何指標。")}{' '}</p>
                                 </button>
                                 <button
                                     type="button"
@@ -624,19 +614,18 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                                     onClick={() => update('entry', { ...form.entry, mode: 'indicator' })}
                                 >
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                        <strong>Indicator 指標入場</strong>
-                                        <span className="badge badge-dca-armed">armed 監控中</span>
+                                        <strong>{t("Indicator 指標入場")}</strong>
+                                        <span className="badge badge-dca-armed">{t("armed 監控中")}</span>
                                     </div>
                                     <p className="muted" style={{ fontSize: '0.78rem' }}>
-                                        先以 armed 狀態監控（交易所零掛單），條件成立才進場。
-                                    </p>
+                                        {t("先以 armed 狀態監控（交易所零掛單），條件成立才進場。")}{' '}</p>
                                 </button>
                             </div>
 
                             {form.entry.mode === 'immediate' && (
                                 <div className="notice notice-info field-full" role="note">
                                     <Info size={14} />
-                                    <span>立即入場不需設定指標；入場價以引擎接手當下價格為準。</span>
+                                    <span>{t("立即入場不需設定指標；入場價以引擎接手當下價格為準。")}</span>
                                 </div>
                             )}
 
@@ -664,12 +653,12 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                     {step === 3 && (
                         <div className="form-fields-grid">
                             <div className="field-full">
-                                <h3 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: '0.25rem' }}>DCA 攤平與風險參數</h3>
-                                <p className="muted">所有階梯數字由後端 /preview 計算；此頁只填參數</p>
+                                <h3 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: '0.25rem' }}>{t("DCA 攤平與風險參數")}</h3>
+                                <p className="muted">{t("所有階梯數字由後端 /preview 計算；此頁只填參數")}</p>
                             </div>
 
                             <label className="input-label">
-                                <span>每單金額 (Amount per trade)</span>
+                                <span>{t("每單金額 (Amount per trade)")}</span>
                                 <span style={{ display: 'flex', gap: '0.5rem' }}>
                                     <input
                                         type="number"
@@ -681,10 +670,10 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                                     <select
                                         value={form.amount_unit}
                                         onChange={(e) => update('amount_unit', e.target.value as DcaWizardForm['amount_unit'])}
-                                        aria-label="金額單位"
+                                        aria-label={t("金額單位")}
                                     >
                                         <option value="quote">USD (quote)</option>
-                                        <option value="base">幣 (base)</option>
+                                        <option value="base">{t("幣 (base)")}</option>
                                     </select>
                                 </span>
                             </label>
@@ -692,21 +681,21 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                             <label className="input-label">
                                 <span>DCA Mode</span>
                                 <select value={form.dca_mode} onChange={(e) => update('dca_mode', e.target.value as DcaWizardForm['dca_mode'])}>
-                                    <option value="order">order（每單固定）</option>
-                                    <option value="position">position（部位口徑）</option>
+                                    <option value="order">{t("order（每單固定）")}</option>
+                                    <option value="position">{t("position（部位口徑）")}</option>
                                 </select>
                             </label>
 
                             <label className="input-label">
-                                <span>Averaging Method（攤平方式）</span>
+                                <span>{t("Averaging Method（攤平方式）")}</span>
                                 <select value={form.averaging_method} onChange={(e) => update('averaging_method', e.target.value as DcaWizardForm['averaging_method'])}>
-                                    <option value="fixed_value">fixed_value（固定金額）</option>
-                                    <option value="fixed_coin">fixed_coin（固定幣量）</option>
+                                    <option value="fixed_value">{t("fixed_value（固定金額）")}</option>
+                                    <option value="fixed_coin">{t("fixed_coin（固定幣量）")}</option>
                                 </select>
                             </label>
 
                             <label className="input-label">
-                                <span>Max DCA orders（安全單上限）</span>
+                                <span>{t("Max DCA orders（安全單上限）")}</span>
                                 <input
                                     type="number"
                                     value={Number.isFinite(form.max_safety_orders) ? form.max_safety_orders : ''}
@@ -718,7 +707,7 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                             </label>
 
                             <label className="input-label">
-                                <span>Price deviation（第一張偏移 %）</span>
+                                <span>{t("Price deviation（第一張偏移 %）")}</span>
                                 <input
                                     type="number"
                                     value={Number.isFinite(form.price_deviation_percent) ? form.price_deviation_percent : ''}
@@ -729,7 +718,7 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                             </label>
 
                             <label className="input-label">
-                                <span>Order size multiplier（單量倍數）</span>
+                                <span>{t("Order size multiplier（單量倍數）")}</span>
                                 <input
                                     type="number"
                                     value={Number.isFinite(form.order_size_multiplier) ? form.order_size_multiplier : ''}
@@ -741,7 +730,7 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                             </label>
 
                             <label className="input-label">
-                                <span>Price dev. multiplier（偏移遞增倍數）</span>
+                                <span>{t("Price dev. multiplier（偏移遞增倍數）")}</span>
                                 <input
                                     type="number"
                                     value={Number.isFinite(form.price_deviation_multiplier) ? form.price_deviation_multiplier : ''}
@@ -753,7 +742,7 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                             </label>
 
                             <label className="input-label">
-                                <span>Take profit target（止盈 %）</span>
+                                <span>{t("Take profit target（止盈 %）")}</span>
                                 <input
                                     type="number"
                                     value={Number.isFinite(form.take_profit_percent) ? form.take_profit_percent : ''}
@@ -764,7 +753,7 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                             </label>
 
                             <OptionalNumberInput
-                                label="Stop loss（止損 %，留空停用）"
+                                label={t("Stop loss（止損 %，留空停用）")}
                                 value={form.stop_loss_percent}
                                 min={0}
                                 step="any"
@@ -772,7 +761,7 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                             />
 
                             <OptionalNumberInput
-                                label="最大持倉名目 (USD，留空不限)"
+                                label={t("最大持倉名目 (USD，留空不限)")}
                                 value={form.max_position_notional}
                                 min={0}
                                 step="any"
@@ -780,7 +769,7 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                             />
 
                             <OptionalNumberInput
-                                label="手續費率 %（留空用交易所預設）"
+                                label={t("手續費率 %（留空用交易所預設）")}
                                 value={form.fee_rate}
                                 min={0}
                                 max={1}
@@ -789,7 +778,7 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                             />
 
                             <label className="input-label">
-                                <span>槓桿 (Leverage)</span>
+                                <span>{t("槓桿 (Leverage)")}</span>
                                 <span style={{ display: 'flex', gap: '0.5rem' }}>
                                     <input
                                         type="number"
@@ -802,7 +791,7 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                                     <select
                                         value={form.margin_mode}
                                         onChange={(e) => update('margin_mode', e.target.value as DcaWizardForm['margin_mode'])}
-                                        aria-label="保證金模式"
+                                        aria-label={t("保證金模式")}
                                     >
                                         <option value="isolated">isolated</option>
                                         <option value="cross">cross</option>
@@ -817,18 +806,18 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                                         checked={form.repeat_after_take_profit}
                                         onChange={(e) => update('repeat_after_take_profit', e.target.checked)}
                                     />
-                                    <span style={{ fontWeight: 600 }}>止盈後自動循環（Repeat after Take Profit）</span>
+                                    <span style={{ fontWeight: 600 }}>{t("止盈後自動循環（Repeat after Take Profit）")}</span>
                                 </label>
 
                                 {form.repeat_after_take_profit && (
                                     <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                                         <label className="input-label" style={{ marginBottom: '0.35rem' }}>
                                             <span style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
-                                                <span>每輪冷卻時間 (Cooldown)</span>
+                                                <span>{t("每輪冷卻時間 (Cooldown)")}</span>
                                                 <span className="muted" style={{ fontSize: '0.78rem', fontWeight: 'normal' }}>
                                                     {form.cooldown_seconds === 0
-                                                        ? '⚡ 0 秒（立即重進，不冷卻）'
-                                                        : `⏱️ ${form.cooldown_seconds} 秒（約 ${(form.cooldown_seconds / 60).toFixed(1).replace(/\.0$/, '')} 分鐘）`}
+                                                        ? t("⚡ 0 秒（立即重進，不冷卻）")
+                                                        : ("⏱️ " + (form.cooldown_seconds) + t(" 秒（約 ") + ((form.cooldown_seconds / 60).toFixed(1).replace(/\.0$/, '')) + t(" 分鐘）"))}
                                                 </span>
                                             </span>
                                             <input
@@ -842,11 +831,11 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                                         </label>
                                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.4rem' }}>
                                             {[
-                                                { label: '0s (立即重進)', val: 0 },
-                                                { label: '60s (1分鐘)', val: 60 },
-                                                { label: '300s (5分鐘·預設)', val: 300 },
-                                                { label: '600s (10分鐘)', val: 600 },
-                                                { label: '1800s (30分鐘)', val: 1800 },
+                                                { label: t("0s (立即重進)"), val: 0 },
+                                                { label: t("60s (1分鐘)"), val: 60 },
+                                                { label: t("300s (5分鐘·預設)"), val: 300 },
+                                                { label: t("600s (10分鐘)"), val: 600 },
+                                                { label: t("1800s (30分鐘)"), val: 1800 },
                                             ].map((preset) => (
                                                 <button
                                                     key={preset.val}
@@ -860,14 +849,13 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                                             ))}
                                         </div>
                                         <p className="muted" style={{ fontSize: '0.74rem', margin: '0.4rem 0 0 0' }}>
-                                            每輪止盈完成後進入冷卻（cooling）狀態，倒數結束後才解除鎖定回到監控（armed），防止同一波行情立即追高/殺跌。
-                                        </p>
+                                            {t("每輪止盈完成後進入冷卻（cooling）狀態，倒數結束後才解除鎖定回到監控（armed），防止同一波行情立即追高/殺跌。")}{' '}</p>
                                     </div>
                                 )}
                             </div>
 
                             <OptionalNumberInput
-                                label="最大循環數（留空 = 無限）"
+                                label={t("最大循環數（留空 = 無限）")}
                                 value={form.max_cycles}
                                 min={1}
                                 step={1}
@@ -876,16 +864,16 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
 
                             {form.direction === 'both' && (
                                 <label className="input-label">
-                                    <span>雙向同時成立時的優先 (Tiebreak)</span>
+                                    <span>{t("雙向同時成立時的優先 (Tiebreak)")}</span>
                                     <select value={form.both_tiebreak} onChange={(e) => update('both_tiebreak', e.target.value as DcaWizardForm['both_tiebreak'])}>
-                                        <option value="long_first">long 優先</option>
-                                        <option value="short_first">short 優先</option>
+                                        <option value="long_first">{t("long 優先")}</option>
+                                        <option value="short_first">{t("short 優先")}</option>
                                     </select>
                                 </label>
                             )}
 
                             <label className="input-label">
-                                <span>在掛安全單窗口 (Window)</span>
+                                <span>{t("在掛安全單窗口 (Window)")}</span>
                                 <input
                                     type="number"
                                     value={Number.isFinite(form.active_safety_orders_window) ? form.active_safety_orders_window : ''}
@@ -897,7 +885,7 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                             </label>
 
                             <label className="input-label">
-                                <span>監控間隔（秒）</span>
+                                <span>{t("監控間隔（秒）")}</span>
                                 <input
                                     type="number"
                                     value={Number.isFinite(form.monitoring_interval) ? form.monitoring_interval : ''}
@@ -921,44 +909,44 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                     {step === 4 && (
                         <div className="form-fields-grid">
                             <div className="field-full">
-                                <h3 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: '0.25rem' }}>確認並送出</h3>
-                                <p className="muted">右側 Summary 由 POST /api/v1/dca/preview 即時驅動（debounce 300ms）</p>
+                                <h3 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: '0.25rem' }}>{t("確認並送出")}</h3>
+                                <p className="muted">{t("右側 Summary 由 POST /api/v1/dca/preview 即時驅動（debounce 300ms）")}</p>
                             </div>
 
                             <div className="glass-panel dca-review-list">
-                                <div className="dca-review-row"><span>交易對</span><strong>{symbol}（{form.exchange}）</strong></div>
-                                <div className="dca-review-row"><span>方向</span><strong>{directionLabel(form.direction)}</strong></div>
+                                <div className="dca-review-row"><span>{t("交易對")}</span><strong>{symbol} ({form.exchange})</strong></div>
+                                <div className="dca-review-row"><span>{t("方向")}</span><strong>{directionLabel(form.direction)}</strong></div>
                                 <div className="dca-review-row">
-                                    <span>帳戶模式</span>
-                                    <strong>{form.account_mode === 'live' ? 'LIVE 實盤' : 'PAPER 模擬'}</strong>
+                                    <span>{t("帳戶模式")}</span>
+                                    <strong>{form.account_mode === 'live' ? t("LIVE 實盤") : t("PAPER 模擬")}</strong>
                                 </div>
                                 <div className="dca-review-row">
-                                    <span>入場</span>
+                                    <span>{t("入場")}</span>
                                     <strong>
                                         {form.entry.mode === 'immediate'
-                                            ? '立即入場'
-                                            : `指標入場（${(Object.keys(form.entry.indicators) as Array<keyof typeof form.entry.indicators>).filter((k) => form.entry.indicators[k].enabled).length} 項指標，${form.entry.logic === 'any' ? 'OR' : 'AND'}）`}
+                                            ? t("立即入場")
+                                            : (t("指標入場（") + ((Object.keys(form.entry.indicators) as Array<keyof typeof form.entry.indicators>).filter((k) => form.entry.indicators[k].enabled).length) + t(" 項指標，") + (form.entry.logic === 'any' ? 'OR' : 'AND') + t("）"))}
                                     </strong>
                                 </div>
                                 <div className="dca-review-row">
-                                    <span>目前價格（入場價 E）</span>
+                                    <span>{t("目前價格（入場價 E）")}</span>
                                     <strong>{currentPrice == null ? '—' : money(currentPrice)}</strong>
                                 </div>
                                 <div className="dca-review-row">
-                                    <span>安全單</span>
-                                    <strong>{form.max_safety_orders} 張（dev {form.price_deviation_percent}% ×{form.price_deviation_multiplier}）</strong>
+                                    <span>{t("安全單")}</span>
+                                    <strong>{form.max_safety_orders} {' '}{t("張（dev")}{' '}{form.price_deviation_percent}% ×{form.price_deviation_multiplier})</strong>
                                 </div>
-                                <div className="dca-review-row"><span>止盈</span><strong>{form.take_profit_percent}%</strong></div>
+                                <div className="dca-review-row"><span>{t("止盈")}</span><strong>{form.take_profit_percent}%</strong></div>
                                 {form.stop_loss_percent != null && (
-                                    <div className="dca-review-row"><span>止損</span><strong>{form.stop_loss_percent}%</strong></div>
+                                    <div className="dca-review-row"><span>{t("止損")}</span><strong>{form.stop_loss_percent}%</strong></div>
                                 )}
                                 <div className="dca-review-row">
-                                    <span>止盈後循環</span>
-                                    <strong>{form.repeat_after_take_profit ? '啟用（自動循環）' : '停用（單輪結束即停止）'}</strong>
+                                    <span>{t("止盈後循環")}</span>
+                                    <strong>{form.repeat_after_take_profit ? t("啟用（自動循環）") : t("停用（單輪結束即停止）")}</strong>
                                 </div>
                                 {form.repeat_after_take_profit && (
                                     <div className="dca-review-row" style={{ alignItems: 'center' }}>
-                                        <span title="開啟/建立前可直接於此微調">每輪冷卻時間（可微調）</span>
+                                        <span title={t("開啟/建立前可直接於此微調")}>{t("每輪冷卻時間（可微調）")}</span>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                             <input
                                                 type="number"
@@ -967,10 +955,10 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                                                 step={30}
                                                 style={{ width: '85px', padding: '0.2rem 0.4rem', fontSize: '0.85rem', textAlign: 'right', borderRadius: '4px', background: 'var(--bg-input, rgba(0,0,0,0.3))', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
                                                 onChange={(e) => update('cooldown_seconds', Math.max(0, Number(e.target.value)))}
-                                                title="開啟前可手動調整每輪冷卻秒數"
+                                                title={t("開啟前可手動調整每輪冷卻秒數")}
                                             />
                                             <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                                                秒 ({form.cooldown_seconds === 0 ? '不冷卻' : `${(form.cooldown_seconds / 60).toFixed(1).replace(/\.0$/, '')} 分鐘`})
+                                                {t("秒 (")}{form.cooldown_seconds === 0 ? t("不冷卻") : (((form.cooldown_seconds / 60).toFixed(1).replace(/\.0$/, '')) + t(" 分鐘"))})
                                             </span>
                                         </div>
                                     </div>
@@ -984,14 +972,13 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                                     type="button"
                                     onClick={() => setWizardBtOpen((open) => !open)}
                                     disabled={currentPrice == null}
-                                    title={currentPrice == null ? '等待市場價格載入' : undefined}
+                                    title={currentPrice == null ? t("等待市場價格載入") : undefined}
                                 >
                                     <FlaskConical size={15} />
-                                    <span>{wizardBtOpen ? '收起回測' : '先回測看看'}</span>
+                                    <span>{wizardBtOpen ? t("收起回測") : t("先回測看看")}</span>
                                 </button>
                                 <span className="muted" style={{ fontSize: '0.76rem', marginLeft: '0.6rem' }}>
-                                    以上方目前的參數跑歷史回放，不會建立機器人、也不會下單。
-                                </span>
+                                    {t("以上方目前的參數跑歷史回放，不會建立機器人、也不會下單。")}{' '}</span>
 
                                 {wizardBtOpen && (
                                     <div style={{ marginTop: '0.85rem' }}>
@@ -1006,7 +993,7 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                                             onInitialCapitalChange={setWizardBtCapital}
                                             onRun={() => void runWizardBacktest()}
                                             onCancel={cancelWizardBacktest}
-                                            scopeNote="回測對象＝上方表單當前參數（draft），與已建立的機器人無關；此操作為唯讀。"
+                                            scopeNote={t("回測對象＝上方表單當前參數（draft），與已建立的機器人無關；此操作為唯讀。")}
                                         />
 
                                         {wizardBtError && (
@@ -1017,7 +1004,7 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                                         )}
 
                                         {!wizardBtError && wizardBtResult && (
-                                            <Suspense fallback={<p className="muted" style={{ padding: '2rem 0', textAlign: 'center' }}>載入結果中…</p>}>
+                                            <Suspense fallback={<p className="muted" style={{ padding: '2rem 0', textAlign: 'center' }}>{t("載入結果中…")}</p>}>
                                                 <DcaBacktestResult
                                                     result={wizardBtResult}
                                                     candles={wizardBtCandles}
@@ -1033,18 +1020,14 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                                 <div className="field-full dca-confirm-live-box" role="alert">
                                     <AlertTriangle size={16} />
                                     <div>
-                                        <strong>您正在建立 LIVE 實盤 DCA 機器人</strong>
+                                        <strong>{t("您正在建立 LIVE 實盤 DCA 機器人")}</strong>
                                         <p className="muted" style={{ fontSize: '0.78rem' }}>
-                                            交易對 {symbol}，方向 {directionLabel(form.direction)}，
-                                            所需資金 {summaryForConfirm?.requiredCapital == null ? '—' : `${money(summaryForConfirm.requiredCapital)} USD`}，
-                                            最大覆蓋跌幅 {summaryForConfirm?.maxDrawdownPercent == null ? '—' : `${summaryForConfirm.maxDrawdownPercent}%`}。
-                                            請在下方輸入 <code>CONFIRM LIVE</code> 以確認送出：
-                                        </p>
+                                            {t("交易對")}{' '}{symbol}{t("，方向")}{' '}{directionLabel(form.direction)}{t("， 所需資金")}{' '}{summaryForConfirm?.requiredCapital == null ? '—' : `${money(summaryForConfirm.requiredCapital)} USD`}{t("， 最大覆蓋跌幅")}{' '}{summaryForConfirm?.maxDrawdownPercent == null ? '—' : `${summaryForConfirm.maxDrawdownPercent}%`}{t("。 請在下方輸入")}{' '}<code>CONFIRM LIVE</code> {' '}{t("以確認送出：")}{' '}</p>
                                         <input
                                             value={liveConfirmation}
                                             onChange={(e) => setLiveConfirmation(e.target.value)}
-                                            placeholder="輸入 CONFIRM LIVE"
-                                            aria-label="LIVE 二次確認"
+                                            placeholder={t("輸入 CONFIRM LIVE")}
+                                            aria-label={t("LIVE 二次確認")}
                                         />
                                     </div>
                                 </div>
@@ -1056,13 +1039,13 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                                     checked={autoStart}
                                     onChange={(e) => setAutoStart(e.target.checked)}
                                 />
-                                <span>建立後立即啟動（引擎 5 秒內熱插拔接手）</span>
+                                <span>{t("建立後立即啟動（引擎 5 秒內熱插拔接手）")}</span>
                             </label>
 
                             {fundsBlocked && (
                                 <div className="notice notice-error field-full" role="alert">
                                     <AlertTriangle size={14} />
-                                    <span>所需資金超過可用餘額，LIVE 模式禁止送出（PAPER 模式僅警告）。</span>
+                                    <span>{t("所需資金超過可用餘額，LIVE 模式禁止送出（PAPER 模式僅警告）。")}</span>
                                 </div>
                             )}
                         </div>
@@ -1072,11 +1055,10 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                     <div className="dca-wizard-nav">
                         {step > 1 && (
                             <button className="btn btn-outline" type="button" onClick={() => setStep(step - 1)}>
-                                <ChevronLeft size={15} /> 上一步
-                            </button>
+                                <ChevronLeft size={15} /> {' '}{t("上一步")}{' '}</button>
                         )}
                         <span className="muted" style={{ fontSize: '0.76rem', flex: 1 }}>
-                            步驟 {step} / 4
+                            {t("步驟")}{' '}{step} / 4
                         </span>
                         {step < 4 && (
                             <button
@@ -1084,9 +1066,9 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                                 type="button"
                                 disabled={!canAdvance}
                                 onClick={() => setStep(step + 1)}
-                                title={!canAdvance ? '尚有必填欄位未完成' : undefined}
+                                title={!canAdvance ? t("尚有必填欄位未完成") : undefined}
                             >
-                                下一步 <ChevronRight size={15} />
+                                {t("下一步")}{' '}<ChevronRight size={15} />
                             </button>
                         )}
                         {step === 4 && (
@@ -1098,19 +1080,17 @@ const DcaForm: React.FC<DcaFormProps> = ({ onNavigateDashboard }) => {
                                 title={
                                     !canSubmit
                                         ? liveConfirmBlocked
-                                            ? '請輸入 CONFIRM LIVE'
-                                            : '等待 Summary 試算完成'
+                                            ? t("請輸入 CONFIRM LIVE")
+                                            : t("等待 Summary 試算完成")
                                         : undefined
                                 }
                             >
                                 {submitting ? (
                                     <>
-                                        <Loader2 size={15} className="spin" /> 送出中…
-                                    </>
+                                        <Loader2 size={15} className="spin" /> {' '}{t("送出中…")}{' '}</>
                                 ) : (
                                     <>
-                                        <Rocket size={15} /> 建立 DCA
-                                    </>
+                                        <Rocket size={15} /> {' '}{t("建立 DCA")}{' '}</>
                                 )}
                             </button>
                         )}

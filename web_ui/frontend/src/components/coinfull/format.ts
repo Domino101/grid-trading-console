@@ -1,4 +1,5 @@
 import type { CoinFullPrimePosition } from '../../services/api';
+import { getLang, t } from '../../i18n/index.ts';
 
 export type SizingMode = 'fixed' | 'percent';
 
@@ -27,7 +28,7 @@ export const formatTaipei = (iso?: string | null, fallback = '—'): string => {
 
 export const formatTaipeiWithZone = (iso?: string | null, fallback = '—'): string => {
   const text = formatTaipei(iso, fallback);
-  return text === fallback ? text : `${text}（台北）`;
+  return text === fallback ? text : ((text) + t("（台北）"));
 };
 
 export const relativeAge = (iso: string | null | undefined, now = Date.now()): string => {
@@ -35,10 +36,10 @@ export const relativeAge = (iso: string | null | undefined, now = Date.now()): s
   const time = new Date(iso).getTime();
   if (Number.isNaN(time)) return '—';
   const diff = Math.max(0, now - time);
-  if (diff < 60_000) return '剛剛';
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分鐘前`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小時前`;
-  return `${Math.floor(diff / 86_400_000)} 天前`;
+  if (diff < 60_000) return t("剛剛");
+  if (diff < 3_600_000) return ((Math.floor(diff / 60_000)) + t(" 分鐘前"));
+  if (diff < 86_400_000) return ((Math.floor(diff / 3_600_000)) + t(" 小時前"));
+  return ((Math.floor(diff / 86_400_000)) + t(" 天前"));
 };
 
 export const isStale = (iso: string | null | undefined, now = Date.now(), maxAgeMs = 86_400_000): boolean => {
@@ -70,6 +71,47 @@ const EMOJI_JOINERS = /\uFE0F|\u200D/g;
 
 export const cleanText = (value?: string | null): string =>
   (value ?? '').replace(EMOJI_PATTERN, '').replace(EMOJI_JOINERS, '').replace(/\s{2,}/g, ' ').trim();
+
+const EVALUATION_TERMS: Array<[RegExp, string]> = [
+  [/基準指數對沖做空/g, 'Benchmark Hedge Short'],
+  [/基準指數對沖做多/g, 'Benchmark Hedge Long'],
+  [/基準指數對沖/g, 'Benchmark Index Hedge'],
+  [/強烈做多/g, 'Strong Long'],
+  [/強烈做空/g, 'Strong Short'],
+  [/反轉看多/g, 'Bullish Reversal'],
+  [/反轉看空/g, 'Bearish Reversal'],
+  [/深度貼水/g, 'Deep Discount'],
+  [/深度溢價/g, 'Deep Premium'],
+  [/費率偏熱/g, 'Funding Overheated'],
+  [/費率偏冷/g, 'Funding Oversold'],
+  [/費率正常/g, 'Funding Normal'],
+  [/動能極強/g, 'Very Strong Momentum'],
+  [/動能極弱/g, 'Very Weak Momentum'],
+  [/強勢上漲/g, 'Strong Uptrend'],
+  [/強勢下跌/g, 'Strong Downtrend'],
+  [/震盪中性/g, 'Ranging Neutral'],
+  [/買賣均衡/g, 'Balanced Flow'],
+  [/主動買盤/g, 'Aggressive Buying'],
+  [/主動賣盤/g, 'Aggressive Selling'],
+  [/大戶偏多/g, 'Whales Long'],
+  [/大戶偏空/g, 'Whales Short'],
+  [/大戶持平/g, 'Whales Neutral'],
+  [/基準對沖/g, 'Benchmark Hedge'],
+  [/偏多/g, 'Bullish'],
+  [/偏空/g, 'Bearish'],
+  [/超買/g, 'Overbought'],
+  [/超賣/g, 'Oversold'],
+  [/中性/g, 'Neutral'],
+  [/做多/g, 'Long'],
+  [/做空/g, 'Short'],
+];
+
+/** Translate the evaluation labels the backend emits (e.g. 強烈做多 (Top 5)). */
+export const localizeEvaluation = (value?: string | null): string => {
+  const text = value ?? '';
+  if (!text || getLang() === 'zh') return text;
+  return EVALUATION_TERMS.reduce((result, [pattern, english]) => result.replace(pattern, english), text);
+};
 
 export const formatZ = (value: number | null | undefined, digits = 2): string => {
   if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
@@ -277,7 +319,7 @@ export interface SizingComparison {
   reasons: string[];
 }
 
-const sizingLabel = (mode: SizingMode): string => (mode === 'fixed' ? '固定本金' : '餘額百分比');
+const sizingLabel = (mode: SizingMode): string => (mode === 'fixed' ? t("固定本金") : t("餘額百分比"));
 
 export const compareSizing = (
   manual: ManualSizingResult,
@@ -286,18 +328,18 @@ export const compareSizing = (
   manualLeverage: number,
 ): SizingComparison => {
   if (schedule.mode === 'unknown' || schedule.capital === null) {
-    return { aligned: false, reasons: ['排程尚未設定倉位規模'] };
+    return { aligned: false, reasons: [t("排程尚未設定倉位規模")] };
   }
   const reasons: string[] = [];
   if (manual.mode !== schedule.mode) {
-    reasons.push(`手動使用${sizingLabel(manual.mode)}，排程使用${sizingLabel(schedule.mode)}`);
+    reasons.push((t("手動使用") + (sizingLabel(manual.mode)) + t("，排程使用") + (sizingLabel(schedule.mode))));
   } else if (manual.mode === 'fixed' && Math.abs(manual.capital - schedule.capital) > 0.5) {
-    reasons.push(`手動本金 ${formatUsd(manual.capital)}，排程本金 ${formatUsd(schedule.capital)}`);
+    reasons.push((t("手動本金 ") + (formatUsd(manual.capital)) + t("，排程本金 ") + (formatUsd(schedule.capital))));
   } else if (manual.mode === 'percent' && Math.abs(manualBalancePct - (schedule.balancePct ?? 0)) > 0.1) {
-    reasons.push(`手動餘額 ${manualBalancePct}%，排程餘額 ${schedule.balancePct ?? 0}%`);
+    reasons.push((t("手動餘額 ") + (manualBalancePct) + t("%，排程餘額 ") + (schedule.balancePct ?? 0) + "%"));
   }
   if (Math.abs(manualLeverage - schedule.leverage) > 0.001) {
-    reasons.push(`手動槓桿 ${manualLeverage}x，排程槓桿 ${schedule.leverage}x`);
+    reasons.push((t("手動槓桿 ") + (manualLeverage) + t("x，排程槓桿 ") + (schedule.leverage) + "x"));
   }
   return { aligned: reasons.length === 0, reasons };
 };
@@ -311,15 +353,15 @@ export const modeCopy = (
 ): { label: string; tone: 'success' | 'warning' | 'danger' | 'info' } => {
   if (environment === 'live') {
     return dryRun
-      ? { label: '實盤 · 僅試算', tone: 'warning' }
-      : { label: '實盤 · 真實發單', tone: 'danger' };
+      ? { label: t("實盤 · 僅試算"), tone: 'warning' }
+      : { label: t("實盤 · 真實發單"), tone: 'danger' };
   }
   if (environment === 'testnet') {
     return dryRun
-      ? { label: '測試網 · 僅試算', tone: 'warning' }
-      : { label: '測試網 · API 撮合', tone: 'info' };
+      ? { label: t("測試網 · 僅試算"), tone: 'warning' }
+      : { label: t("測試網 · API 撮合"), tone: 'info' };
   }
-  return { label: 'Paper · 本地模擬', tone: 'success' };
+  return { label: t("Paper · 本地模擬"), tone: 'success' };
 };
 
 export const scoreTone = (score: number): 'strong-long' | 'long' | 'neutral' | 'short' | 'strong-short' => {
@@ -329,4 +371,3 @@ export const scoreTone = (score: number): 'strong-long' | 'long' | 'neutral' | '
   if (score <= -0.3) return 'short';
   return 'neutral';
 };
-

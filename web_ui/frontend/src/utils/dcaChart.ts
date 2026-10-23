@@ -1,3 +1,4 @@
+import { t } from '../i18n/index.ts';
 // Phase C6：DCA 圖表純函式（candles→series、marks→markers、lines→priceLines）。
 //
 // 設計約束（計畫 §3.2 E-6.3 / 稽核 6.1 / 6.2 / 6.3）：
@@ -142,11 +143,11 @@ export const DCA_MARK_SEMANTICS: Record<string, MarkSemantics> = {
 
 /** §4.7 價格線語意凍結表。 */
 export const DCA_LINE_SEMANTICS: Record<string, { colorVar: string; style: ChartLineStyleName; title: string }> = {
-    entry: { colorVar: '--dca-line-entry', style: 'dashed', title: '入場價' },
-    average_cost: { colorVar: '--dca-line-average', style: 'solid', title: '均價' },
-    take_profit: { colorVar: '--dca-line-take-profit', style: 'dashed', title: '止盈' },
-    next_safety: { colorVar: '--dca-line-next-safety', style: 'dashed', title: '下一安全單' },
-    stop_loss: { colorVar: '--dca-line-stop-loss', style: 'dashed', title: '止損' },
+    entry: { colorVar: '--dca-line-entry', style: 'dashed', title: t("入場價") },
+    average_cost: { colorVar: '--dca-line-average', style: 'solid', title: t("均價") },
+    take_profit: { colorVar: '--dca-line-take-profit', style: 'dashed', title: t("止盈") },
+    next_safety: { colorVar: '--dca-line-next-safety', style: 'dashed', title: t("下一安全單") },
+    stop_loss: { colorVar: '--dca-line-stop-loss', style: 'dashed', title: t("止損") },
 };
 
 // ── 小工具 ───────────────────────────────────────────────────
@@ -232,7 +233,7 @@ export const markerText = (mark: ChartMarkInput): string => {
         case 'order_placed':
             return '';
         case 'skipped':
-            return '略過';
+            return t("略過");
         default:
             return '';
     }
@@ -340,14 +341,14 @@ export const chartDataNotice = (
 ): ChartDataNotice => {
     const synthetic = source === 'paper_synthetic';
     let sourceBadge: string | null = null;
-    if (synthetic) sourceBadge = '合成資料';
-    else if (dataStatus === 'stale') sourceBadge = '陳舊資料';
+    if (synthetic) sourceBadge = t("合成資料");
+    else if (dataStatus === 'stale') sourceBadge = t("陳舊資料");
 
     if (dataStatus === 'unavailable') {
-        return { unavailable: true, message: '無法取得 K 線資料', sourceBadge, synthetic };
+        return { unavailable: true, message: t("無法取得 K 線資料"), sourceBadge, synthetic };
     }
     if (candleCount === 0) {
-        return { unavailable: true, message: '資料不足，尚無可繪製的 K 棒', sourceBadge, synthetic };
+        return { unavailable: true, message: t("資料不足，尚無可繪製的 K 棒"), sourceBadge, synthetic };
     }
     return { unavailable: false, message: null, sourceBadge, synthetic };
 };

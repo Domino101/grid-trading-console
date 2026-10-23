@@ -14,21 +14,21 @@ export interface DcaStatusMeta {
 // §4.6 狀態機全狀態徽章（armed/triggering/averaging/completed/cooling/stopping/stopped/failed
 // ＋ 引擎附加 degraded 與命令 pending 期的 starting）；每一狀態獨立視覺與中文文案（稽核 5.11）。
 export const DCA_STATUS_META: Record<string, DcaStatusMeta> = {
-    armed: { label: '監控中', badgeClass: 'badge badge-dca-armed', tone: 'warning' },
-    triggering: { label: '進場中', badgeClass: 'badge badge-dca-triggering', tone: 'positive' },
-    averaging: { label: '攤平中', badgeClass: 'badge badge-dca-averaging', tone: 'positive' },
-    completed: { label: '本輪完成', badgeClass: 'badge badge-dca-completed', tone: 'neutral' },
-    cooling: { label: '冷卻中', badgeClass: 'badge badge-dca-cooling', tone: 'neutral' },
-    stopping: { label: '停止中', badgeClass: 'badge badge-stopping', tone: 'warning' },
-    stopped: { label: '已停止', badgeClass: 'badge badge-stopped', tone: 'neutral' },
-    failed: { label: '失敗', badgeClass: 'badge badge-failed', tone: 'negative' },
-    degraded: { label: '降級', badgeClass: 'badge badge-degraded', tone: 'negative' },
-    starting: { label: '啟動中', badgeClass: 'badge badge-starting', tone: 'warning' },
+    armed: { label: t("監控中"), badgeClass: 'badge badge-dca-armed', tone: 'warning' },
+    triggering: { label: t("進場中"), badgeClass: 'badge badge-dca-triggering', tone: 'positive' },
+    averaging: { label: t("攤平中"), badgeClass: 'badge badge-dca-averaging', tone: 'positive' },
+    completed: { label: t("本輪完成"), badgeClass: 'badge badge-dca-completed', tone: 'neutral' },
+    cooling: { label: t("冷卻中"), badgeClass: 'badge badge-dca-cooling', tone: 'neutral' },
+    stopping: { label: t("停止中"), badgeClass: 'badge badge-stopping', tone: 'warning' },
+    stopped: { label: t("已停止"), badgeClass: 'badge badge-stopped', tone: 'neutral' },
+    failed: { label: t("失敗"), badgeClass: 'badge badge-failed', tone: 'negative' },
+    degraded: { label: t("降級"), badgeClass: 'badge badge-degraded', tone: 'negative' },
+    starting: { label: t("啟動中"), badgeClass: 'badge badge-starting', tone: 'warning' },
 };
 
 export const dcaStatusMeta = (status: string | null | undefined): DcaStatusMeta =>
     (status && DCA_STATUS_META[status]) || {
-        label: status ? status : '未知',
+        label: status ? status : t("未知"),
         badgeClass: 'badge badge-stopped',
         tone: 'neutral' as const,
     };
@@ -37,9 +37,9 @@ export const dcaStatusText = (status: string | null | undefined): string =>
     dcaStatusMeta(status).label;
 
 export const DIRECTION_LABELS: Record<string, string> = {
-    long: '多',
-    short: '空',
-    both: '雙向',
+    long: t("多"),
+    short: t("空"),
+    both: t("雙向"),
 };
 
 export const directionLabel = (direction: string | null | undefined): string =>
@@ -132,19 +132,19 @@ export const armedWaitText = (
 ): string | null => {
     if (armedSince == null) return null;
     const seconds = (now - armedSince * 1000) / 1000;
-    return `已等待 ${formatWaitSeconds(seconds)}`;
+    return (t("已等待 ") + (formatWaitSeconds(seconds)));
 };
 
 const MACD_CONDITION_LABELS: Record<string, string> = {
-    cross: '交叉',
-    hist_sign: '柱體符號',
-    zero_cross: '零軸穿越',
+    cross: t("交叉"),
+    hist_sign: t("柱體符號"),
+    zero_cross: t("零軸穿越"),
 };
 
 const BOLLINGER_CONDITION_LABELS: Record<string, string> = {
-    touch: '觸碰',
-    break: '突破',
-    return: '收回',
+    touch: t("觸碰"),
+    break: t("突破"),
+    return: t("收回"),
 };
 
 // 單一指標的可讀 chip 文案（預設值與 §4.3 凍結預設一致）。
@@ -155,8 +155,8 @@ export const indicatorChipText = (indicator: DcaIndicatorView): string => {
             const oversold = indicator.oversold ?? 30;
             const overbought = indicator.overbought ?? 70;
             const condition = indicator.condition ?? 'level';
-            if (condition === 'cross_in') return `RSI(${period}) 穿越 ${oversold}/${overbought}`;
-            if (condition === 'cross_out') return `RSI(${period}) 穿回 ${oversold}/${overbought}`;
+            if (condition === 'cross_in') return ("RSI(" + (period) + t(") 穿越 ") + (oversold) + "/" + (overbought));
+            if (condition === 'cross_out') return ("RSI(" + (period) + t(") 穿回 ") + (oversold) + "/" + (overbought));
             return `RSI(${period}) ≤${oversold} / ≥${overbought}`;
         }
         case 'macd': {
@@ -176,10 +176,10 @@ export const indicatorChipText = (indicator: DcaIndicatorView): string => {
             const lookback = indicator.lookback_bars ?? 24;
             const longThreshold = indicator.long_threshold_percent ?? -3;
             const shortThreshold = indicator.short_threshold_percent ?? 3;
-            return `PriceChange ${lookback}根 ≤${longThreshold}% / ≥${shortThreshold}%`;
+            return ("PriceChange " + (lookback) + t("根 ≤") + (longThreshold) + "% / ≥" + (shortThreshold) + "%");
         }
         default:
-            return indicator.type ?? '指標';
+            return indicator.type ?? t("指標");
     }
 };
 
@@ -241,7 +241,7 @@ export const indicatorLiveInfo = (indicator: DcaIndicatorView): IndicatorLiveDis
 
     let valueText: string | null = null;
     if (isWarming) {
-        valueText = `暖機 ${indicator.warmup_have ?? 0}/${indicator.warmup_need ?? '?'}`;
+        valueText = (t("暖機 ") + (indicator.warmup_have ?? 0) + "/" + (indicator.warmup_need ?? '?'));
     } else if (indicator.current_value != null) {
         const val = indicator.current_value;
         if (type === 'rsi') {
@@ -266,9 +266,9 @@ export const indicatorLiveInfo = (indicator: DcaIndicatorView): IndicatorLiveDis
         chipClass = 'is-live';
     }
 
-    const statusDesc = isTriggered ? '已滿足入場條件' : isWarming ? 'K棒累積暖機中' : '監控比對中';
-    const valDesc = valueText != null ? ` | 即時值: ${valueText}` : '';
-    const tooltip = `${name} 目標: ${targetText}${valDesc} (${statusDesc})`;
+    const statusDesc = isTriggered ? t("已滿足入場條件") : isWarming ? t("K棒累積暖機中") : t("監控比對中");
+    const valDesc = valueText != null ? (t(" | 即時值: ") + (valueText)) : '';
+    const tooltip = ((name) + t(" 目標: ") + (targetText) + (valDesc) + " (" + (statusDesc) + ")");
 
     return {
         name,
@@ -283,10 +283,10 @@ export const indicatorLiveInfo = (indicator: DcaIndicatorView): IndicatorLiveDis
 
 // 入場區塊文案：立即入場 / 指標入場（含 AND/OR 與各指標 chip）。
 export const dcaEntryText = (item: Pick<DcaSnapshotItem, 'entry_mode' | 'entry_logic' | 'entry_indicators'>): string => {
-    if ((item.entry_mode ?? 'immediate') === 'immediate') return '立即入場';
-    const logic = item.entry_logic === 'any' ? '任一 (OR)' : '全部 (AND)';
+    if ((item.entry_mode ?? 'immediate') === 'immediate') return t("立即入場");
+    const logic = item.entry_logic === 'any' ? t("任一 (OR)") : t("全部 (AND)");
     const names = (item.entry_indicators ?? []).map(indicatorChipText);
-    return names.length > 0 ? `指標入場 ${logic}：${names.join(' · ')}` : `指標入場 ${logic}`;
+    return names.length > 0 ? (t("指標入場 ") + (logic) + t("：") + (names.join(' · '))) : (t("指標入場 ") + (logic));
 };
 
 
@@ -302,6 +302,7 @@ import type {
     DcaPreviewRequest,
     MarketInfo,
 } from '../services/api';
+import { t } from '../i18n/index.ts';
 
 export type DcaWizardMode = 'paper' | 'live';
 export type DcaEntryMode = 'immediate' | 'indicator';
@@ -435,20 +436,20 @@ export const enabledDcaIndicators = (entry: DcaEntryWizard): DcaIndicatorRequest
 export const validateDcaEntry = (entry: DcaEntryWizard): string[] => {
     const errors: string[] = [];
     if (!Number.isFinite(entry.fetch_limit) || entry.fetch_limit < 100 || entry.fetch_limit > 500) {
-        errors.push('取樣根數 fetch_limit 須介於 100–500');
+        errors.push(t("取樣根數 fetch_limit 須介於 100–500"));
     }
     if (!Number.isFinite(entry.confirm_bars) || entry.confirm_bars < 1 || entry.confirm_bars > 5) {
-        errors.push('確認 K 棒 confirm_bars 須介於 1–5');
+        errors.push(t("確認 K 棒 confirm_bars 須介於 1–5"));
     }
-    if (!entry.timeframe.trim()) errors.push('請選擇 K 線時框');
+    if (!entry.timeframe.trim()) errors.push(t("請選擇 K 線時框"));
     if (entry.mode === 'indicator') {
         if (enabledDcaIndicators(entry).length === 0) {
-            errors.push('指標模式至少要啟用一種指標（RSI / MACD / BB / Price Change）');
+            errors.push(t("指標模式至少要啟用一種指標（RSI / MACD / BB / Price Change）"));
         }
         const p = entry.indicators;
         const inRange = (label: string, value: number, min: number, max: number) => {
             if (!Number.isFinite(value) || value < min || value > max) {
-                errors.push(`${label} 須介於 ${min}–${max}`);
+                errors.push(((label) + t(" 須介於 ") + (min) + "–" + (max)));
             }
         };
         inRange('RSI period', p.rsi.period, 2, 100);
@@ -458,13 +459,13 @@ export const validateDcaEntry = (entry: DcaEntryWizard): string[] => {
         inRange('MACD slow', p.macd.slow, 3, 200);
         inRange('MACD signal', p.macd.signal, 2, 50);
         if (Number.isFinite(p.macd.fast) && Number.isFinite(p.macd.slow) && p.macd.slow <= p.macd.fast) {
-            errors.push('MACD slow 必須大於 fast');
+            errors.push(t("MACD slow 必須大於 fast"));
         }
         inRange('BB period', p.bollinger.period, 2, 200);
         inRange('BB std_dev', p.bollinger.std_dev, 0.5, 5.0);
         inRange('PriceChange lookback_bars', p.price_change.lookback_bars, 1, 500);
-        inRange('PriceChange 多門檻%', p.price_change.long_threshold_percent, -100, 100);
-        inRange('PriceChange 空門檻%', p.price_change.short_threshold_percent, -100, 100);
+        inRange(t("PriceChange 多門檻%"), p.price_change.long_threshold_percent, -100, 100);
+        inRange(t("PriceChange 空門檻%"), p.price_change.short_threshold_percent, -100, 100);
     }
     return errors;
 };
@@ -473,25 +474,25 @@ export const validateDcaEntry = (entry: DcaEntryWizard): string[] => {
 export const validateDcaStep3 = (form: DcaWizardForm): string[] => {
     const errors: string[] = [];
     if (!Number.isFinite(form.base_order_amount) || form.base_order_amount <= 0) {
-        errors.push('每單金額必須大於 0');
+        errors.push(t("每單金額必須大於 0"));
     }
     if (!Number.isInteger(form.max_safety_orders) || form.max_safety_orders < 1 || form.max_safety_orders > 50) {
-        errors.push('Max DCA orders 須為 1–50 的整數');
+        errors.push(t("Max DCA orders 須為 1–50 的整數"));
     }
     if (!Number.isFinite(form.price_deviation_percent) || form.price_deviation_percent <= 0) {
-        errors.push('Price deviation 必須大於 0');
+        errors.push(t("Price deviation 必須大於 0"));
     }
     if (!Number.isFinite(form.take_profit_percent) || form.take_profit_percent <= 0) {
-        errors.push('Take profit target(%) 必須大於 0');
+        errors.push(t("Take profit target(%) 必須大於 0"));
     }
     if (form.stop_loss_percent != null && (!Number.isFinite(form.stop_loss_percent) || form.stop_loss_percent <= 0)) {
-        errors.push('Stop loss(%) 留空停用，填入時必須大於 0');
+        errors.push(t("Stop loss(%) 留空停用，填入時必須大於 0"));
     }
     if (!Number.isInteger(form.leverage) || form.leverage < 1 || form.leverage > 125) {
-        errors.push('槓桿須為 1–125 的整數');
+        errors.push(t("槓桿須為 1–125 的整數"));
     }
     if (!Number.isInteger(form.monitoring_interval) || form.monitoring_interval < 5 || form.monitoring_interval > 300) {
-        errors.push('監控間隔須介於 5–300 秒');
+        errors.push(t("監控間隔須介於 5–300 秒"));
     }
     return errors;
 };
@@ -580,14 +581,14 @@ export const formatLookbackTime = (lookbackBars: number, timeframe: string): str
     const totalMinutes = lookbackBars * minutes;
     if (totalMinutes >= 1440) {
         const days = Math.round((totalMinutes / 1440) * 10) / 10;
-        return `${lookbackBars} 根 × ${timeframe} = ${days} 天`;
+        return ((lookbackBars) + t(" 根 × ") + (timeframe) + " = " + (days) + t(" 天"));
     }
     if (totalMinutes >= 60) {
         const hours = Math.round((totalMinutes / 60) * 10) / 10;
-        return `${lookbackBars} 根 × ${timeframe} = ${hours} 小時`;
+        return ((lookbackBars) + t(" 根 × ") + (timeframe) + " = " + (hours) + t(" 小時"));
     }
     const mins = Math.round(totalMinutes * 10) / 10;
-    return `${lookbackBars} 根 × ${timeframe} = ${mins} 分`;
+    return ((lookbackBars) + t(" 根 × ") + (timeframe) + " = " + (mins) + t(" 分"));
 };
 
 // 6.15 資金口徑：後端目前沒有 DCA 專屬餘額端點 → available 為 null 時一律
@@ -651,29 +652,29 @@ export interface DcaSlotStatusMeta {
 
 // 階梯槽位三態（+skipped）文案與樣式（稽核 7.8）；語意不只靠顏色，皆含文字。
 export const DCA_SLOT_STATUS_META: Record<string, DcaSlotStatusMeta> = {
-    filled: { label: '已成交', className: 'dca-slot-filled' },
-    active: { label: '掛單中', className: 'dca-slot-active' },
-    waiting: { label: '未觸及', className: 'dca-slot-waiting' },
-    skipped: { label: '已略過', className: 'dca-slot-skipped' },
+    filled: { label: t("已成交"), className: 'dca-slot-filled' },
+    active: { label: t("掛單中"), className: 'dca-slot-active' },
+    waiting: { label: t("未觸及"), className: 'dca-slot-waiting' },
+    skipped: { label: t("已略過"), className: 'dca-slot-skipped' },
 };
 
 export const dcaSlotStatusMeta = (status: DcaSlotStatus): DcaSlotStatusMeta =>
-    DCA_SLOT_STATUS_META[status] ?? { label: status || '未知', className: 'dca-slot-waiting' };
+    DCA_SLOT_STATUS_META[status] ?? { label: status || t("未知"), className: 'dca-slot-waiting' };
 
 // DCA 事件類型 → 中文文案（詳情「事件」時間線；未知類型原樣回傳）。
 export const DCA_EVENT_LABELS: Record<string, string> = {
-    engine_lifecycle: '引擎生命週期',
-    tp_replaced: '止盈重掛',
-    window_realigned: '急跌重對齊',
-    position_cap_reached: '曝險上限',
-    safety_below_min_notional: '安全單低於最小名目',
-    stop_loss_triggered: '止損觸發',
-    both_directions_matched: '雙向命中（單方向互斥）',
-    command: '控制命令',
+    engine_lifecycle: t("引擎生命週期"),
+    tp_replaced: t("止盈重掛"),
+    window_realigned: t("急跌重對齊"),
+    position_cap_reached: t("曝險上限"),
+    safety_below_min_notional: t("安全單低於最小名目"),
+    stop_loss_triggered: t("止損觸發"),
+    both_directions_matched: t("雙向命中（單方向互斥）"),
+    command: t("控制命令"),
 };
 
 export const dcaEventLabel = (eventType: string | null | undefined): string =>
-    (eventType && DCA_EVENT_LABELS[eventType]) || (eventType ?? '事件');
+    (eventType && DCA_EVENT_LABELS[eventType]) || (eventType ?? t("事件"));
 
 // 事件狀態語氣（決定時間線點的顏色類別）。
 export const dcaEventTone = (
@@ -690,10 +691,10 @@ export const dcaEventTone = (
 
 // 訂單 role → 中文標記（詳情「訂單」tab）。
 export const DCA_ORDER_ROLE_LABELS: Record<string, string> = {
-    base: '基礎單',
-    safety: '安全單',
-    take_profit: '止盈單',
-    stop_loss: '止損單',
+    base: t("基礎單"),
+    safety: t("安全單"),
+    take_profit: t("止盈單"),
+    stop_loss: t("止損單"),
 };
 
 export const dcaOrderRoleLabel = (role: string | null | undefined): string =>
@@ -701,7 +702,7 @@ export const dcaOrderRoleLabel = (role: string | null | undefined): string =>
 
 // 成交 side → 中文（buy/sell）。
 export const dcaSideLabel = (side: string | null | undefined): string =>
-    side === 'buy' ? '買入' : side === 'sell' ? '賣出' : (side ?? '—');
+    side === 'buy' ? t("買入") : side === 'sell' ? t("賣出") : (side ?? '—');
 
 // ── Phase C7：回測工作台純函式 ────────────────────────────────────────
 //
@@ -718,10 +719,10 @@ export interface DcaBacktestBarsOption {
 }
 
 export const DCA_BACKTEST_BARS_OPTIONS: readonly DcaBacktestBarsOption[] = [
-    { value: 300, label: '300 根' },
-    { value: 1000, label: '1000 根' },
-    { value: 2000, label: '2000 根' },
-    { value: 5000, label: '5000 根' },
+    { value: 300, label: t("300 根") },
+    { value: 1000, label: t("1000 根") },
+    { value: 2000, label: t("2000 根") },
+    { value: 5000, label: t("5000 根") },
 ];
 
 /** 後端 A-4 上限（`schemas.py` BacktestRequest.bars le=20000）。 */
@@ -762,7 +763,7 @@ export const backtestTone = (
 /** unix 秒 → 本地日期時間；未知為「—」。 */
 export const backtestTimeText = (ts: number | null | undefined): string => {
     if (typeof ts !== 'number' || !Number.isFinite(ts)) return '—';
-    return new Date(ts * 1000).toLocaleString('zh-TW');
+    return new Date(ts * 1000).toLocaleString('zh-TW', { hour12: false });
 };
 
 /** 回測涵蓋區間文字（純顯示層字串拼接）。 */
@@ -775,11 +776,11 @@ export const backtestRangeText = (
 };
 
 export const DCA_CYCLE_EXIT_REASON_LABELS: Record<string, string> = {
-    take_profit: '止盈出場',
-    stop_loss: '止損出場',
-    max_cycles: '達最大循環',
-    end_of_data: '資料結束仍持倉',
-    running: '進行中',
+    take_profit: t("止盈出場"),
+    stop_loss: t("止損出場"),
+    max_cycles: t("達最大循環"),
+    end_of_data: t("資料結束仍持倉"),
+    running: t("進行中"),
 };
 
 export const cycleExitReasonLabel = (reason: string | null | undefined): string =>
@@ -793,19 +794,19 @@ export const cycleExitReasonLabel = (reason: string | null | undefined): string 
 export const backtestErrorText = (status: number | null, fallback: string): string => {
     switch (status) {
         case 400:
-            return `參數不合法：${fallback}`;
+            return (t("參數不合法：") + (fallback));
         case 404:
-            return '找不到此 DCA 設定，可能已被刪除。';
+            return t("找不到此 DCA 設定，可能已被刪除。");
         case 408:
-            return '回測執行逾時，請縮短回測棒數或改用較長的時框。';
+            return t("回測執行逾時，請縮短回測棒數或改用較長的時框。");
         case 422:
-            return `參數驗證失敗：${fallback}`;
+            return (t("參數驗證失敗：") + (fallback));
         case 429:
-            return '請求過於頻繁，請稍候再試（K 線來源有速率限制）。';
+            return t("請求過於頻繁，請稍候再試（K 線來源有速率限制）。");
         case 500:
         case 502:
         case 503:
-            return `伺服器錯誤，回測未完成：${fallback}`;
+            return (t("伺服器錯誤，回測未完成：") + (fallback));
         default:
             return fallback;
     }
@@ -819,7 +820,7 @@ export const backtestUnavailableText = (
     dataStatus: string | null | undefined,
 ): string | null =>
     dataStatus === 'unavailable'
-        ? '無法取得足夠的歷史 K 線，此結果不可信，請改用其他時框或縮短回測長度。'
+        ? t("無法取得足夠的歷史 K 線，此結果不可信，請改用其他時框或縮短回測長度。")
         : null;
 
 /**
@@ -832,12 +833,12 @@ export const sweepTruncatedText = (
     runsTotal: number,
 ): string | null => {
     if (!truncated) return null;
-    return `因預算限制，僅完成 ${runsCompleted}/${runsTotal} 組參數；以下最優僅為「已完成範圍內」的最優，並非全域最佳。`;
+    return (t("因預算限制，僅完成 ") + (runsCompleted) + "/" + (runsTotal) + t(" 組參數；以下最優僅為「已完成範圍內」的最優，並非全域最佳。"));
 };
 
 /** 最優標題文案：truncated 與否用字不同（稽核 7.4）。 */
 export const sweepBestLabel = (truncated: boolean): string =>
-    truncated ? '已完成範圍內最優' : '最優組合';
+    truncated ? t("已完成範圍內最優") : t("最優組合");
 
 /**
  * 掃描列排序：依指定指標由大到小；null / 有 error 的列一律沉底
