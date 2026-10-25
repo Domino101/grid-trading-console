@@ -304,12 +304,26 @@ def _build_dca_read_model(
         except Exception as exc:
             logger.warning("DCA 導出下一張安全單價失敗 [%s]: %s", bot_id, exc)
 
+    resolved_symbol = str(section.get("symbol")) if section.get("symbol") else None
+    resolved_exchange = str(section.get("exchange")) if section.get("exchange") else None
+    resolved_direction = str(section.get("direction")) if section.get("direction") else None
+    # YAML 遺失時只還原可無歧義解析的欄位（exchange/direction）。
+    # symbol 在 bot_id 中以 "-" 取代 "/" 與 ":"，無法安全還原（例如
+    # ZEC/USDC:USDC 會變成 ZEC-USDC-USDC），因此寧可回 None 也不偽造。
+    if not yaml_data and bot_id.startswith("dca-"):
+        parts = bot_id.split("-")
+        if len(parts) >= 5:
+            if not resolved_exchange:
+                resolved_exchange = parts[1]
+            if not resolved_direction and parts[2] in ("long", "short", "both"):
+                resolved_direction = parts[2]
+
     return {
         "bot_id": bot_id,
         "config_path": config_path,
-        "symbol": str(section.get("symbol")) if section.get("symbol") else None,
-        "exchange": str(section.get("exchange")) if section.get("exchange") else None,
-        "direction": str(section.get("direction")) if section.get("direction") else None,
+        "symbol": resolved_symbol,
+        "exchange": resolved_exchange,
+        "direction": resolved_direction,
         "mode": mode,
         "status": status,
         "desired_running": desired_running,
@@ -1533,7 +1547,52 @@ async def delete_dca(
 
     config_path = DcaYAMLGenerator.path_from_bot_id(bot_id)
     abs_yaml = os.path.join(project_root, config_path)
+    active_dca = _read_active_dca()
+    in_active = config_path in active_dca
+    has_state = GridStateStore.instance().get(config_path) is not None
+
     if not os.path.exists(abs_yaml):
+        if in_active or has_state:
+            # 幽靈/殘留清理只移除「無即時心跳」的登記殘留。
+            # 不建立 STOP、不取消掛單、不動用任何交易所資源，因此不會改變持倉。
+            runtime = GridStateStore.instance().get(config_path)
+            data_status = data_status_from_runtime(runtime)
+            if data_status == "live":
+                audit_logger.log(source=source, action="delete", grid_id=bot_id,
+                                 params={"bot_id": bot_id, "data_status": data_status},
+                                 result="rejected", reason=reason,
+                                 error_msg="殘留 DCA 仍有即時心跳")
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"DCA {bot_id} 的 YAML 已不存在，但仍有即時心跳。"
+                        "為避免誤停執行中的策略或動到持倉，請先停止該 DCA，"
+                        "待心跳過期（停止後約 3 分鐘）再刪除"
+                    ),
+                )
+            previous_desired = active_dca.get(config_path, False) if in_active else False
+            if in_active:
+                del active_dca[config_path]
+                _write_active_dca(active_dca)
+            if has_state:
+                GridStateStore.instance().remove(config_path)
+            guard.record_action(source)
+            audit_logger.log(source=source, action="delete", grid_id=bot_id,
+                             params={
+                                 "bot_id": bot_id,
+                                 "data_status": data_status,
+                                 "had_state": has_state,
+                                 "previous_desired_running": previous_desired,
+                                 "ghost_cleanup": True,
+                             },
+                             result="success", reason=reason or "ghost_cleanup")
+            return DcaActionResponse(
+                bot_id=bot_id, action="delete", status="deleted",
+                message=(
+                    f"DCA {bot_id} 配置文件已不存在，已清理殘留登記（心跳狀態: {data_status}）；"
+                    "未變更任何持倉或掛單"
+                ),
+            )
         audit_logger.log(source=source, action="delete", grid_id=bot_id,
                          params={"bot_id": bot_id}, result="rejected", reason=reason,
                          error_msg=f"DCA 配置 {bot_id} 不存在")

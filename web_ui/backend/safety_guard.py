@@ -19,10 +19,41 @@ logger = logging.getLogger("GridAPI.Safety")
 # 常數
 # ────────────────────────────────────────────────────────
 
-MAX_CONCURRENT_GRIDS = 10
-MAX_CONCURRENT_DCA_BOTS = 5
-MAX_CONCURRENT_COMBINED_BOTS = 20
+def _env_positive_int(name: str, default: int) -> int:
+    """讀取正整數環境變數；未設定或非法值一律退回預設。
+
+    護欄設定錯誤不得讓 API 起不來或退化成 0（等於全面封鎖），
+    因此寧可告警並沿用預設值。
+    """
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("環境變數 %s=%r 不是整數，沿用預設 %d", name, raw, default)
+        return default
+    if value <= 0:
+        logger.warning("環境變數 %s=%r 必須大於 0，沿用預設 %d", name, raw, default)
+        return default
+    return value
+
+
+MAX_CONCURRENT_GRIDS = _env_positive_int("GRID_MAX_GRIDS", 10)
+MAX_CONCURRENT_DCA_BOTS = _env_positive_int("GRID_MAX_DCA_BOTS", 10)
+MAX_CONCURRENT_COMBINED_BOTS = _env_positive_int("GRID_MAX_COMBINED_BOTS", 30)
 ENGINE_PID_FILE = "/tmp/grid_multiple_runners.pid"
+
+# 總量上限若小於任一單一策略上限，該策略上限永遠到不了；顯式設定衝突時只告警，
+# 不覆寫使用者指定的值（單一上限仍是硬牆）。
+if MAX_CONCURRENT_COMBINED_BOTS < max(MAX_CONCURRENT_GRIDS, MAX_CONCURRENT_DCA_BOTS):
+    logger.warning(
+        "GRID_MAX_COMBINED_BOTS=%d 小於單一策略上限 (grids=%d, dca=%d)，"
+        "合計上限會先觸發",
+        MAX_CONCURRENT_COMBINED_BOTS,
+        MAX_CONCURRENT_GRIDS,
+        MAX_CONCURRENT_DCA_BOTS,
+    )
 
 
 class SafetyGuard:

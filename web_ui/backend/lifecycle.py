@@ -22,6 +22,9 @@ DEFAULT_CORS_ORIGINS = (
 
 LIVE_ENABLED_VALUES = {"1", "true", "yes"}
 STARTABLE_STATUSES = {"starting", "running", "stopping"}
+# 只有真正停止的策略可無 force 刪除。DCA 的 armed/averaging/cooling/completed 等
+# runtime 狀態代表任務仍活著（可能持有倉位或隨時再入場），必須比照 running 擋下。
+DELETABLE_STATUSES = {"stopped"}
 
 
 def live_trading_enabled(raw: Optional[str] = None) -> bool:
@@ -62,7 +65,13 @@ def start_rejection(account_mode: str, live_enabled: bool) -> Optional[str]:
 
 
 def delete_rejection(lifecycle_status: str, command_status: Optional[str] = None) -> Optional[str]:
-    if lifecycle_status in STARTABLE_STATUSES:
+    """未帶 force 的刪除守門：只有 stopped 且無 pending 命令可刪。
+
+    未知狀態一律拒絕（fail-closed）：DCA runtime 會回傳 armed/averaging/
+    cooling/completed/degraded 等狀態，任何一個都代表任務仍由引擎管理，
+    刪除會停止策略並取消掛單。
+    """
+    if lifecycle_status not in DELETABLE_STATUSES:
         return "只能刪除已停止且無未完成命令的策略"
     if command_status == "pending_engine":
         return "尚有未完成的引擎命令，請先等待或停止後再刪除"

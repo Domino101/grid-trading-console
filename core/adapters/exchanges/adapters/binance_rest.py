@@ -55,10 +55,12 @@ class BinanceRest(BinanceBase):
     #   - 若窗口內已達 _throttle_max_calls 次，後續請求排隊等待
     #
     # 資源消耗：
-    #   記憶體 ~200 bytes（deque 最多 3 個 float + Lock + 計數器）
-    #   CPU < 10μs/call（比較 3 個時間戳）
+    #   記憶體 ~200 bytes（deque 最多 8 個 float + Lock + 計數器）
+    #   CPU < 10μs/call（比較 8 個時間戳）
     # ---------------------------------------------------------------------------
-    _throttle_max_calls: int = 5
+    # 8 次 / 5 秒 ≈ 96 次/分鐘，仍遠低於 Binance 2400 權重/分鐘；
+    # 原本 5 次/5 秒（60 次/分鐘）在 5 台 DCA + 網格同時運行時已吃掉三分之一配額。
+    _throttle_max_calls: int = 8
     _throttle_window_sec: float = 5.0
     _throttle_timestamps: collections.deque = collections.deque()
     _throttle_lock: Optional[asyncio.Lock] = None
@@ -318,7 +320,7 @@ class BinanceRest(BinanceBase):
                 msg = f"API 熔斷中 (code={code})，剩餘 {remaining:.0f} 秒，拒絕 REST 呼叫"
             raise RuntimeError(f"⛔ [BinanceRest] {msg}")
 
-        # 🔥 全局限速器：排隊取得配額（每 5 秒最多 3 次）
+        # 🔥 全局限速器：排隊取得配額（每 5 秒最多 8 次）
         func_name = getattr(func, '__name__', str(func)[:30])
         await BinanceRest._throttle_acquire(self.logger, func_name)
 

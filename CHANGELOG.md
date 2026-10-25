@@ -4,6 +4,10 @@
 詳細歷史工程記錄請參閱 [CHANGELOG_LEGACY.md](file:///root/grid-trading-console/CHANGELOG_LEGACY.md)。
 ## [Unreleased]
 
+### Changed
+- **併發上限放寬 + 環境變數化**：`SafetyGuard` 的 `MAX_CONCURRENT_DCA_BOTS` 由 5 提高到 10、`MAX_CONCURRENT_COMBINED_BOTS` 由 20 提高到 30（網格維持 10），並改為讀取 `GRID_MAX_DCA_BOTS` / `GRID_MAX_COMBINED_BOTS` / `GRID_MAX_GRIDS`（預設 10/30/10；非正整數或格式錯誤告警後沿用預設，不得讓護欄設定錯誤封鎖 API）。
+- **Binance REST 全局限速器**由 5 次/5 秒提高到 8 次/5 秒（約 96 次/分鐘，仍低於交易所 2400 權重/分鐘）；`/api/v1/system/health` 的 `api_throttle.window_max` 不再寫死 fallback 3。
+
 ## [0.3.15] — 2026-10-22
 
 ### Security

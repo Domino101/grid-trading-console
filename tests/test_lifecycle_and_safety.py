@@ -33,6 +33,10 @@ class LifecyclePolicyTests(unittest.TestCase):
         self.assertIsNotNone(delete_rejection("stopping"))
         self.assertIsNotNone(delete_rejection("stopped", "pending_engine"))
         self.assertIsNone(delete_rejection("stopped", "stopped"))
+        # DCA runtime 狀態代表任務仍活著，必須 fail-closed
+        for dca_status in ("armed", "triggering", "averaging", "degraded", "cooling", "completed", "unknown"):
+            with self.subTest(status=dca_status):
+                self.assertIsNotNone(delete_rejection(dca_status))
 
     def test_unknown_runtime_is_not_zero(self):
         from web_ui.backend.lifecycle import build_grid_read_model, finite_number

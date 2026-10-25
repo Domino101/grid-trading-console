@@ -49,6 +49,7 @@ from core.infrastructure.database.redis_support import RedisCommandQueue
 from web_ui.backend.lifecycle import (
     account_mode_from_yaml,
     build_grid_read_model,
+    data_status_from_runtime,
     delete_rejection,
     finite_number,
     live_trading_enabled,
@@ -1050,8 +1051,64 @@ async def delete_grid(
 
     config_path = GridYAMLGenerator.path_from_grid_id(grid_id)
     abs_yaml = os.path.join(project_root, config_path)
+    active_grids = _read_active_grids()
+    in_active = config_path in active_grids
+    has_state = GridStateStore.instance().get(config_path) is not None
 
     if not os.path.exists(abs_yaml):
+        if in_active or has_state:
+            # 幽靈/殘留清理只移除「無即時心跳」的登記殘留。
+            # 不建立 STOP、不取消掛單、不動用任何交易所資源，因此不會改變持倉。
+            runtime = GridStateStore.instance().get(config_path)
+            data_status = data_status_from_runtime(runtime)
+            if data_status == "live":
+                audit_logger.log(
+                    source=source,
+                    action="delete",
+                    grid_id=grid_id,
+                    params={"grid_id": grid_id, "data_status": data_status},
+                    result="rejected",
+                    reason=reason,
+                    error_msg="殘留策略仍有即時心跳",
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"網格 {grid_id} 的 YAML 已不存在，但仍有即時心跳。"
+                        "為避免誤停執行中的策略或動到持倉，請先停止該策略，"
+                        "待心跳過期（停止後約 3 分鐘）再刪除"
+                    ),
+                )
+            previous_desired = active_grids.get(config_path, False) if in_active else False
+            if in_active:
+                del active_grids[config_path]
+                _write_active_grids(active_grids)
+            if has_state:
+                GridStateStore.instance().remove(config_path)
+            guard.record_action(source)
+            audit_logger.log(
+                source=source,
+                action="delete",
+                grid_id=grid_id,
+                params={
+                    "grid_id": grid_id,
+                    "data_status": data_status,
+                    "had_state": has_state,
+                    "previous_desired_running": previous_desired,
+                    "ghost_cleanup": True,
+                },
+                result="success",
+                reason=reason or "ghost_cleanup",
+            )
+            return GridActionResponse(
+                grid_id=grid_id,
+                action="delete",
+                status="deleted",
+                message=(
+                    f"網格 {grid_id} 配置文件已不存在，已清理殘留登記（心跳狀態: {data_status}）；"
+                    "未變更任何持倉或掛單"
+                ),
+            )
         audit_logger.log(
             source=source,
             action="delete",

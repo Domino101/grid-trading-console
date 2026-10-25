@@ -200,6 +200,58 @@ class WebUiHttpContractTests(unittest.TestCase):
         self.assertEqual(force_deleted.status_code, 200, force_deleted.text)
         self.assertEqual(force_deleted.json()["status"], "deleted")
 
+    def test_delete_ghost_grid_missing_yaml_succeeds_and_cleans_active_grids(self):
+        """若網格 YAML 已在磁碟上消失，但 active_grids.json 仍有殘留，DELETE 必須能成功清理並返回 200。"""
+        import json
+        headers = {"Authorization": "Bearer contract-token"}
+        ghost_id = "test-ghost-grid-id"
+        ghost_path = f"config/grid/{ghost_id}.yaml"
+        active_file = os.path.join(self.temp_dir.name, "config", "active_grids.json")
+
+        active = {}
+        if os.path.exists(active_file):
+            with open(active_file, "r", encoding="utf-8") as f:
+                active = json.load(f)
+        active[ghost_path] = False
+        with open(active_file, "w", encoding="utf-8") as f:
+            json.dump(active, f)
+
+        # 第一次 DELETE：應成功清理幽靈登記並返回 200
+        res = self.client.delete(f"/api/v1/grids/{ghost_id}", headers=headers)
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(res.json()["status"], "deleted")
+
+        # 驗證 active_grids.json 已不再包含該幽靈條目
+        with open(active_file, "r", encoding="utf-8") as f:
+            active_after = json.load(f)
+        self.assertNotIn(ghost_path, active_after)
+
+        # 第二次 DELETE：應 404
+        res_404 = self.client.delete(f"/api/v1/grids/{ghost_id}", headers=headers)
+        self.assertEqual(res_404.status_code, 404)
+
+    def test_delete_ghost_grid_with_live_heartbeat_is_rejected(self):
+        """殘留但仍有即時心跳時必須 409，且不得停止策略、不得清掉 active/state。"""
+        import json
+        from web_ui.backend.grid_state_store import GridStateStore
+
+        headers = {"Authorization": "Bearer contract-token"}
+        ghost_id = "test-live-ghost-grid"
+        ghost_path = f"config/grid/{ghost_id}.yaml"
+        active_file = os.path.join(self.temp_dir.name, "config", "active_grids.json")
+        with open(active_file, "w", encoding="utf-8") as f:
+            json.dump({ghost_path: True}, f)
+        GridStateStore.instance().update(ghost_path, {"grid_id": ghost_id, "position": {"quantity": 1}})
+
+        res = self.client.delete(f"/api/v1/grids/{ghost_id}", headers=headers)
+        self.assertEqual(res.status_code, 409, res.text)
+        self.assertIn("心跳", res.json()["detail"])
+
+        with open(active_file, "r", encoding="utf-8") as f:
+            self.assertTrue(json.load(f).get(ghost_path))
+        self.assertIsNotNone(GridStateStore.instance().get(ghost_path))
+        self.assertIsNone(self.repository.latest_for_grid(ghost_id))
+
     def test_market_info_endpoint_requires_auth(self):
         denied = self.client.get("/api/v1/market/info/ETH/USDC:USDC?exchange=binance")
         self.assertIn(denied.status_code, (401, 403))

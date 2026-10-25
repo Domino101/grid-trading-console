@@ -256,6 +256,28 @@ class DcaHttpContractTests(unittest.TestCase):
         self.assertEqual(deleted.status_code, 409, deleted.text)
         self.assertIn("只能刪除", deleted.json()["detail"])
 
+    def test_delete_averaging_dca_without_force_is_conflict(self):
+        """持倉中的 DCA（runtime status=averaging）不得被無 force 刪除。
+
+        回歸守門：delete_rejection 曾只擋 starting/running/stopping，
+        導致 averaging 的實盤機器人被刪除並取消 TP 掛單。
+        """
+        from web_ui.backend.grid_state_store import GridStateStore
+
+        created = self._create(auto_start=True)
+        bot_id = created.json()["bot_id"]
+        config_path = created.json()["config_path"]
+        GridStateStore.instance().update(
+            config_path,
+            {"status": "averaging", "position": {"quantity": "1.0"},
+             "profit": {"realized": 0, "fees": 0}},
+        )
+
+        deleted = self.client.delete(f"/api/v1/dca/{bot_id}", headers=self._headers())
+        self.assertEqual(deleted.status_code, 409, deleted.text)
+        self.assertIn("只能刪除", deleted.json()["detail"])
+        self.assertTrue(os.path.exists(os.path.join(self.temp_dir.name, config_path)))
+
     # ── 4.12 / 4.13 LIVE feature flag / min_notional 全階梯 ──
     def test_live_create_requires_feature_flag(self):
         with patch("web_ui.backend.routes.dca.live_trading_enabled", return_value=False):
@@ -280,21 +302,27 @@ class DcaHttpContractTests(unittest.TestCase):
 
     # ── 4.15 併發總量上限（網格 + DCA） ──
     def test_combined_cap_includes_grids_and_dca(self):
-        from web_ui.backend.safety_guard import SafetyGuard
+        from web_ui.backend.safety_guard import (
+            SafetyGuard, MAX_CONCURRENT_COMBINED_BOTS, MAX_CONCURRENT_GRIDS,
+        )
+        # 從常數推導，避免調整上限後測試與實作漂移。
+        grid_count = min(MAX_CONCURRENT_GRIDS, MAX_CONCURRENT_COMBINED_BOTS - 1)
+        dca_count = MAX_CONCURRENT_COMBINED_BOTS - grid_count
+        total = grid_count + dca_count
         os.makedirs(os.path.join(self.temp_dir.name, "config", "grid"), exist_ok=True)
         os.makedirs(os.path.join(self.temp_dir.name, "config", "dca"), exist_ok=True)
         with open(os.path.join(self.temp_dir.name, "config", "active_grids.json"), "w", encoding="utf-8") as handle:
-            json.dump({f"config/grid/g{i}.yaml": True for i in range(12)}, handle)
+            json.dump({f"config/grid/g{i}.yaml": True for i in range(grid_count)}, handle)
         with open(os.path.join(self.temp_dir.name, "config", "active_dca.json"), "w", encoding="utf-8") as handle:
-            json.dump({f"config/dca/d{i}.yaml": True for i in range(9)}, handle)
+            json.dump({f"config/dca/d{i}.yaml": True for i in range(dca_count)}, handle)
         guard = SafetyGuard(self.temp_dir.name)
         ok, message = guard.check_max_combined_bots()
         self.assertFalse(ok)
-        self.assertIn("21", message)
+        self.assertIn(str(total), message)
 
         class BlockingGuard(PaperDcaGuard):
             def check_can_create_dca(self):
-                return False, "已達最大同時運行策略數 (12 網格 + 9 DCA = 21/20)"
+                return False, f"已達最大同時運行策略數 ({grid_count} 網格 + {dca_count} DCA = {total}/{MAX_CONCURRENT_COMBINED_BOTS})"
 
         self.dca_route.SafetyGuard = BlockingGuard
         response = self._create(auto_start=True)
@@ -490,6 +518,117 @@ class DcaHttpContractTests(unittest.TestCase):
         self.assertEqual(start_res.status_code, 200)
         info3 = self.client.get(f"/api/v1/dca/{bot_id}", headers=self._headers())
         self.assertEqual(info3.json().get("cooldown_seconds"), 120)
+
+    def test_delete_ghost_bot_missing_yaml_succeeds_and_cleans_active_dca(self):
+        """若 YAML 檔案已在磁碟上消失，但 active_dca.json 仍有殘留登記，DELETE 必須能成功清理並返回 200，而非 404 死鎖。"""
+        ghost_bot_id = "dca-binance-long-ghost-usdt-20261024000000"
+        ghost_config_path = f"config/dca/{ghost_bot_id}.yaml"
+        active_path = os.path.join(self.temp_dir.name, "config", "active_dca.json")
+
+        # 模擬殘留在 active_dca.json 且 YAML 不存在
+        active = {}
+        if os.path.exists(active_path):
+            with open(active_path, "r", encoding="utf-8") as handle:
+                active = json.load(handle)
+        active[ghost_config_path] = False
+        with open(active_path, "w", encoding="utf-8") as handle:
+            json.dump(active, handle)
+
+        self.assertFalse(os.path.exists(os.path.join(self.temp_dir.name, ghost_config_path)))
+
+        # 第一次 DELETE：應成功清理幽靈登記並返回 200
+        del_res = self.client.delete(f"/api/v1/dca/{ghost_bot_id}", headers=self._headers())
+        self.assertEqual(del_res.status_code, 200, del_res.text)
+        self.assertEqual(del_res.json()["status"], "deleted")
+
+        # 驗證 active_dca.json 已不再包含該幽靈條目
+        with open(active_path, "r", encoding="utf-8") as handle:
+            active_after = json.load(handle)
+        self.assertNotIn(ghost_config_path, active_after)
+
+        # 第二次 DELETE：此時磁碟與 active_dca 皆無該機器人，應正常 404
+        del_res_404 = self.client.delete(f"/api/v1/dca/{ghost_bot_id}", headers=self._headers())
+        self.assertEqual(del_res_404.status_code, 404)
+
+    def test_delete_ghost_bot_with_live_heartbeat_is_rejected(self):
+        """殘留但仍有即時心跳時必須 409，且不得停止策略、不得清掉 active/state。"""
+        from web_ui.backend.grid_state_store import GridStateStore
+
+        ghost_bot_id = "dca-binance-long-ghostlive-usdt-20261024000000"
+        ghost_config_path = f"config/dca/{ghost_bot_id}.yaml"
+        active_path = os.path.join(self.temp_dir.name, "config", "active_dca.json")
+        with open(active_path, "w", encoding="utf-8") as handle:
+            json.dump({ghost_config_path: True}, handle)
+        GridStateStore.instance().update(ghost_config_path, {"status": "averaging", "position_quantity": "1"})
+
+        del_res = self.client.delete(f"/api/v1/dca/{ghost_bot_id}", headers=self._headers())
+        self.assertEqual(del_res.status_code, 409, del_res.text)
+        self.assertIn("心跳", del_res.json()["detail"])
+
+        with open(active_path, "r", encoding="utf-8") as handle:
+            self.assertTrue(json.load(handle).get(ghost_config_path))
+        self.assertIsNotNone(GridStateStore.instance().get(ghost_config_path))
+        self.assertIsNone(self.repository.latest_for_grid(ghost_bot_id))
+
+    def test_ghost_read_model_does_not_fabricate_symbol(self):
+        """YAML 遺失時不得把 bot_id 的 '-' 直接當 symbol（ZEC/USDC:USDC ≠ ZEC-USDC-USDC）。"""
+        from web_ui.backend.routes.dca import _build_dca_read_model
+
+        config_path = "config/dca/dca-binance-long-zec-usdc-usdc-20261026002911.yaml"
+        model = _build_dca_read_model(config_path, {config_path: False})
+        self.assertIsNone(model["symbol"])
+        self.assertEqual(model["exchange"], "binance")
+        self.assertEqual(model["direction"], "long")
+
+
+class SafetyGuardCapTests(unittest.TestCase):
+    """併發上限設定（4.15）與 env 覆寫；不需 FastAPI。"""
+
+    def _write_active_dca(self, root: str, entries: dict) -> str:
+        dca_dir = os.path.join(root, "config")
+        os.makedirs(dca_dir, exist_ok=True)
+        path = os.path.join(dca_dir, "active_dca.json")
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(entries, handle)
+        return path
+
+    def test_dca_cap_blocks_n_plus_one(self):
+        from web_ui.backend.safety_guard import SafetyGuard, MAX_CONCURRENT_DCA_BOTS
+        with tempfile.TemporaryDirectory() as root:
+            self._write_active_dca(
+                root,
+                {f"config/dca/d{i}.yaml": True for i in range(MAX_CONCURRENT_DCA_BOTS - 1)},
+            )
+            guard = SafetyGuard(root)
+            self.assertEqual(guard.check_max_dca(), (True, None))
+
+            self._write_active_dca(
+                root,
+                {f"config/dca/d{i}.yaml": True for i in range(MAX_CONCURRENT_DCA_BOTS)},
+            )
+            ok, message = guard.check_max_dca()
+            self.assertFalse(ok)
+            self.assertIn(f"{MAX_CONCURRENT_DCA_BOTS}/{MAX_CONCURRENT_DCA_BOTS}", message)
+
+    def test_stopped_dca_entries_do_not_count(self):
+        from web_ui.backend.safety_guard import SafetyGuard, MAX_CONCURRENT_DCA_BOTS
+        with tempfile.TemporaryDirectory() as root:
+            entries = {f"config/dca/d{i}.yaml": True for i in range(MAX_CONCURRENT_DCA_BOTS - 1)}
+            entries.update({f"config/dca/off{i}.yaml": False for i in range(5)})
+            self._write_active_dca(root, entries)
+            guard = SafetyGuard(root)
+            self.assertEqual(guard.check_max_dca(), (True, None))
+
+    def test_env_override_requires_positive_int(self):
+        from web_ui.backend import safety_guard
+        with patch.dict(os.environ, {"GRID_MAX_TEST_LIMIT": "12"}):
+            self.assertEqual(safety_guard._env_positive_int("GRID_MAX_TEST_LIMIT", 5), 12)
+        for bad in ("abc", "0", "-3", " "):
+            with patch.dict(os.environ, {"GRID_MAX_TEST_LIMIT": bad}):
+                self.assertEqual(safety_guard._env_positive_int("GRID_MAX_TEST_LIMIT", 5), 5)
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("GRID_MAX_TEST_LIMIT", None)
+            self.assertEqual(safety_guard._env_positive_int("GRID_MAX_TEST_LIMIT", 5), 5)
 
 
 if __name__ == "__main__":

@@ -70,7 +70,7 @@ async def get_system_health(_token: str = Depends(verify_token)):
         ts = _BR.get_throttle_stats()
         api_throttle.total_calls = ts.get("total_calls", 0)
         api_throttle.window_current = ts.get("window_current", 0)
-        api_throttle.window_max = ts.get("window_max", 3)
+        api_throttle.window_max = ts.get("window_max", _BR._throttle_max_calls)
     except ImportError:
         pass
 
