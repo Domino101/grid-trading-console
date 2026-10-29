@@ -3,6 +3,7 @@ CoinFull Prime 整合協調服務 (排程調度、生命週期管理與 API 接�
 """
 
 import asyncio
+import inspect
 import logging
 import os
 import json
@@ -1413,17 +1414,33 @@ class CoinFullPrimeService(BaseService):
                 sl_price = 0.0
                 sl_qty = qty
                 sl_oid = ""
+                sl_fee = 0.0
 
                 if adapter and hasattr(adapter, "get_order"):
                     try:
                         sl_res = adapter.get_order(sl_client_id, sym)
-                        sl_ord = (await sl_res) if asyncio.iscoroutine(sl_res) else sl_res
+                        sl_ord = (await sl_res) if (asyncio.iscoroutine(sl_res) or inspect.isawaitable(sl_res)) else sl_res
                         ord_st = getattr(sl_ord, "status", None)
                         if ord_st == OrderStatus.FILLED:
-                            sl_filled = True
-                            sl_price = float(getattr(sl_ord, "average", None) or getattr(sl_ord, "price", None) or 0.0)
-                            sl_qty = float(getattr(sl_ord, "filled", None) or qty)
-                            sl_oid = str(getattr(sl_ord, "id", None) or "")
+                            raw_px = float(getattr(sl_ord, "average", None) or getattr(sl_ord, "price", None) or 0.0)
+                            if raw_px <= 0.0 and getattr(sl_ord, "params", None):
+                                try:
+                                    raw_px = float(sl_ord.params.get("stopPrice") or 0.0)
+                                except Exception:
+                                    pass
+                            if raw_px <= 0.0:
+                                entry_px = float(getattr(entry, "entry_price", 0.0) or 0.0)
+                                raw_px = round(entry_px * 0.88, 4) if entry_px > 0 else 0.0
+
+                            if raw_px > 0.0:
+                                sl_filled = True
+                                sl_price = raw_px
+                                sl_qty = float(getattr(sl_ord, "filled", None) or qty)
+                                sl_oid = str(getattr(sl_ord, "id", None) or "")
+                                if hasattr(sl_ord, "fee") and isinstance(sl_ord.fee, dict):
+                                    sl_fee = float(sl_ord.fee.get("cost", 0.0) or 0.0)
+                            else:
+                                logger.error(f"❌ [持倉對帳異常] {sym} 預掛條件單回報已成交但無法獲取有效價格 (>0)，跳過自動結算")
                     except Exception as sl_chk_err:
                         logger.debug(f"持倉對帳查詢預掛止損單 {sl_client_id} 異常: {sl_chk_err}")
 
@@ -1444,19 +1461,20 @@ class CoinFullPrimeService(BaseService):
                             quantity=sl_qty,
                             reduce_only=True
                         )
-                        stable_key = sl_oid or str(int(now_ts))
+                        stable_key = sl_oid or sl_client_id
                         fill_id = f"sl_{target_acc}_{clean_sym}_{stable_key}"
+                        fill_side = "buy" if str(getattr(entry, "side", "long")).lower() == "short" else "sell"
                         ledger.record_fill(
                             TradeFill(
                                 fill_id=fill_id,
                                 bot_id=bot_id,
                                 exchange_order_id=sl_oid or None,
                                 client_order_id=sl_client_id,
-                                side="sell",
+                                side=fill_side,
                                 role="stop_loss",
                                 price=sl_price,
                                 quantity=sl_qty,
-                                fee=0.0,
+                                fee=sl_fee,
                                 fee_currency="USDT",
                                 realized_pnl=round(float(realized or 0.0), 8),
                                 executed_at=now_ts

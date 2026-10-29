@@ -813,6 +813,8 @@ class BinanceRest(BinanceBase):
                 order_params["clientOrderId"] = str(client_id)
             if "reduce_only" in order_params:
                 order_params["reduceOnly"] = bool(order_params.pop("reduce_only"))
+            if "close_position" in order_params and "closePosition" not in order_params:
+                order_params["closePosition"] = bool(order_params.pop("close_position"))
             if "stop_price" in order_params and "stopPrice" not in order_params:
                 order_params["stopPrice"] = order_params.pop("stop_price")
             
@@ -848,15 +850,20 @@ class BinanceRest(BinanceBase):
                 retry_price, retry_amount = self._quantize_with_rules(
                     refreshed, symbol, side, amount, price
                 )
+                stop_changed = False
                 if refreshed and "stopPrice" in order_params:
-                    retry_stop = refreshed.quantize_price(order_params["stopPrice"], side_str)
+                    orig_stop = order_params["stopPrice"]
+                    retry_stop = refreshed.quantize_price(orig_stop, side_str)
                     if retry_stop is not None:
-                        order_params["stopPrice"] = float(retry_stop)
-                if (retry_price, retry_amount) == (q_price, q_amount):
+                        retry_stop_float = float(retry_stop)
+                        if retry_stop_float != orig_stop:
+                            stop_changed = True
+                            order_params["stopPrice"] = retry_stop_float
+                if (retry_price, retry_amount) == (q_price, q_amount) and not stop_changed:
                     raise
                 if self.logger:
                     self.logger.warning(
-                        f"♻️ [過濾器自癒] {symbol} 以新規則重送: {q_price}@{q_amount} → {retry_price}@{retry_amount}"
+                        f"♻️ [過濾器自癒] {symbol} 以新規則重送: {q_price}@{q_amount} (stopPrice={order_params.get('stopPrice')}) → {retry_price}@{retry_amount}"
                     )
                 retry_amount_float = float(retry_amount) if retry_amount is not None else 0.0
                 order_data = await self._execute_with_retry(

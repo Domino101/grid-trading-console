@@ -3,6 +3,7 @@ CoinFull Prime 一籃子持倉平衡器 (Position Diffing & Order Execution)
 """
 
 import asyncio
+import inspect
 import logging
 import time
 from datetime import datetime, timezone
@@ -427,16 +428,15 @@ class PortfolioRebalancer:
                 continue
             try:
                 oo_res = exchange_adapter.get_open_orders(sym)
-                open_orders = (await oo_res) if asyncio.iscoroutine(oo_res) else oo_res
+                open_orders = (await oo_res) if (asyncio.iscoroutine(oo_res) or inspect.isawaitable(oo_res)) else oo_res
                 for o in open_orders or []:
                     cid = str(getattr(o, "client_id", None) or "")
-                    otype = getattr(o, "type", None)
-                    is_cfp_sl = cid.startswith("cfp_sl_") or cid.startswith("sl_")
-                    is_stop_type = otype in (OrderType.STOP_MARKET, OrderType.STOP, OrderType.STOP_LIMIT)
-                    if is_cfp_sl or is_stop_type:
+                    # 嚴格只撤銷 CoinFull Prime 自有之預掛止損條件單 (cfp_sl_ 前綴)，
+                    # 絕不誤撤使用者手動預掛或外部策略之條件單
+                    if cid.startswith("cfp_sl_"):
                         try:
                             co_res = exchange_adapter.cancel_order(o.id, sym)
-                            if asyncio.iscoroutine(co_res):
+                            if asyncio.iscoroutine(co_res) or inspect.isawaitable(co_res):
                                 await co_res
                             cancelled_count += 1
                             logger.info(f"🗑️ [調倉前撤單] 已撤銷 {sym} 舊止損條件單 id={o.id}, client_id={cid}")
@@ -748,7 +748,9 @@ class PortfolioRebalancer:
                     if not is_paper and hasattr(exchange_adapter, "set_leverage") and not ord_spec.reduce_only:
                         target_lev = max(1, int(round(effective_leverage)))
                         try:
-                            await exchange_adapter.set_leverage(ord_spec.symbol, target_lev)
+                            lev_res = exchange_adapter.set_leverage(ord_spec.symbol, target_lev)
+                            if asyncio.iscoroutine(lev_res) or inspect.isawaitable(lev_res):
+                                await lev_res
                         except Exception as lev_err:
                             logger.warning(f"設置標的 {ord_spec.symbol} 槓桿至 {target_lev}x 警告 (繼續嘗試下單): {lev_err}")
 
@@ -847,7 +849,7 @@ class PortfolioRebalancer:
                                         "clientOrderId": sl_client_id,
                                     }
                                 )
-                                if asyncio.iscoroutine(sl_res):
+                                if asyncio.iscoroutine(sl_res) or inspect.isawaitable(sl_res):
                                     sl_res = await sl_res
                                 sl_id = str(getattr(sl_res, "id", None) or getattr(sl_res, "order_id", None) or "")
                                 logger.info(f"✅ [預設止損已就緒] {ord_spec.symbol} STOP_MARKET 送單成功 id={sl_id}")
@@ -1073,6 +1075,7 @@ class PortfolioRebalancer:
         fee_cost = 0.0
         now_ts = time.time()
         exec_order_id = ""
+        sl_client_id = f"cfp_sl_{clean_sym}"
 
         try:
             market = self._find_exchange_market(exchange_adapter, clean_sym)
@@ -1106,19 +1109,33 @@ class PortfolioRebalancer:
             exec_price = float(getattr(res, "average", None) or getattr(res, "price", None) or current_price)
             if hasattr(res, "fee") and isinstance(res.fee, dict):
                 fee_cost = float(res.fee.get("cost", 0.0) or 0.0)
+
+            # 市價平倉成功後，主動撤銷預掛條件單，避免殘留孤兒條件單引發後續衝突或誤平新倉
+            if exchange_adapter and hasattr(exchange_adapter, "cancel_order"):
+                try:
+                    c_res = exchange_adapter.cancel_order(sl_client_id, clean_sym)
+                    if asyncio.iscoroutine(c_res) or inspect.isawaitable(c_res):
+                        await c_res
+                    logger.info(f"🗑️ [盤中止損成功] 已撤銷預掛條件單: {sl_client_id}")
+                except Exception as ce:
+                    logger.debug(f"撤銷預掛條件單 {sl_client_id} 忽略（可能已不存在或已觸發）: {ce}")
         except Exception as ex:
             handled = False
             # 若收到 -2022 (ReduceOnly 被拒)，代表交易所部位已被平倉（極可能是預掛的 STOP_MARKET 已在交易所成交）
             if ("-2022" in str(ex) or "reduceonly" in str(ex).lower()) and exchange_adapter:
                 try:
                     from core.adapters.exchanges.models import OrderStatus
-                    sl_client_id = f"cfp_sl_{clean_sym}"
                     sl_res = exchange_adapter.get_order(sl_client_id, clean_sym)
-                    sl_order = (await sl_res) if asyncio.iscoroutine(sl_res) else sl_res
+                    sl_order = (await sl_res) if (asyncio.iscoroutine(sl_res) or inspect.isawaitable(sl_res)) else sl_res
                     if sl_order and getattr(sl_order, "status", None) == OrderStatus.FILLED:
-                        exec_price = float(getattr(sl_order, "average", None) or getattr(sl_order, "price", None) or current_price)
+                        raw_avg = float(getattr(sl_order, "average", None) or getattr(sl_order, "price", None) or 0.0)
+                        if raw_avg <= 0.0 and getattr(sl_order, "params", None):
+                            raw_avg = float(sl_order.params.get("stopPrice") or 0.0)
+                        exec_price = raw_avg if raw_avg > 0.0 else (current_price if current_price > 0.0 else round(entry_price * 0.88, 4))
                         exec_amount = float(getattr(sl_order, "filled", None) or qty_to_close)
                         exec_order_id = str(getattr(sl_order, "id", None) or "")
+                        if hasattr(sl_order, "fee") and isinstance(sl_order.fee, dict):
+                            fee_cost = float(sl_order.fee.get("cost", 0.0) or 0.0)
                         handled = True
                         logger.info(
                             f"🎯 [盤中止損反查確認] {clean_sym} 預掛 STOP_MARKET 已在交易所成交平倉 "
@@ -1146,10 +1163,10 @@ class PortfolioRebalancer:
         except Exception as ex:
             logger.error(f"❌ [盤中止損結算失敗] {clean_sym}: {ex}")
 
-        # 記錄成交流水與事件；fill_id 優先使用交易所 order id，避免時間戳造成重複入帳。
+        # 記錄成交流水與事件；fill_id 優先使用交易所 order id，次選業務鍵 sl_client_id，禁用毫秒時間戳。
         try:
             from core.infrastructure.database.models import TradeFill
-            stable_key = exec_order_id or str(int(now_ts))
+            stable_key = exec_order_id or sl_client_id
             fill_id = f"sl_{account_id}_{clean_sym}_{stable_key}"
             ledger.record_fill(
                 TradeFill(

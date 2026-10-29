@@ -183,9 +183,19 @@ class TestCoinFullPrimeStopMarket(unittest.TestCase):
             price=Decimal("30"),
             status=OrderStatus.OPEN,
         )
+        old_order_3 = _make_order(
+            id="order-333",
+            client_id="manual_stop_user_sl",
+            symbol="AVAXUSDT",
+            side=OrderSide.SELL,
+            type=OrderType.STOP_MARKET,
+            amount=Decimal("3"),
+            price=Decimal("18"),
+            status=OrderStatus.OPEN,
+        )
 
         mock_adapter = MagicMock()
-        mock_adapter.get_open_orders = AsyncMock(return_value=[old_order_1, old_order_2])
+        mock_adapter.get_open_orders = AsyncMock(return_value=[old_order_1, old_order_2, old_order_3])
         mock_adapter.cancel_order = AsyncMock(return_value=old_order_1)
         mock_adapter.name = "binance_live"
 
@@ -195,6 +205,7 @@ class TestCoinFullPrimeStopMarket(unittest.TestCase):
             protected_symbols={"BTCUSDT"}  # BTC is protected
         ))
 
+        # 僅撤銷 cfp_sl_ 前綴的條件單，絕不誤撤 manual_stop_user_sl 或 grid 訂單
         self.assertEqual(count, 1)
         mock_adapter.cancel_order.assert_called_once_with("order-111", "AVAXUSDT")
 
@@ -391,6 +402,194 @@ class TestCoinFullPrimeStopMarket(unittest.TestCase):
         self.assertEqual(len(fake_ledger.apply_calls), 1)
         self.assertEqual(len(fake_ledger.recorded_fills), 1)
         self.assertEqual(fake_ledger.recorded_fills[0].exchange_order_id, "sl-near-777")
+
+    def test_execute_stop_loss_cancels_pending_pre_placed_stop_order(self):
+        """驗證市價硬止損成功撮合後，主動撤銷交易所端的預掛條件單，防止殘留孤兒單。"""
+        rebalancer = PortfolioRebalancer(config={
+            "portfolio": {"total_capital_usdt": 1000, "dry_run": False},
+            "risk_control": {"intra_week_stop_loss_pct": -0.12}
+        })
+
+        entry = BasketEntry(
+            bot_id="coinfull_prime:binance_live",
+            account_id="binance_live",
+            symbol="NEARUSDT",
+            side="long",
+            quantity=50.0,
+            entry_price=5.0,
+            notional_usdt=250.0,
+            status="active"
+        )
+        fake_ledger = _MockLedger([entry])
+
+        market_order = _make_order(
+            id="mkt-fill-123",
+            symbol="NEARUSDT",
+            side=OrderSide.SELL,
+            type=OrderType.MARKET,
+            amount=Decimal("50.0"),
+            price=Decimal("4.35"),
+            average=Decimal("4.35"),
+            filled=Decimal("50.0"),
+            status=OrderStatus.FILLED,
+        )
+
+        mock_adapter = MagicMock()
+        mock_adapter.create_order = AsyncMock(return_value=market_order)
+        mock_adapter.cancel_order = AsyncMock(return_value=None)
+        mock_adapter._market_info = {
+            "NEARUSDT": {
+                "id": "NEARUSDT",
+                "symbol": "NEAR/USDT:USDT",
+                "linear": True,
+                "precision": {"amount": "1", "price": "0.001"}
+            }
+        }
+
+        with patch("core.infrastructure.database.strategy_ledger.StrategyLedger.instance", return_value=fake_ledger):
+            res = asyncio.run(rebalancer.execute_stop_loss(
+                symbol="NEARUSDT",
+                account_id="binance_live",
+                current_price=4.35,
+                exchange_adapter=mock_adapter,
+                dry_run=False
+            ))
+
+        self.assertEqual(res["status"], "filled")
+        self.assertEqual(len(fake_ledger.apply_calls), 1)
+        # 驗證主動調用 cancel_order 撤銷預掛條件單 cfp_sl_NEARUSDT
+        mock_adapter.cancel_order.assert_called_once_with("cfp_sl_NEARUSDT", "NEARUSDT")
+
+    def test_reconciler_syncs_filled_stop_market_with_zero_price_fallback(self):
+        """驗證預掛單回報 average/price 為 0 時，自動退回 stopPrice 或進場價計算，杜絕 0 價格入帳。"""
+        service = CoinFullPrimeService(config_path="config/coinfull_prime/universe.yaml")
+
+        entry = BasketEntry(
+            bot_id="coinfull_prime:binance_live",
+            account_id="binance_live",
+            symbol="LINKUSDT",
+            side="long",
+            quantity=10.0,
+            entry_price=15.0,
+            notional_usdt=150.0,
+            status="active"
+        )
+        fake_ledger = _MockLedger([entry])
+
+        # 模擬交易所市價條件單 average 與 price 均為 None / 0，但 params 帶有 stopPrice 13.2
+        sl_order = _make_order(
+            id="sl-zero-px-999",
+            client_id="cfp_sl_LINKUSDT",
+            symbol="LINKUSDT",
+            side=OrderSide.SELL,
+            type=OrderType.STOP_MARKET,
+            amount=Decimal("10.0"),
+            price=Decimal("0.0"),
+            average=Decimal("0.0"),
+            filled=Decimal("10.0"),
+            status=OrderStatus.FILLED,
+            params={"stopPrice": 13.2}
+        )
+
+        mock_adapter = MagicMock()
+        mock_adapter.get_order = AsyncMock(return_value=sl_order)
+
+        with patch.object(service, "get_positions", AsyncMock(return_value=[])):
+            with patch.object(service, "load_basket_entries", return_value=[entry]):
+                with patch.object(service, "_ledger", return_value=fake_ledger):
+                    with patch.object(service, "_export_basket_mirror"):
+                        result = asyncio.run(service.reconcile_positions(
+                            account_id="binance_live",
+                            adapter=mock_adapter
+                        ))
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(len(result["reconciled_stop_losses"]), 1)
+        # 價格應回退至 13.2，不得為 0.0
+        self.assertEqual(result["reconciled_stop_losses"][0]["price"], 13.2)
+        self.assertEqual(fake_ledger.apply_calls[0]["price"], 13.2)
+        # fill_id 必須為穩定業務鍵，不可含時間戳
+        self.assertEqual(fake_ledger.recorded_fills[0].fill_id, "sl_binance_live_LINKUSDT_sl-zero-px-999")
+
+    def test_binance_rest_create_order_retries_on_stop_price_filter_rejection(self):
+        """驗證 BinanceRest 在 stopPrice 觸發過濾器錯誤時能重新量化並成功重送。"""
+        from types import SimpleNamespace
+        from core.adapters.exchanges.adapters.binance_rest import BinanceRest
+        from core.adapters.exchanges.interface import ExchangeConfig, ExchangeType
+        from core.adapters.exchanges.market_rules import MarketRules
+
+        cfg = ExchangeConfig(
+            exchange_id="binance",
+            name="Binance",
+            exchange_type=ExchangeType.FUTURES,
+            api_key="test",
+            api_secret="test",
+        )
+        adapter = BinanceRest(cfg, logger=None)
+        adapter.exchange = MagicMock()
+        adapter.logger = MagicMock()
+        adapter.parse_order = lambda data, symbol: SimpleNamespace(
+            id=str(data.get("id")) if isinstance(data, dict) else None, symbol=symbol
+        )
+
+        # 初始過濾器 tick=0.01，刷新後 tick=0.1
+        rule_old = MarketRules(
+            symbol="BTCUSDT",
+            price_tick=Decimal("0.01"),
+            qty_step=Decimal("0.001"),
+            min_notional=Decimal("5"),
+            fetched_at=time.time()
+        )
+        rule_new = MarketRules(
+            symbol="BTCUSDT",
+            price_tick=Decimal("0.1"),
+            qty_step=Decimal("0.001"),
+            min_notional=Decimal("5"),
+            fetched_at=time.time()
+        )
+
+        call_count = 0
+        async def mock_rules(sym, force_refresh=False):
+            nonlocal call_count
+            call_count += 1
+            return rule_new if force_refresh else rule_old
+
+        adapter._market_rules = mock_rules
+        adapter.map_symbol_to_binance = MagicMock(return_value="BTCUSDT")
+
+        # 第一次模擬幣安拒單 -4014，第二次成功
+        first_call = True
+        async def mock_create(*args, **kwargs):
+            nonlocal first_call
+            if first_call:
+                first_call = False
+                raise Exception("binance -4014: Price not increased by tick size")
+            return {
+                "id": "ord-retry-ok",
+                "clientOrderId": "cfp_sl_BTCUSDT",
+                "symbol": "BTCUSDT",
+                "side": "SELL",
+                "type": "STOP_MARKET",
+                "origQty": "0.1",
+                "executedQty": "0",
+                "status": "NEW",
+                "price": "0",
+                "stopPrice": "60000.1",
+            }
+
+        adapter._execute_with_retry = AsyncMock(side_effect=mock_create)
+
+        order = asyncio.run(adapter.create_order(
+            symbol="BTCUSDT",
+            side=OrderSide.SELL,
+            order_type=OrderType.STOP_MARKET,
+            amount=Decimal("0.1"),
+            price=None,
+            params={"stopPrice": 60000.05, "closePosition": True, "clientOrderId": "cfp_sl_BTCUSDT"}
+        ))
+
+        self.assertEqual(order.id, "ord-retry-ok")
+        self.assertEqual(adapter._execute_with_retry.call_count, 2)
 
 
 if __name__ == "__main__":

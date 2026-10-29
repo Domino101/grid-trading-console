@@ -18,11 +18,11 @@
 ### Added
 - **CoinFull Prime 預掛 STOP_MARKET 止損架構與生命週期管理 (Pre-placed STOP_MARKET Architecture)**：
   - **調倉管線接入 STOP_MARKET**：在 `PortfolioRebalancer.rebalance_pipeline`（`execute_rebalance`）於多頭買入開倉/調倉成交後，直接向幣安發送帶有精確量化 `stopPrice` 的 `STOP_MARKET` (`closePosition=True`) 條件單（命名契約 `cfp_sl_{symbol}`），實現交易所服務端秒級觸發硬止損，擺脫單純依賴本機巡檢輪詢的延遲。
-  - **調倉前舊條件單批量撤銷**：在執行新一輪換倉平倉與開倉前，自動撤銷受管標的之舊 `cfp_sl_*` 條件單，且嚴格保護外部網格/DCA 標的訂單不被誤撤。
-  - **Reconciler 觸發成交記帳同步**：持倉對帳程序 `reconcile_positions()` 偵測到交易所部位歸零且反查預掛 `cfp_sl_*` 條件單已 `FILLED` 時，自動調用 `StrategyLedger.apply_basket_fill(..., reduce_only=True)` 結算已實現損益、補齊 `TradeFill` 流水（role=`stop_loss`）與 `stop_loss` 事件，並更新檔案鏡像。
-  - **動態止損 -2022 自癒處置**：`execute_stop_loss()` 遇幣安 `-2022 ReduceOnly Order is rejected` 報錯時，主動反查預掛條件單是否已成交；確認已成交後直接平滑過渡至帳本結算，防止籃子狀態滯留為 active。
-  - **過濾器精確量化邊界**：`BinanceRest.create_order` 自動依即時市場過濾器規則量化 `order_params["stopPrice"]`，重試時自動更新，徹底杜絕 `-4014` 拒單。
-  - 新增 `tests/test_coinfull_prime_stop_market.py` 完整覆蓋上述場景（6 項單元測試均 100% 通過）。
+  - **調倉前舊條件單批量撤銷**：在執行新一輪換倉平倉與開倉前，自動撤銷受管標的之舊 `cfp_sl_*` 條件單，嚴格鎖定 `cfp_sl_` 命名空間，杜絕誤撤使用者手動預掛或其他策略之條件單。
+  - **Reconciler 觸發成交記帳同步**：持倉對帳程序 `reconcile_positions()` 偵測到交易所部位歸零且反查預掛 `cfp_sl_*` 條件單已 `FILLED` 時，自動調用 `StrategyLedger.apply_basket_fill(..., reduce_only=True)` 結算已實現損益、補齊 `TradeFill` 流水（role=`stop_loss`，並以穩定業務鍵 `sl_client_id` 保證冪等）與 `stop_loss` 事件，並更新檔案鏡像。
+  - **動態止損 -2022 自癒處置與孤兒單清理**：`execute_stop_loss()` 遇幣安 `-2022 ReduceOnly Order is rejected` 報錯時，主動反查預掛條件單是否已成交並完成帳本結算；若市價單成交平倉成功，則主動撤銷交易所端的預掛條件單，防止殘留孤兒單。
+  - **過濾器精確量化邊界**：`BinanceRest.create_order` 自動依即時市場過濾器規則量化 `order_params["stopPrice"]`，修正 -4014 觸發時之重試判斷，重試時自動更新，徹底杜絕 `-4014` 拒單。
+  - 新增 `tests/test_coinfull_prime_stop_market.py` 完整覆蓋上述場景（9 項單元測試均 100% 通過）。
 
 ## [0.3.15] — 2026-10-22
 
