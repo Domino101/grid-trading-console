@@ -813,6 +813,8 @@ class BinanceRest(BinanceBase):
                 order_params["clientOrderId"] = str(client_id)
             if "reduce_only" in order_params:
                 order_params["reduceOnly"] = bool(order_params.pop("reduce_only"))
+            if "stop_price" in order_params and "stopPrice" not in order_params:
+                order_params["stopPrice"] = order_params.pop("stop_price")
             
             side_str = side.value.lower() if hasattr(side, "value") else str(side).lower()
             order_type_str = self.ORDER_TYPE_MAPPING.get(order_type, getattr(order_type, "value", str(order_type)).upper())
@@ -820,14 +822,19 @@ class BinanceRest(BinanceBase):
             # 🔥 送單前一律依 live tickSize/stepSize 量化（單一委託建構邊界）
             rules = await self._market_rules(symbol)
             q_price, q_amount = self._quantize_with_rules(rules, symbol, side, amount, price)
+            if rules and "stopPrice" in order_params:
+                q_stop = rules.quantize_price(order_params["stopPrice"], side_str)
+                if q_stop is not None:
+                    order_params["stopPrice"] = float(q_stop)
 
+            amount_float = float(q_amount) if q_amount is not None else 0.0
             try:
                 order_data = await self._execute_with_retry(
                     self.exchange.create_order,
                     mapped_symbol,
                     order_type_str,
                     side_str,
-                    float(q_amount),
+                    amount_float,
                     float(q_price) if q_price else None,
                     order_params
                 )
@@ -841,18 +848,23 @@ class BinanceRest(BinanceBase):
                 retry_price, retry_amount = self._quantize_with_rules(
                     refreshed, symbol, side, amount, price
                 )
+                if refreshed and "stopPrice" in order_params:
+                    retry_stop = refreshed.quantize_price(order_params["stopPrice"], side_str)
+                    if retry_stop is not None:
+                        order_params["stopPrice"] = float(retry_stop)
                 if (retry_price, retry_amount) == (q_price, q_amount):
                     raise
                 if self.logger:
                     self.logger.warning(
                         f"♻️ [過濾器自癒] {symbol} 以新規則重送: {q_price}@{q_amount} → {retry_price}@{retry_amount}"
                     )
+                retry_amount_float = float(retry_amount) if retry_amount is not None else 0.0
                 order_data = await self._execute_with_retry(
                     self.exchange.create_order,
                     mapped_symbol,
                     order_type_str,
                     side_str,
-                    float(retry_amount),
+                    retry_amount_float,
                     float(retry_price) if retry_price else None,
                     order_params
                 )

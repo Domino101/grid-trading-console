@@ -461,7 +461,12 @@ class PaperExchangeAdapter(ExchangeInterface):
         side_val = getattr(side, "value", str(side)).lower()
         type_val = getattr(order_type, "value", str(order_type)).lower()
         side_enum = OrderSide.BUY if side_val in ("buy", "long") else OrderSide.SELL
-        type_enum = OrderType.MARKET if type_val == "market" else OrderType.LIMIT
+        if type_val == "market":
+            type_enum = OrderType.MARKET
+        elif type_val in ("stop_market", "stop", "stop_limit"):
+            type_enum = OrderType.STOP_MARKET
+        else:
+            type_enum = OrderType.LIMIT
 
         async with self._lock:
             if symbol not in self._last:
@@ -504,7 +509,12 @@ class PaperExchangeAdapter(ExchangeInterface):
                 self._orders[order_id] = order
                 crossed = self._should_fill(order, self._last[symbol])
                 if crossed:
-                    self._fill(order, order.price or self._last[symbol])
+                    fill_px = (
+                        _as_decimal(order.params.get("stopPrice"))
+                        if (order.params and order.type == OrderType.STOP_MARKET)
+                        else (order.price or self._last[symbol])
+                    )
+                    self._fill(order, fill_px)
                     self._orders.pop(order_id, None)
             self._refresh_position_cache(symbol, self._last[symbol])
         if order.status == OrderStatus.FILLED:
@@ -512,6 +522,16 @@ class PaperExchangeAdapter(ExchangeInterface):
         return order
 
     def _should_fill(self, order: OrderData, last: Decimal) -> bool:
+        if order.type in (OrderType.STOP_MARKET, OrderType.STOP, OrderType.STOP_LIMIT):
+            stop_px = _as_decimal(order.params.get("stopPrice")) if order.params else None
+            if stop_px is None:
+                stop_px = order.price
+            if stop_px is None:
+                return False
+            if order.side == OrderSide.BUY:
+                return last >= stop_px
+            return last <= stop_px
+
         if order.price is None:
             return True
         if order.side == OrderSide.BUY:

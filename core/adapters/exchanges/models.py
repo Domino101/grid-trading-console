@@ -33,6 +33,7 @@ class OrderType(Enum):
     LIMIT = "limit"                  # 限价单
     STOP = "stop"                    # 止损单
     STOP_LIMIT = "stop_limit"        # 止损限价单
+    STOP_MARKET = "stop_market"      # 市价止损条件单
     TAKE_PROFIT = "take_profit"      # 止盈单
     TAKE_PROFIT_LIMIT = "take_profit_limit"  # 止盈限价单
     IOC = "ioc"                      # 立即成交或撤销
@@ -298,6 +299,11 @@ class TickerData:
                 except (ValueError, TypeError, OSError):
                     # 转换失败时保持None
                     setattr(self, field_name, None)
+
+    @property
+    def last_price(self) -> Optional[Decimal]:
+        """最新價格相容屬性（優先返回 last，次選 close）"""
+        return self.last if self.last is not None else self.close
 
     @property
     def spread(self) -> Optional[Decimal]:

@@ -1390,8 +1390,15 @@ class CoinFullPrimeService(BaseService):
             if p.get("symbol")
         }
 
+        bot_id = self._basket_bot_id(target_acc)
+        ledger = self._ledger()
+        from core.adapters.exchanges.models import OrderStatus
+        from core.infrastructure.database.models import TradeFill
+
         missing: List[str] = []
         mismatch: List[Dict[str, Any]] = []
+        reconciled_stop_losses: List[Dict[str, Any]] = []
+
         for sym, entry in ledger_map.items():
             qty = float(getattr(entry, "quantity", 0.0) or 0.0)
             if qty <= 0:
@@ -1399,6 +1406,90 @@ class CoinFullPrimeService(BaseService):
             pos = exchange_map.get(sym)
             exchange_signed = float(pos.get("signed_size", 0.0)) if pos else 0.0
             if not pos or abs(exchange_signed) < 1e-8:
+                # 檢查是否因預掛之 STOP_MARKET 止損條件單已在交易所成交平倉
+                clean_sym = PortfolioRebalancer._normalize_symbol(sym)
+                sl_client_id = f"cfp_sl_{clean_sym}"
+                sl_filled = False
+                sl_price = 0.0
+                sl_qty = qty
+                sl_oid = ""
+
+                if adapter and hasattr(adapter, "get_order"):
+                    try:
+                        sl_res = adapter.get_order(sl_client_id, sym)
+                        sl_ord = (await sl_res) if asyncio.iscoroutine(sl_res) else sl_res
+                        ord_st = getattr(sl_ord, "status", None)
+                        if ord_st == OrderStatus.FILLED:
+                            sl_filled = True
+                            sl_price = float(getattr(sl_ord, "average", None) or getattr(sl_ord, "price", None) or 0.0)
+                            sl_qty = float(getattr(sl_ord, "filled", None) or qty)
+                            sl_oid = str(getattr(sl_ord, "id", None) or "")
+                    except Exception as sl_chk_err:
+                        logger.debug(f"持倉對帳查詢預掛止損單 {sl_client_id} 異常: {sl_chk_err}")
+
+                if sl_filled:
+                    # 補齊觸發成交後的記帳同步邏輯（均價法結算 + trade_fills + bot_events）
+                    logger.info(
+                        f"🎯 [持倉對帳同步] 偵測到 {sym} 預掛 STOP_MARKET 已在交易所成交平倉 "
+                        f"(id={sl_oid}, price={sl_price}, qty={sl_qty})，同步結算帳本..."
+                    )
+                    now_ts = time.time()
+                    try:
+                        realized = ledger.apply_basket_fill(
+                            bot_id=bot_id,
+                            account_id=target_acc,
+                            symbol=sym,
+                            side=str(getattr(entry, "side", "long")),
+                            price=sl_price,
+                            quantity=sl_qty,
+                            reduce_only=True
+                        )
+                        stable_key = sl_oid or str(int(now_ts))
+                        fill_id = f"sl_{target_acc}_{clean_sym}_{stable_key}"
+                        ledger.record_fill(
+                            TradeFill(
+                                fill_id=fill_id,
+                                bot_id=bot_id,
+                                exchange_order_id=sl_oid or None,
+                                client_order_id=sl_client_id,
+                                side="sell",
+                                role="stop_loss",
+                                price=sl_price,
+                                quantity=sl_qty,
+                                fee=0.0,
+                                fee_currency="USDT",
+                                realized_pnl=round(float(realized or 0.0), 8),
+                                executed_at=now_ts
+                            )
+                        )
+                        ledger.append_event(
+                            bot_id,
+                            event_type="stop_loss",
+                            payload={
+                                "symbol": sym,
+                                "source": "reconciler_sync",
+                                "entry_price": float(getattr(entry, "entry_price", 0.0) or 0.0),
+                                "exit_price": sl_price,
+                                "quantity": sl_qty,
+                                "realized_pnl": realized,
+                                "exchange_order_id": sl_oid or None,
+                                "client_order_id": sl_client_id,
+                                "message": f"Pre-placed STOP_MARKET triggered on exchange; reconciled for {sym} at {sl_price}",
+                            },
+                            dedupe_key=f"sl:{target_acc}:{clean_sym}:{stable_key}"
+                        )
+                        self._export_basket_mirror(target_acc)
+                        reconciled_stop_losses.append({
+                            "symbol": sym,
+                            "order_id": sl_oid,
+                            "price": sl_price,
+                            "quantity": sl_qty,
+                            "realized_pnl": realized
+                        })
+                        continue
+                    except Exception as sync_err:
+                        logger.error(f"❌ [持倉對帳同步結算失敗] {sym}: {sync_err}")
+
                 missing.append(sym)
                 continue
             ledger_signed = qty if str(getattr(entry, "side", "long")).lower() == "long" else -qty
@@ -1426,6 +1517,7 @@ class CoinFullPrimeService(BaseService):
             "exchange_count": len(positions),
             "missing_on_exchange": missing,
             "quantity_mismatch": mismatch,
+            "reconciled_stop_losses": reconciled_stop_losses,
             "unmanaged_on_exchange": unmanaged,
             "protected_on_exchange": protected,
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -1943,8 +2035,10 @@ class CoinFullPrimeService(BaseService):
             for s in symbols:
                 try:
                     ticker = await adapter.get_ticker(s)
-                    if ticker and ticker.last_price:
-                        prices[s] = float(ticker.last_price)
+                    if ticker:
+                        last_px = getattr(ticker, 'last', None) or getattr(ticker, 'close', None)
+                        if last_px is not None:
+                            prices[s] = float(last_px)
                 except Exception:
                     pass
 

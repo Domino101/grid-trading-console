@@ -8,6 +8,22 @@
 - **併發上限放寬 + 環境變數化**：`SafetyGuard` 的 `MAX_CONCURRENT_DCA_BOTS` 由 5 提高到 10、`MAX_CONCURRENT_COMBINED_BOTS` 由 20 提高到 30（網格維持 10），並改為讀取 `GRID_MAX_DCA_BOTS` / `GRID_MAX_COMBINED_BOTS` / `GRID_MAX_GRIDS`（預設 10/30/10；非正整數或格式錯誤告警後沿用預設，不得讓護欄設定錯誤封鎖 API）。
 - **Binance REST 全局限速器**由 5 次/5 秒提高到 8 次/5 秒（約 96 次/分鐘，仍低於交易所 2400 權重/分鐘）；`/api/v1/system/health` 的 `api_throttle.window_max` 不再寫死 fallback 3。
 
+## [0.3.16] — 2026-10-29
+
+### Fixed
+- **CoinFull Prime 盤中硬止損與報價取值修復 (Stop-Loss Quoting Bugfix)**：
+  - **報價取值修復**：修復 `service.py` 與 `rebalancer.py` 中 `ticker.last_price` 因 `TickerData` 屬性缺失引發例外並退回空價格，導致 -12% 盤中止損巡檢跳過不生效的致命問題。全面更正為 `getattr(ticker, 'last', None) or getattr(ticker, 'close', None)`。
+  - **模型相容性增強**：於 `core/adapters/exchanges/models.py::TickerData` 新增 `@property def last_price` 向上相容屬性（優先取 `last`，次選 `close`），在適配器模型層徹底防範後續呼叫屬性缺失風險。
+
+### Added
+- **CoinFull Prime 預掛 STOP_MARKET 止損架構與生命週期管理 (Pre-placed STOP_MARKET Architecture)**：
+  - **調倉管線接入 STOP_MARKET**：在 `PortfolioRebalancer.rebalance_pipeline`（`execute_rebalance`）於多頭買入開倉/調倉成交後，直接向幣安發送帶有精確量化 `stopPrice` 的 `STOP_MARKET` (`closePosition=True`) 條件單（命名契約 `cfp_sl_{symbol}`），實現交易所服務端秒級觸發硬止損，擺脫單純依賴本機巡檢輪詢的延遲。
+  - **調倉前舊條件單批量撤銷**：在執行新一輪換倉平倉與開倉前，自動撤銷受管標的之舊 `cfp_sl_*` 條件單，且嚴格保護外部網格/DCA 標的訂單不被誤撤。
+  - **Reconciler 觸發成交記帳同步**：持倉對帳程序 `reconcile_positions()` 偵測到交易所部位歸零且反查預掛 `cfp_sl_*` 條件單已 `FILLED` 時，自動調用 `StrategyLedger.apply_basket_fill(..., reduce_only=True)` 結算已實現損益、補齊 `TradeFill` 流水（role=`stop_loss`）與 `stop_loss` 事件，並更新檔案鏡像。
+  - **動態止損 -2022 自癒處置**：`execute_stop_loss()` 遇幣安 `-2022 ReduceOnly Order is rejected` 報錯時，主動反查預掛條件單是否已成交；確認已成交後直接平滑過渡至帳本結算，防止籃子狀態滯留為 active。
+  - **過濾器精確量化邊界**：`BinanceRest.create_order` 自動依即時市場過濾器規則量化 `order_params["stopPrice"]`，重試時自動更新，徹底杜絕 `-4014` 拒單。
+  - 新增 `tests/test_coinfull_prime_stop_market.py` 完整覆蓋上述場景（6 項單元測試均 100% 通過）。
+
 ## [0.3.15] — 2026-10-22
 
 ### Security

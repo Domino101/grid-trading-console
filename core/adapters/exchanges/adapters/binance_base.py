@@ -82,6 +82,7 @@ class BinanceBase:
         OrderType.LIMIT: 'LIMIT',
         OrderType.STOP: 'STOP',
         OrderType.STOP_LIMIT: 'STOP_MARKET',  # Binance的STOP_MARKET对应我们的STOP_LIMIT
+        OrderType.STOP_MARKET: 'STOP_MARKET',  # 币安市价止损条件单
         OrderType.TAKE_PROFIT: 'TAKE_PROFIT',
         OrderType.TAKE_PROFIT_LIMIT: 'TAKE_PROFIT_MARKET'  # Binance的TAKE_PROFIT_MARKET对应我们的TAKE_PROFIT_LIMIT
     }

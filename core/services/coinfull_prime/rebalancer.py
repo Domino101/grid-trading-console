@@ -363,6 +363,90 @@ class PortfolioRebalancer:
 
         return clean_amt, None
 
+    @staticmethod
+    def _quantize_order_price(price: float, market: Optional[dict], side: str = "sell") -> float:
+        """依交易所合約之價格精度（precision.price / tickSize）對齊價格。"""
+        if not market or price <= 0:
+            return round(price, 4)
+
+        from decimal import Decimal, ROUND_CEILING, ROUND_DOWN
+        tick = None
+        filters = market.get("filters") or []
+        if not filters and isinstance(market.get("info"), dict):
+            filters = market["info"].get("filters") or market["info"].get("filterList") or []
+        for item in filters or []:
+            if isinstance(item, dict) and str(item.get("filterType") or item.get("filter_type") or "") == "PRICE_FILTER":
+                t_val = item.get("tickSize") or item.get("tick_size")
+                if t_val:
+                    try:
+                        tick = Decimal(str(t_val))
+                    except Exception:
+                        pass
+                break
+
+        if tick is None:
+            p_val = market.get("precision", {}).get("price") if isinstance(market.get("precision"), dict) else None
+            if p_val is not None:
+                try:
+                    dec_val = Decimal(str(p_val))
+                    if dec_val < 1:
+                        tick = dec_val
+                    else:
+                        tick = Decimal("10") ** (-int(dec_val))
+                except Exception:
+                    pass
+
+        if tick is not None and tick > 0:
+            px_dec = Decimal(str(price))
+            rounding = ROUND_CEILING if side.lower() in ("sell", "short") else ROUND_DOWN
+            steps = (px_dec / tick).to_integral_value(rounding=rounding)
+            if steps <= 0:
+                steps = Decimal(1)
+            return float(steps * tick)
+
+        return round(price, 4)
+
+    async def _cancel_existing_stop_orders(
+        self,
+        exchange_adapter: Optional[ExchangeInterface],
+        symbols: Set[str],
+        protected_symbols: Optional[Set[str]] = None,
+    ) -> int:
+        """調倉前批量撤銷舊條件單（僅針對非外部保護標的，且 client_id 以 cfp_sl_ 開頭或屬條件單）。"""
+        if not exchange_adapter or self._is_paper_adapter(exchange_adapter):
+            return 0
+        if not hasattr(exchange_adapter, "get_open_orders") or not hasattr(exchange_adapter, "cancel_order"):
+            return 0
+
+        clean_protected, clean_protected_base = self._protected_sets(protected_symbols)
+        cancelled_count = 0
+        clean_symbols = {self._normalize_symbol(s) for s in symbols if s}
+
+        for sym in clean_symbols:
+            if self._is_protected_symbol(sym, clean_protected, clean_protected_base):
+                continue
+            try:
+                oo_res = exchange_adapter.get_open_orders(sym)
+                open_orders = (await oo_res) if asyncio.iscoroutine(oo_res) else oo_res
+                for o in open_orders or []:
+                    cid = str(getattr(o, "client_id", None) or "")
+                    otype = getattr(o, "type", None)
+                    is_cfp_sl = cid.startswith("cfp_sl_") or cid.startswith("sl_")
+                    is_stop_type = otype in (OrderType.STOP_MARKET, OrderType.STOP, OrderType.STOP_LIMIT)
+                    if is_cfp_sl or is_stop_type:
+                        try:
+                            co_res = exchange_adapter.cancel_order(o.id, sym)
+                            if asyncio.iscoroutine(co_res):
+                                await co_res
+                            cancelled_count += 1
+                            logger.info(f"🗑️ [調倉前撤單] 已撤銷 {sym} 舊止損條件單 id={o.id}, client_id={cid}")
+                        except Exception as ce:
+                            logger.warning(f"撤銷 {sym} 舊條件單 {o.id} 警告（可能已成交或撤銷）: {ce}")
+            except Exception as ex:
+                logger.warning(f"查詢 {sym} 開放訂單失敗（調倉前撤銷條件單）: {ex}")
+
+        return cancelled_count
+
     async def execute_rebalance(
         self,
         rank_result: UniverseRankResult,
@@ -485,8 +569,10 @@ class PortfolioRebalancer:
                 if s not in prices:
                     try:
                         ticker = await exchange_adapter.get_ticker(s)
-                        if ticker and ticker.last_price:
-                            prices[s] = float(ticker.last_price)
+                        if ticker:
+                            last_px = getattr(ticker, 'last', None) or getattr(ticker, 'close', None)
+                            if last_px is not None:
+                                prices[s] = float(last_px)
                     except Exception:
                         pass
 
@@ -605,6 +691,18 @@ class PortfolioRebalancer:
             report.error = "未提供有效之交易所適配器實例"
             return report
 
+        # 4.0 調倉前批量撤銷舊條件單（避免舊條件單干擾平倉與新換倉）
+        rebalance_symbols = (
+            set(managed_symbols or set())
+            | set(current_positions.keys())
+            | {o.symbol for o in report.orders}
+        )
+        await self._cancel_existing_stop_orders(
+            exchange_adapter=exchange_adapter,
+            symbols=rebalance_symbols,
+            protected_symbols=protected_symbols
+        )
+
         sem = asyncio.Semaphore(3)
         # 本批換倉的已實現損益與手續費累積（由籃子均價法結算，寫入事件供稽核重算）
         realized_by_symbol: Dict[str, float] = {}
@@ -718,6 +816,46 @@ class PortfolioRebalancer:
                             executed_at=now_ts
                         )
                         ledger.record_fill(fill)
+
+                        # 4.2 若為多頭買入開倉/調倉成交，發送精確量化 stopPrice 的 STOP_MARKET (closePosition=True) 條件單
+                        if ord_spec.side == "buy" and not ord_spec.reduce_only and exchange_adapter:
+                            try:
+                                risk_cfg = self.config.get("risk_control", {}) or {}
+                                sl_pct = float(risk_cfg.get("intra_week_stop_loss_pct", -0.12))
+                                abs_sl = abs(sl_pct)
+                                if abs_sl > 1.0:
+                                    abs_sl /= 100.0
+                                raw_stop_price = exec_price * (1.0 - abs_sl)
+                                quantized_stop_price = self._quantize_order_price(raw_stop_price, market, side="sell")
+                                clean_sym = self._normalize_symbol(ord_spec.symbol)
+                                sl_client_id = f"cfp_sl_{clean_sym}"
+
+                                logger.info(
+                                    f"🛡️ [預設止損] 為 {ord_spec.symbol} 掛載 STOP_MARKET 條件單: "
+                                    f"進場價={exec_price}, stopPrice={quantized_stop_price} (-{abs_sl*100:.1f}%), "
+                                    f"clientOrderId={sl_client_id}"
+                                )
+                                sl_res = exchange_adapter.create_order(
+                                    symbol=ord_spec.symbol,
+                                    side=OrderSide.SELL,
+                                    order_type=OrderType.STOP_MARKET,
+                                    amount=Decimal(str(exec_amount)),
+                                    price=None,
+                                    params={
+                                        "stopPrice": quantized_stop_price,
+                                        "closePosition": True,
+                                        "clientOrderId": sl_client_id,
+                                    }
+                                )
+                                if asyncio.iscoroutine(sl_res):
+                                    sl_res = await sl_res
+                                sl_id = str(getattr(sl_res, "id", None) or getattr(sl_res, "order_id", None) or "")
+                                logger.info(f"✅ [預設止損已就緒] {ord_spec.symbol} STOP_MARKET 送單成功 id={sl_id}")
+                            except Exception as sl_err:
+                                logger.error(
+                                    f"❌ [預設止損送單失敗] {ord_spec.symbol} STOP_MARKET: {sl_err}，"
+                                    "將由盤中動態止損守護程序補位"
+                                )
                     except Exception as fe:
                         logger.warning(f"寫入成交紀錄至 trade_fills 失敗（記帳降級，已計入健康度）: {fe}")
 
@@ -969,8 +1107,29 @@ class PortfolioRebalancer:
             if hasattr(res, "fee") and isinstance(res.fee, dict):
                 fee_cost = float(res.fee.get("cost", 0.0) or 0.0)
         except Exception as ex:
-            logger.error(f"❌ [盤中止損下單失敗] {clean_sym}: {ex}，保留籃子 active")
-            return {"status": "failed", "symbol": clean_sym, "error": str(ex)}
+            handled = False
+            # 若收到 -2022 (ReduceOnly 被拒)，代表交易所部位已被平倉（極可能是預掛的 STOP_MARKET 已在交易所成交）
+            if ("-2022" in str(ex) or "reduceonly" in str(ex).lower()) and exchange_adapter:
+                try:
+                    from core.adapters.exchanges.models import OrderStatus
+                    sl_client_id = f"cfp_sl_{clean_sym}"
+                    sl_res = exchange_adapter.get_order(sl_client_id, clean_sym)
+                    sl_order = (await sl_res) if asyncio.iscoroutine(sl_res) else sl_res
+                    if sl_order and getattr(sl_order, "status", None) == OrderStatus.FILLED:
+                        exec_price = float(getattr(sl_order, "average", None) or getattr(sl_order, "price", None) or current_price)
+                        exec_amount = float(getattr(sl_order, "filled", None) or qty_to_close)
+                        exec_order_id = str(getattr(sl_order, "id", None) or "")
+                        handled = True
+                        logger.info(
+                            f"🎯 [盤中止損反查確認] {clean_sym} 預掛 STOP_MARKET 已在交易所成交平倉 "
+                            f"(id={exec_order_id}, price={exec_price}, qty={exec_amount})，繼續完成記帳結算"
+                        )
+                except Exception as chk_ex:
+                    logger.debug(f"反查預掛止損條件單異常: {chk_ex}")
+
+            if not handled:
+                logger.error(f"❌ [盤中止損下單失敗] {clean_sym}: {ex}，保留籃子 active")
+                return {"status": "failed", "symbol": clean_sym, "error": str(ex)}
 
         # 寫入 Canonical Ledger 結算籃子均價部位 (均價法自動處理 closed 狀態與 realized_pnl)
         realized_pnl = 0.0
@@ -1042,4 +1201,7 @@ class PortfolioRebalancer:
             "realized_pnl": realized_pnl,
             "dry_run": False
         }
+
+    # 兼容 pipeline 別名
+    rebalance_pipeline = execute_rebalance
 
