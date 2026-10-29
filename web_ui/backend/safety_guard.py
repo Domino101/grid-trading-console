@@ -407,6 +407,11 @@ class WriteRateLimiter:
                 return int(os.getenv("WRITE_RATE_LIMIT_DASHBOARD", "10"))
             except ValueError:
                 return 10
+        if isinstance(source, str) and (source.startswith("tv_bridge") or source.startswith("tv-agent")):
+            try:
+                return int(os.getenv("WRITE_RATE_LIMIT_TV_BRIDGE", "5"))
+            except ValueError:
+                return 5
         try:
             return int(os.getenv("WRITE_RATE_LIMIT_HERMES", "3"))
         except ValueError:
